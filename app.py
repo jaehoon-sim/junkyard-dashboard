@@ -10,8 +10,14 @@ import os
 # ---------------------------------------------------------
 # 🔧 [설정] 네이버 검색 API 키
 # ---------------------------------------------------------
-NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
-NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
+try:
+    # 배포 환경 (Streamlit Cloud Secrets)
+    NAVER_CLIENT_ID = st.secrets["NAVER_CLIENT_ID"]
+    NAVER_CLIENT_SECRET = st.secrets["NAVER_CLIENT_SECRET"]
+except:
+    # 로컬 환경 (테스트용) - 여기에 직접 키를 입력해도 됩니다.
+    NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
+    NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
 
 DB_NAME = 'junkyard.db'
 
@@ -136,21 +142,37 @@ def save_uploaded_file(uploaded_file):
         else: 
             engine = 'xlrd' if uploaded_file.name.endswith('.xls') else 'openpyxl'
             df = pd.read_excel(uploaded_file, engine=engine)
+        
+        # 헤더 위치 자동 보정
         if '차대번호' not in df.columns:
             if uploaded_file.name.endswith('.csv'): uploaded_file.seek(0); df = pd.read_csv(uploaded_file, header=2)
             else: engine = 'xlrd' if uploaded_file.name.endswith('.xls') else 'openpyxl'; df = pd.read_excel(uploaded_file, header=2, engine=engine)
+        
         df.columns = [str(c).strip() for c in df.columns]
         required = ['등록일자', '차량번호', '차대번호', '제조사', '차량명', '회원사', '원동기형식']
         if not all(col in df.columns for col in required): return 0, 0
+
         conn = init_db()
         c = conn.cursor()
         new_cnt, dup_cnt = 0, 0
+        
         for _, row in df.iterrows():
             vin = str(row['차대번호']).strip()
+            
+            # [중요] 연식 데이터 정제 (숫자가 아닌 값이 들어오면 0.0으로 처리)
+            try:
+                # 문자열에서 숫자만 추출하거나 float으로 변환 시도
+                raw_year = str(row['연식'])
+                # '2015.0' -> 2015.0, '2015' -> 2015.0
+                year = float(re.findall(r"[\d\.]+", raw_year)[0]) if re.findall(r"[\d\.]+", raw_year) else 0.0
+            except:
+                year = 0.0
+
             c.execute('''INSERT OR IGNORE INTO vehicle_data (vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', 
-                      (vin, str(row['등록일자']), str(row['차량번호']), str(row['제조사']), str(row['차량명']), row['연식'], str(row['회원사']), str(row['원동기형식'])))
+                      (vin, str(row['등록일자']), str(row['차량번호']), str(row['제조사']), str(row['차량명']), year, str(row['회원사']), str(row['원동기형식'])))
             if c.rowcount > 0: new_cnt += 1
             else: dup_cnt += 1
+            
         conn.commit()
         if new_cnt > 0:
             with st.spinner("📍 위치 정보 업데이트 중..."): sync_junkyard_info(conn)
@@ -176,6 +198,10 @@ conn = init_db()
 df_all_source = pd.read_sql("SELECT v.*, j.region, j.lat, j.lon, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name", conn)
 conn.close()
 
+# [중요] DB에서 가져온 연식 데이터도 숫자로 확실하게 변환
+if not df_all_source.empty:
+    df_all_source['model_year'] = pd.to_numeric(df_all_source['model_year'], errors='coerce')
+
 # 2. 사이드바 구성
 with st.sidebar:
     st.title("🛠️ 컨트롤 패널")
@@ -200,29 +226,34 @@ with st.sidebar:
         manufacturers.insert(0, "전체")
         selected_manufacturer = st.selectbox("제조사(브랜드)", manufacturers)
 
-        # 2. 연식 선택 (1990 ~ 현재 연도)
-        max_data_year = int(df_all_source['model_year'].max()) if not df_all_source['model_year'].isnull().all() else 2025
+        # 2. 연식 선택 (오류 수정됨: 숫자만 있는 데이터로 범위 산정)
+        valid_years = df_all_source['model_year'].dropna()
+        if not valid_years.empty:
+            max_data_year = int(valid_years.max())
+        else:
+            max_data_year = 2025
+            
         current_year = datetime.datetime.now().year
         end_range = max(max_data_year, current_year)
+        
+        # 1990년부터 시작하는 리스트 생성
         year_options = list(range(1990, end_range + 2))
         
         c1, c2 = st.columns(2)
         with c1:
+            # 기본값 2000년
             default_start = 2000 if 2000 in year_options else year_options[0]
             start_year = st.selectbox("시작 연식", year_options, index=year_options.index(default_start))
         with c2:
             filtered_end_options = [y for y in year_options if y >= start_year]
             end_year = st.selectbox("종료 연식", filtered_end_options, index=len(filtered_end_options)-1)
         
-        # 3. 차종 선택 (제조사 & 연식 필터링 적용)
-        # 필터링 로직 (목록 생성을 위한 임시 DF)
+        # 3. 차종 선택
         df_filter_temp = df_all_source.copy()
         
-        # 제조사 필터링
         if selected_manufacturer != "전체":
             df_filter_temp = df_filter_temp[df_filter_temp['manufacturer'] == selected_manufacturer]
             
-        # 연식 필터링
         df_filter_temp = df_filter_temp[
             (df_filter_temp['model_year'] >= start_year) & 
             (df_filter_temp['model_year'] <= end_year)
@@ -240,17 +271,13 @@ with st.sidebar:
         
         # 4. 적용 버튼
         if st.button("✅ 검색 적용", type="primary", use_container_width=True):
-            # 실제 필터링 적용하여 view_data 업데이트
             df_result = df_all_source.copy()
             
-            # 1) 제조사
             if selected_manufacturer != "전체":
                 df_result = df_result[df_result['manufacturer'] == selected_manufacturer]
             
-            # 2) 연식
             df_result = df_result[(df_result['model_year'] >= start_year) & (df_result['model_year'] <= end_year)]
             
-            # 3) 모델 (선택 시에만)
             if selected_models:
                 df_result = df_result[df_result['model_name'].isin(selected_models)]
             
@@ -331,7 +358,7 @@ if not df_view.empty:
 
     st.divider()
 
-    # 하단 데이터 (검색 모드/전체 모드 분기)
+    # 하단 데이터
     if st.session_state.get('is_filtered'):
         st.subheader("📋 상세 차량 리스트")
         display_cols = ['reg_date', 'model_name', 'model_year', 'engine_code', 'junkyard', 'address', 'vin']

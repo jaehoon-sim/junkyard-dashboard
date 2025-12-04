@@ -179,7 +179,8 @@ def save_uploaded_file(uploaded_file):
             if c.rowcount > 0: new_cnt += 1
             else: dup_cnt += 1
         conn.commit()
-        # 여기서 sync_junkyard_info를 호출하지 않고 나중에 한 번만 호출하도록 함
+        if new_cnt > 0:
+            with st.spinner("📍 위치 정보 업데이트 중..."): sync_junkyard_info(conn)
         conn.close()
         return new_cnt, dup_cnt
     except: return 0, 0
@@ -235,78 +236,82 @@ try:
                 safe_rerun()
         
         st.divider()
-        
-        # 📂 [수정됨] 멀티 파일 업로드
         with st.expander("📂 데이터 업로드"):
-            up_files = st.file_uploader("파일 선택 (여러 개 가능)", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
-            
-            if up_files and st.button("업로드 실행"):
+            up_files = st.file_uploader("파일 선택", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
+            if up_files and st.button("업로드"):
                 if st.session_state.logged_in:
-                    total_new = 0
-                    total_dup = 0
-                    progress_bar = st.progress(0)
-                    
-                    for idx, f in enumerate(up_files):
+                    total_n, total_d = 0, 0
+                    for f in up_files:
                         n, d = save_uploaded_file(f)
-                        total_new += n
-                        total_dup += d
-                        progress_bar.progress((idx + 1) / len(up_files))
-                    
-                    progress_bar.empty()
-                    
-                    # 모든 파일 저장 후 위치 정보 일괄 업데이트
-                    if total_new > 0:
-                        conn = init_db()
-                        with st.spinner("📍 위치 정보 일괄 업데이트 중..."):
-                            sync_cnt = sync_junkyard_info(conn)
-                        conn.close()
-                        if sync_cnt > 0: st.toast(f"{sync_cnt}개 위치 정보 갱신")
-
-                    st.success(f"총 {len(up_files)}개 파일 처리 완료 (신규: {total_new}건)")
+                        total_n += n
+                        total_d += d
+                    st.success(f"총 신규: {total_n}건")
                     load_all_data.clear()
                     st.session_state['view_data'] = load_all_data()
                     safe_rerun()
                 else: st.warning("권한 없음")
 
         st.divider()
-        st.subheader("🔍 차량 찾기")
+        
+        # 🔍 [기능추가] 탭으로 구분된 검색
+        search_tabs = st.tabs(["🚙 차량 검색", "🔧 엔진 검색"])
+        
+        with search_tabs[0]:
+            # 1. 차량 모델 검색 (기존)
+            if not df_all_source.empty:
+                makers = sorted(df_all_source['manufacturer'].dropna().unique().tolist())
+                makers.insert(0, "전체")
+                sel_maker = st.selectbox("제조사(브랜드)", makers, key="maker_sel")
+
+                valid_years = df_all_source['model_year'][df_all_source['model_year'] > 0]
+                max_y = int(valid_years.max()) if not valid_years.empty else 2025
+                end_range = max(max_y, datetime.datetime.now().year)
+                year_opts = list(range(1990, end_range + 2))
+                
+                c1, c2 = st.columns(2)
+                with c1: 
+                    start_idx = year_opts.index(2000) if 2000 in year_opts else 0
+                    sel_start_y = st.selectbox("시작 연식", year_opts, index=start_idx, key="start_y")
+                with c2: 
+                    end_opts = [y for y in year_opts if y >= sel_start_y]
+                    sel_end_y = st.selectbox("종료 연식", end_opts, index=len(end_opts)-1, key="end_y")
+                    
+                df_temp = df_all_source.copy()
+                if sel_maker != "전체":
+                    df_temp = df_temp[df_temp['manufacturer'] == sel_maker]
+                df_temp = df_temp[(df_temp['model_year'] >= sel_start_y) & (df_temp['model_year'] <= sel_end_y)]
+                
+                avail_models = sorted(df_temp['model_name'].astype(str).unique().tolist())
+                sel_models = st.multiselect(f"모델 선택 ({len(avail_models)}개)", avail_models, key="model_sel")
+                
+                st.markdown("")
+                if st.button("✅ 차량 검색 적용", type="primary", use_container_width=True):
+                    final_df = df_temp.copy()
+                    if sel_models:
+                        final_df = final_df[final_df['model_name'].astype(str).isin(sel_models)]
+                    
+                    st.session_state['view_data'] = final_df.reset_index(drop=True)
+                    st.session_state['is_filtered'] = True
+                    safe_rerun()
+
+        with search_tabs[1]:
+            # 2. [신규] 엔진 코드 검색
+            if not df_all_source.empty:
+                st.caption("수출용 엔진코드(예: D4CB, J3)를 선택하세요.")
+                all_engines = sorted(df_all_source['engine_code'].dropna().unique().tolist())
+                sel_engines = st.multiselect("엔진코드 선택 (다중 가능)", all_engines, key="eng_sel")
+                
+                st.markdown("")
+                if st.button("🔧 엔진 검색 적용", type="primary", use_container_width=True):
+                    engine_df = df_all_source.copy()
+                    if sel_engines:
+                        engine_df = engine_df[engine_df['engine_code'].isin(sel_engines)]
+                    
+                    st.session_state['view_data'] = engine_df.reset_index(drop=True)
+                    st.session_state['is_filtered'] = True
+                    safe_rerun()
         
         if not df_all_source.empty:
-            makers = sorted(df_all_source['manufacturer'].unique().tolist())
-            makers.insert(0, "전체")
-            sel_maker = st.selectbox("제조사(브랜드)", makers)
-
-            valid_years = df_all_source['model_year'][df_all_source['model_year'] > 0]
-            max_y = int(valid_years.max()) if not valid_years.empty else 2025
-            end_range = max(max_y, datetime.datetime.now().year)
-            year_opts = list(range(1990, end_range + 2))
-            
-            c1, c2 = st.columns(2)
-            with c1: 
-                start_idx = year_opts.index(2000) if 2000 in year_opts else 0
-                sel_start_y = st.selectbox("시작 연식", year_opts, index=start_idx)
-            with c2: 
-                end_opts = [y for y in year_opts if y >= sel_start_y]
-                sel_end_y = st.selectbox("종료 연식", end_opts, index=len(end_opts)-1)
-                
-            df_temp = df_all_source.copy()
-            if sel_maker != "전체":
-                df_temp = df_temp[df_temp['manufacturer'] == sel_maker]
-            df_temp = df_temp[(df_temp['model_year'] >= sel_start_y) & (df_temp['model_year'] <= sel_end_y)]
-            
-            avail_models = sorted(df_temp['model_name'].astype(str).unique().tolist())
-            sel_models = st.multiselect(f"모델 선택 ({len(avail_models)}개)", avail_models)
-            
-            st.markdown("")
-            if st.button("✅ 검색 결과 적용", type="primary", use_container_width=True):
-                final_df = df_temp.copy()
-                if sel_models:
-                    final_df = final_df[final_df['model_name'].astype(str).isin(sel_models)]
-                
-                st.session_state['view_data'] = final_df.reset_index(drop=True)
-                st.session_state['is_filtered'] = True
-                safe_rerun()
-
             if st.button("🔄 전체 목록 보기", use_container_width=True):
                 st.session_state['view_data'] = df_all_source
                 st.session_state['is_filtered'] = False
@@ -381,8 +386,9 @@ try:
                 st.warning("🔒 지도는 관리자(회원) 전용 기능입니다.")
 
         with col2:
-            st.subheader("🏭 보유량 TOP")
+            st.subheader("🏭 폐차장별 보유량")
             if 'junkyard' in df_view.columns:
+                # [핵심] 엔진 검색 시 여기서 폐차장별 수량이 자동으로 카운트됨
                 top_yards = df_view['junkyard'].value_counts().head(15).reset_index()
                 top_yards.columns = ['폐차장', '수량']
                 st.dataframe(top_yards, use_container_width=True, hide_index=True, height=400)

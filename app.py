@@ -9,26 +9,16 @@ import os
 import traceback
 
 # ---------------------------------------------------------
-# 🛠️ [유틸] 안전한 Rerun 처리
-# ---------------------------------------------------------
-def safe_rerun():
-    try:
-        st.rerun()
-    except AttributeError:
-        st.experimental_rerun()
-
-# ---------------------------------------------------------
-# 🔐 [보안] 관리자 계정
-# ---------------------------------------------------------
-ADMIN_CREDENTIALS = {"admin": "1234"}
-
-# ---------------------------------------------------------
-# 🔧 [설정] 네이버 검색 API 키
+# 🔐 [설정] 관리자 계정 및 API 키 (Secrets 사용)
 # ---------------------------------------------------------
 try:
+    # Streamlit Cloud 배포 환경
+    ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
     NAVER_CLIENT_ID = st.secrets["NAVER_CLIENT_ID"]
     NAVER_CLIENT_SECRET = st.secrets["NAVER_CLIENT_SECRET"]
 except:
+    # 로컬 테스트용 Fallback (secrets.toml이 없을 때)
+    ADMIN_CREDENTIALS = {"admin": "1234"}
     NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
     NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
 
@@ -185,6 +175,9 @@ def save_uploaded_file(uploaded_file):
         return new_cnt, dup_cnt
     except: return 0, 0
 
+# ---------------------------------------------------------
+# [성능최적화] 데이터 로드 캐싱
+# ---------------------------------------------------------
 @st.cache_data(ttl=300)
 def load_all_data():
     try:
@@ -201,7 +194,7 @@ def load_all_data():
     except Exception: return pd.DataFrame()
 
 # ---------------------------------------------------------
-# 메인 어플리케이션
+# 메인 어플리케이션 로직
 # ---------------------------------------------------------
 try:
     st.set_page_config(page_title="폐차 관제 시스템 Pro", layout="wide")
@@ -225,13 +218,13 @@ try:
                     if uid in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[uid] == upw:
                         st.session_state.logged_in = True
                         st.success("성공")
-                        safe_rerun()
+                        st.rerun()
                     else: st.error("실패")
         else:
             st.success("👑 관리자 접속")
             if st.button("로그아웃"):
                 st.session_state.logged_in = False
-                safe_rerun()
+                st.rerun()
         
         st.divider()
         with st.expander("📂 데이터 업로드"):
@@ -246,7 +239,7 @@ try:
                     st.success(f"총 신규: {total_n}건")
                     load_all_data.clear()
                     st.session_state['view_data'] = load_all_data()
-                    safe_rerun()
+                    st.rerun()
                 else: st.warning("권한 없음")
 
         st.divider()
@@ -287,7 +280,7 @@ try:
                         final_df = final_df[final_df['model_name'].astype(str).isin(sel_models)]
                     st.session_state['view_data'] = final_df.reset_index(drop=True)
                     st.session_state['is_filtered'] = True
-                    safe_rerun()
+                    st.rerun()
 
         with search_tabs[1]:
             if not df_all_source.empty:
@@ -302,13 +295,13 @@ try:
                         engine_df = engine_df[engine_df['engine_code'].isin(sel_engines)]
                     st.session_state['view_data'] = engine_df.reset_index(drop=True)
                     st.session_state['is_filtered'] = True
-                    safe_rerun()
+                    st.rerun()
         
         if not df_all_source.empty:
             if st.button("🔄 전체 목록 보기", use_container_width=True):
                 st.session_state['view_data'] = df_all_source
                 st.session_state['is_filtered'] = False
-                safe_rerun()
+                st.rerun()
 
         if st.session_state.logged_in:
             st.divider()
@@ -322,7 +315,7 @@ try:
                     load_all_data.clear()
                     st.session_state['view_data'] = pd.DataFrame()
                     st.success("완료")
-                    safe_rerun()
+                    st.rerun()
                 except: pass
 
     # ------------------- 메인 컨텐츠 -------------------
@@ -364,14 +357,16 @@ try:
             if st.session_state.logged_in:
                 map_df = df_view[(df_view['lat'] != 0.0) & (df_view['lat'].notnull())]
                 if not map_df.empty:
-                    map_agg = map_df.groupby(['junkyard', 'region', 'lat', 'lon']).size().reset_index(name='count')
-                    fig = px.scatter_mapbox(
-                        map_agg, lat="lat", lon="lon", size="count", color="count",
-                        hover_name="junkyard", zoom=6.5, center={"lat": 36.5, "lon": 127.8},
-                        mapbox_style="carto-positron", color_continuous_scale="Reds", size_max=50
-                    )
-                    fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
-                    st.plotly_chart(fig, use_container_width=True)
+                    try:
+                        map_agg = map_df.groupby(['junkyard', 'region', 'lat', 'lon']).size().reset_index(name='count')
+                        fig = px.scatter_mapbox(
+                            map_agg, lat="lat", lon="lon", size="count", color="count",
+                            hover_name="junkyard", zoom=6.5, center={"lat": 36.5, "lon": 127.8},
+                            mapbox_style="carto-positron", color_continuous_scale="Reds", size_max=50
+                        )
+                        fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
+                        st.plotly_chart(fig, use_container_width=True)
+                    except Exception as e: st.error("지도 생성 중 오류")
                 else: st.warning("위치 데이터 없음")
             else:
                 st.warning("🔒 지도는 관리자(회원) 전용 기능입니다.")
@@ -422,14 +417,14 @@ try:
                         st.text_input("수신 업체", value=target_yard, disabled=True)
                         st.text_input("신청자 연락처", placeholder="010-0000-0000")
                     with c_b:
-                        st.text_input("요청 품목", value=f"검색조건: {len(df_view)}건의 관련 부품", disabled=True)
+                        # [수정] 요청 품목 직접 입력 가능하도록 변경
+                        st.text_input("요청 품목", value=f"검색된 {len(df_view)}대 차량 관련 부품 일체")
                         st.text_input("희망 단가", placeholder="예: 개당 00만원")
                     
                     msg_body = f"안녕하세요, {target_yard} 사장님.\n귀사에 보유 중인 아래 차량/엔진에 대한 견적을 요청드립니다.\n\n[요청 내역]\n- 대상 수량: {selected_row['보유수량']}대\n- 상세: (검색된 목록 기반)\n\n빠른 회신 부탁드립니다."
                     st.text_area("메시지 내용", value=msg_body, height=150)
                     
                     if st.form_submit_button("🚀 견적 요청서 발송"):
-                        # 실제 전송 로직은 없으므로 Toast로 처리
                         st.toast(f"✅ {target_yard} 앞으로 견적 요청이 발송되었습니다!", icon="📨")
 
             st.divider()

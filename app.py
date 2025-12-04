@@ -174,13 +174,12 @@ def save_uploaded_file(uploaded_file):
 # ---------------------------------------------------------
 # [성능최적화] 데이터 로드 캐싱 함수
 # ---------------------------------------------------------
-@st.cache_data(ttl=300) # 5분 캐시
+@st.cache_data(ttl=300)
 def load_all_data():
     conn = init_db()
     query = "SELECT v.*, j.region, j.lat, j.lon, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name"
     df = pd.read_sql(query, conn)
     conn.close()
-    # 연식 숫자 변환
     if not df.empty:
         df['model_year'] = pd.to_numeric(df['model_year'], errors='coerce').fillna(0)
     return df
@@ -192,10 +191,12 @@ st.set_page_config(page_title="폐차 관제 시스템 Pro", layout="wide")
 
 # 0. 세션 상태 초기화
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
-if 'filter_result' not in st.session_state: st.session_state.filter_result = None
+if 'view_data' not in st.session_state: 
+    st.session_state['view_data'] = load_all_data()
+    st.session_state['is_filtered'] = False
 
-# 1. 데이터 로드 (캐시 사용)
-df_all = load_all_data()
+# 1. 전체 데이터 로드 (캐시 활용)
+df_all_source = load_all_data()
 
 # 2. 사이드바
 with st.sidebar:
@@ -228,64 +229,94 @@ with st.sidebar:
                 n, d = save_uploaded_file(up_file)
                 st.success(f"신규: {n}건")
                 load_all_data.clear() # 캐시 초기화
+                st.session_state['view_data'] = load_all_data() # 뷰 갱신
                 st.rerun()
             else: st.warning("관리자만 가능합니다.")
 
     st.divider()
     
-    # 🔍 [수정됨] 차량 검색 폼 (깜빡임 방지)
-    st.subheader("🔍 차량 검색")
+    # 🔍 검색 필터 (동적 반영 + 결과 적용 버튼)
+    st.subheader("🔍 차량 찾기")
     
-    if not df_all.empty:
-        # Form 사용으로 리로드 방지
-        with st.form("search_form"):
-            # 1. 제조사
-            makers = sorted(df_all['manufacturer'].dropna().unique().tolist())
-            makers.insert(0, "전체")
-            sel_maker = st.selectbox("제조사(브랜드)", makers)
-            
-            # 2. 연식 (1990 ~ 2025)
-            year_opts = list(range(1990, 2026))
-            c1, c2 = st.columns(2)
-            with c1: sel_start_y = st.selectbox("시작 연식", year_opts, index=year_opts.index(2000))
-            with c2: sel_end_y = st.selectbox("종료 연식", year_opts, index=len(year_opts)-1)
-            
-            # 3. 모델명 (폼 내부라 동적 필터링 불가 -> 전체 모델 중 선택/검색)
-            # 사용 편의를 위해 가장 많은 모델 순으로 정렬
-            all_models = df_all['model_name'].value_counts().index.tolist()
-            sel_models = st.multiselect("모델명 (전체 목록 검색)", all_models)
-            
-            # 4. 적용 버튼
-            submitted = st.form_submit_button("🔍 검색 적용", type="primary")
-            
-            if submitted:
-                # 필터링 로직
-                temp_df = df_all.copy()
-                if sel_maker != "전체":
-                    temp_df = temp_df[temp_df['manufacturer'] == sel_maker]
-                
-                temp_df = temp_df[
-                    (temp_df['model_year'] >= sel_start_y) & 
-                    (temp_df['model_year'] <= sel_end_y)
-                ]
-                
-                if sel_models:
-                    temp_df = temp_df[temp_df['model_name'].isin(sel_models)]
-                
-                st.session_state.filter_result = temp_df
+    if not df_all_source.empty:
+        # A. 필터 값 선택 (여기서 값을 바꾸면 앱이 리로드되지만 메인 화면은 안바뀜)
+        
+        # 1. 제조사(브랜드) 선택
+        manufacturers = sorted(df_all_source['manufacturer'].dropna().unique())
+        manufacturers.insert(0, "전체")
+        # selectbox 변경 시 st.rerun() 자동 호출 -> 아래 로직 재실행 -> 모델 목록 갱신됨
+        sel_maker = st.selectbox("제조사(브랜드)", manufacturers)
 
-        if st.button("🔄 전체 목록 보기"):
-            st.session_state.filter_result = None
+        # 2. 연식 선택
+        valid_years = df_all_source['model_year'].dropna()
+        max_y = int(valid_years.max()) if not valid_years.empty else 2025
+        end_range = max(max_y, datetime.datetime.now().year)
+        year_opts = list(range(1990, end_range + 2))
+        
+        c1, c2 = st.columns(2)
+        with c1: sel_start_y = st.selectbox("시작 연식", year_opts, index=year_opts.index(2000))
+        with c2: 
+            # 시작 연식보다 큰 연도만 표시
+            end_opts = [y for y in year_opts if y >= sel_start_y]
+            sel_end_y = st.selectbox("종료 연식", end_opts, index=len(end_opts)-1)
+            
+        # 3. 동적 모델 목록 생성 (위에서 선택한 브랜드/연식 기준)
+        # 필터링용 임시 데이터 생성
+        df_temp = df_all_source.copy()
+        if sel_maker != "전체":
+            df_temp = df_temp[df_temp['manufacturer'] == sel_maker]
+        df_temp = df_temp[(df_temp['model_year'] >= sel_start_y) & (df_temp['model_year'] <= sel_end_y)]
+        
+        avail_models = sorted(df_temp['model_name'].dropna().unique())
+        
+        # 4. 모델 선택
+        sel_models = st.multiselect(f"모델 선택 ({len(avail_models)}개)", avail_models)
+        
+        st.markdown("")
+
+        # B. 검색 적용 버튼 (이걸 눌러야 메인 화면(view_data)이 바뀜)
+        if st.button("✅ 검색 결과 적용", type="primary", use_container_width=True):
+            # 최종 필터링 실행
+            final_df = df_temp.copy() # 이미 브랜드, 연식은 걸러져 있음
+            if sel_models:
+                final_df = final_df[final_df['model_name'].isin(sel_models)]
+            
+            st.session_state['view_data'] = final_df
+            st.session_state['is_filtered'] = True
             st.rerun()
+
+        if st.button("🔄 전체 목록 보기", use_container_width=True):
+            st.session_state['view_data'] = df_all_source
+            st.session_state['is_filtered'] = False
+            st.rerun()
+    else:
+        st.warning("데이터가 없습니다.")
+
+    st.divider()
+    if st.button("🗑️ DB 초기화"):
+        if st.session_state.logged_in:
+            try:
+                conn = init_db()
+                conn.execute("DROP TABLE vehicle_data")
+                conn.execute("DROP TABLE junkyard_info")
+                conn.commit()
+                conn.close()
+                load_all_data.clear()
+                st.session_state['view_data'] = pd.DataFrame()
+                st.success("초기화 완료")
+                st.rerun()
+            except: pass
+        else:
+            st.error("관리자 권한 필요")
 
 # 3. 메인 대시보드
 st.title("🚗 전국 폐차장 실시간 재고 현황")
 
-# 화면에 표시할 데이터 결정 (검색결과 vs 전체)
-df_view = st.session_state.filter_result if st.session_state.filter_result is not None else df_all
-is_filtered = st.session_state.filter_result is not None
+# 세션에 저장된 데이터를 가져와서 보여줌 (버튼 누르기 전엔 안 바뀜)
+df_view = st.session_state['view_data']
+is_filtered = st.session_state['is_filtered']
 
-# 🔐 데이터 마스킹 (비로그인 시)
+# 🔐 데이터 마스킹
 if not st.session_state.logged_in and not df_view.empty:
     df_view = df_view.copy()
     df_view['junkyard'] = "🔒 회원전용"
@@ -302,7 +333,7 @@ if not df_view.empty:
     # KPI
     if not is_filtered:
         today = datetime.datetime.now().strftime("%Y-%m-%d")
-        today_cnt = len(df_all[df_all['reg_date'].astype(str).str.contains(today)])
+        today_cnt = len(df_all_source[df_all_source['reg_date'].astype(str).str.contains(today)])
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("총 재고", f"{len(df_view):,}대")
         c2.metric("오늘 입고", f"{today_cnt}대")
@@ -330,7 +361,6 @@ if not df_view.empty:
             else: st.warning("위치 데이터 없음")
         else:
             st.warning("🔒 지도는 관리자(회원) 전용 기능입니다.")
-            st.info("로그인 후 전국 폐차장 상세 위치를 확인하세요.")
 
     with col2:
         st.subheader("🏭 보유량 TOP")
@@ -340,7 +370,7 @@ if not df_view.empty:
 
     st.divider()
     
-    # 리스트 (검색시) 또는 차트 (전체시)
+    # 리스트/차트
     if is_filtered:
         st.subheader("📋 차량 목록")
         cols = ['reg_date', 'manufacturer', 'model_name', 'model_year', 'engine_code', 'junkyard']

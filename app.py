@@ -239,12 +239,12 @@ with st.sidebar:
     st.subheader("🔍 차량 찾기")
     
     if not df_all_source.empty:
-        # A. 필터 값 선택 (여기서 값을 바꾸면 앱이 리로드되지만 메인 화면은 안바뀜)
+        # A. 필터 값 선택
         
         # 1. 제조사(브랜드) 선택
         manufacturers = sorted(df_all_source['manufacturer'].dropna().unique())
         manufacturers.insert(0, "전체")
-        # selectbox 변경 시 st.rerun() 자동 호출 -> 아래 로직 재실행 -> 모델 목록 갱신됨
+        # 변경 시 즉시 리로드되어 모델 목록 필터링됨
         sel_maker = st.selectbox("제조사(브랜드)", manufacturers)
 
         # 2. 연식 선택
@@ -256,12 +256,10 @@ with st.sidebar:
         c1, c2 = st.columns(2)
         with c1: sel_start_y = st.selectbox("시작 연식", year_opts, index=year_opts.index(2000))
         with c2: 
-            # 시작 연식보다 큰 연도만 표시
             end_opts = [y for y in year_opts if y >= sel_start_y]
             sel_end_y = st.selectbox("종료 연식", end_opts, index=len(end_opts)-1)
             
-        # 3. 동적 모델 목록 생성 (위에서 선택한 브랜드/연식 기준)
-        # 필터링용 임시 데이터 생성
+        # 3. 동적 모델 목록 생성
         df_temp = df_all_source.copy()
         if sel_maker != "전체":
             df_temp = df_temp[df_temp['manufacturer'] == sel_maker]
@@ -274,10 +272,9 @@ with st.sidebar:
         
         st.markdown("")
 
-        # B. 검색 적용 버튼 (이걸 눌러야 메인 화면(view_data)이 바뀜)
+        # B. 검색 적용 버튼
         if st.button("✅ 검색 결과 적용", type="primary", use_container_width=True):
-            # 최종 필터링 실행
-            final_df = df_temp.copy() # 이미 브랜드, 연식은 걸러져 있음
+            final_df = df_temp.copy() 
             if sel_models:
                 final_df = final_df[final_df['model_name'].isin(sel_models)]
             
@@ -289,12 +286,14 @@ with st.sidebar:
             st.session_state['view_data'] = df_all_source
             st.session_state['is_filtered'] = False
             st.rerun()
+            
     else:
         st.warning("데이터가 없습니다.")
 
-    st.divider()
-    if st.button("🗑️ DB 초기화"):
-        if st.session_state.logged_in:
+    # [수정] 관리자일 때만 DB 초기화 버튼 표시
+    if st.session_state.logged_in:
+        st.divider()
+        if st.button("🗑️ DB 초기화"):
             try:
                 conn = init_db()
                 conn.execute("DROP TABLE vehicle_data")
@@ -306,13 +305,10 @@ with st.sidebar:
                 st.success("초기화 완료")
                 st.rerun()
             except: pass
-        else:
-            st.error("관리자 권한 필요")
 
 # 3. 메인 대시보드
 st.title("🚗 전국 폐차장 실시간 재고 현황")
 
-# 세션에 저장된 데이터를 가져와서 보여줌 (버튼 누르기 전엔 안 바뀜)
 df_view = st.session_state['view_data']
 is_filtered = st.session_state['is_filtered']
 

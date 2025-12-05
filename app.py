@@ -76,10 +76,11 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS vehicle_data (vin TEXT PRIMARY KEY, reg_date TEXT, car_no TEXT, manufacturer TEXT, model_name TEXT, model_year REAL, junkyard TEXT, engine_code TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (name TEXT PRIMARY KEY, address TEXT, region TEXT, lat REAL, lon REAL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    # 성능 향상을 위한 인덱스 생성
+    # 성능 향상을 위한 인덱스
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data(model_name)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_year ON vehicle_data(model_year)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_engine ON vehicle_data(engine_code)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_yard ON vehicle_data(junkyard)")
     conn.commit()
     return conn
 
@@ -91,7 +92,8 @@ def clean_junkyard_name(name):
 def search_place_naver(query):
     cleaned_name = clean_junkyard_name(query)
     search_query = cleaned_name
-    if '폐차' not in cleaned_name and len(cleaned_name) < 5: search_query += " 폐차장"
+    if '폐차' not in cleaned_name and len(cleaned_name) < 5:
+        search_query += " 폐차장"
     
     url = "https://openapi.naver.com/v1/search/local.json"
     headers = {"X-Naver-Client-Id": NAVER_CLIENT_ID, "X-Naver-Client-Secret": NAVER_CLIENT_SECRET}
@@ -165,13 +167,13 @@ def save_uploaded_file(uploaded_file):
         else: 
             try: df = pd.read_excel(uploaded_file, engine='openpyxl')
             except: df = pd.read_excel(uploaded_file, engine='xlrd')
-        
+
         if '차대번호' not in df.columns:
             if uploaded_file.name.endswith('.csv'): uploaded_file.seek(0); df = pd.read_csv(uploaded_file, header=2)
             else: 
                 try: df = pd.read_excel(uploaded_file, header=2, engine='openpyxl')
                 except: df = pd.read_excel(uploaded_file, header=2, engine='xlrd')
-
+        
         df.columns = [str(c).strip() for c in df.columns]
         required = ['등록일자', '차량번호', '차대번호', '제조사', '차량명', '회원사', '원동기형식']
         if not all(col in df.columns for col in required): return 0, 0
@@ -180,7 +182,7 @@ def save_uploaded_file(uploaded_file):
         c = conn.cursor()
         new_cnt, dup_cnt = 0, 0
         
-        # Bulk Processing for Speed
+        # Bulk Insert 로직 (속도 향상)
         df_db = pd.DataFrame()
         df_db['vin'] = df['차대번호'].astype(str).str.strip()
         df_db['reg_date'] = df['등록일자'].astype(str)
@@ -199,15 +201,12 @@ def save_uploaded_file(uploaded_file):
         df_db.to_sql('temp_vehicles', conn, if_exists='append', index=False)
         c.execute("""INSERT OR IGNORE INTO vehicle_data (vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code)
                      SELECT vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code FROM temp_vehicles""")
-        
-        new_cnt = len(df_db) # Approximate
+        new_cnt = len(df_db)
         c.execute("DROP TABLE temp_vehicles")
         conn.commit()
         
-        # Sync Location (Unique Yards Only)
         unique_yards = df_db['junkyard'].unique().tolist()
         sync_junkyard_info(conn, yard_names=unique_yards)
-        
         conn.close()
         return new_cnt, 0
     except: return 0, 0
@@ -238,12 +237,13 @@ try:
         st.session_state['view_data'] = load_all_data()
         st.session_state['is_filtered'] = False
 
-    # 전체 데이터 로드 (캐시)
     df_all_source = load_all_data()
 
+    # 사이드바
     with st.sidebar:
         st.title("🛠️ 컨트롤 패널")
         
+        # 로그인
         if not st.session_state.logged_in:
             with st.expander("🔐 관리자 로그인", expanded=True):
                 uid = st.text_input("ID")
@@ -262,8 +262,9 @@ try:
         
         st.divider()
 
+        # 업로드
         with st.expander("📂 데이터 업로드"):
-            up_files = st.file_uploader("파일 (다중 가능)", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
+            up_files = st.file_uploader("파일 선택 (다중 가능)", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
             if up_files and st.button("업로드"):
                 if st.session_state.logged_in:
                     total_n = 0
@@ -281,73 +282,72 @@ try:
 
         st.divider()
         
+        # 검색 탭 (폼 적용으로 깜빡임 해결)
         search_tabs = st.tabs(["🚙 차량", "🔧 엔진", "🏭 폐차장"])
         
         with search_tabs[0]:
             if not df_all_source.empty:
-                # 🟢 1. 제조사 선택 (즉시 반응하여 하위 목록 갱신)
-                makers = sorted(df_all_source['manufacturer'].unique().tolist())
-                makers.insert(0, "전체")
-                sel_maker = st.selectbox("제조사(브랜드)", makers, key="maker_sel")
+                with st.form("car_form"):
+                    makers = sorted(df_all_source['manufacturer'].dropna().unique().tolist())
+                    makers.insert(0, "전체")
+                    sel_maker = st.selectbox("제조사(브랜드)", makers)
 
-                # 🟢 2. 연식 선택 (즉시 반응)
-                valid_years = df_all_source['model_year'][df_all_source['model_year'] > 0]
-                max_y = int(valid_years.max()) if not valid_years.empty else 2025
-                end_range = max(max_y, datetime.datetime.now().year)
-                year_opts = list(range(1990, end_range + 2))
-                
-                c1, c2 = st.columns(2)
-                with c1: 
-                    start_idx = year_opts.index(2000) if 2000 in year_opts else 0
-                    sel_start_y = st.selectbox("시작 연식", year_opts, index=start_idx, key="sy")
-                with c2: 
-                    end_opts = [y for y in year_opts if y >= sel_start_y]
-                    sel_end_y = st.selectbox("종료 연식", end_opts, index=len(end_opts)-1, key="ey")
-                
-                # 🟢 3. 동적 차종 목록 생성 (선택된 브랜드/연식에 맞는 차만 보임)
-                df_temp = df_all_source.copy()
-                if sel_maker != "전체":
-                    df_temp = df_temp[df_temp['manufacturer'] == sel_maker]
-                df_temp = df_temp[(df_temp['model_year'] >= sel_start_y) & (df_temp['model_year'] <= sel_end_y)]
-                
-                avail_models = sorted(df_temp['model_name'].astype(str).unique().tolist())
-                sel_models = st.multiselect(f"모델 ({len(avail_models)}개)", avail_models, key="ms")
-                
-                st.markdown("")
-                # 🛑 4. 적용 버튼 (이걸 눌러야 메인 대시보드가 바뀜)
-                if st.button("✅ 차량 검색 적용", type="primary", use_container_width=True):
-                    final_df = df_temp.copy()
-                    if sel_models:
-                        final_df = final_df[final_df['model_name'].astype(str).isin(sel_models)]
-                    st.session_state['view_data'] = final_df.reset_index(drop=True)
-                    st.session_state['is_filtered'] = True
-                    safe_rerun()
+                    current_year = datetime.datetime.now().year
+                    year_opts = list(range(1990, current_year + 2))
+                    
+                    c1, c2 = st.columns(2)
+                    with c1: 
+                        sel_start_y = st.selectbox("시작 연식", year_opts, index=year_opts.index(2000))
+                    with c2: 
+                        sel_end_y = st.selectbox("종료 연식", year_opts, index=len(year_opts)-1)
+                    
+                    # 폼 내부에서는 동적 필터링 불가 -> 전체 모델 리스트 제공 (가장 빈도 높은 순)
+                    # 데이터가 많을 경우를 대비해 상위 1000개 혹은 전체 정렬
+                    top_models = df_all_source['model_name'].value_counts().index.tolist()
+                    sel_models = st.multiselect(f"모델명 (전체 {len(top_models)}개)", top_models)
+                    
+                    st.markdown("")
+                    submitted = st.form_submit_button("✅ 검색 결과 적용", type="primary")
+                    
+                    if submitted:
+                        df_temp = df_all_source.copy()
+                        if sel_maker != "전체":
+                            df_temp = df_temp[df_temp['manufacturer'] == sel_maker]
+                        df_temp = df_temp[(df_temp['model_year'] >= sel_start_y) & (df_temp['model_year'] <= sel_end_y)]
+                        if sel_models:
+                            df_temp = df_temp[df_temp['model_name'].isin(sel_models)]
+                        
+                        st.session_state['view_data'] = df_temp.reset_index(drop=True)
+                        st.session_state['is_filtered'] = True
+                        safe_rerun()
 
         with search_tabs[1]:
             if not df_all_source.empty:
-                all_engines = sorted(df_all_source['engine_code'].dropna().unique().tolist())
-                sel_engines = st.multiselect("엔진코드", all_engines, key="es")
-                st.markdown("")
-                if st.button("🔧 엔진 검색 적용", type="primary", use_container_width=True):
-                    engine_df = df_all_source.copy()
-                    if sel_engines:
-                        engine_df = engine_df[engine_df['engine_code'].isin(sel_engines)]
-                    st.session_state['view_data'] = engine_df.reset_index(drop=True)
-                    st.session_state['is_filtered'] = True
-                    safe_rerun()
+                with st.form("engine_form"):
+                    all_engines = sorted(df_all_source['engine_code'].dropna().unique().tolist())
+                    sel_engines = st.multiselect("엔진코드", all_engines)
+                    st.markdown("")
+                    if st.form_submit_button("🔧 검색 결과 적용", type="primary"):
+                        engine_df = df_all_source.copy()
+                        if sel_engines:
+                            engine_df = engine_df[engine_df['engine_code'].isin(sel_engines)]
+                        st.session_state['view_data'] = engine_df.reset_index(drop=True)
+                        st.session_state['is_filtered'] = True
+                        safe_rerun()
 
         with search_tabs[2]:
             if not df_all_source.empty:
-                all_yards = sorted(df_all_source['junkyard'].dropna().unique().tolist())
-                sel_yards = st.multiselect("폐차장 이름", all_yards, key="ys")
-                st.markdown("")
-                if st.button("🏭 폐차장 검색 적용", type="primary", use_container_width=True):
-                    yard_df = df_all_source.copy()
-                    if sel_yards:
-                        yard_df = yard_df[yard_df['junkyard'].isin(sel_yards)]
-                    st.session_state['view_data'] = yard_df.reset_index(drop=True)
-                    st.session_state['is_filtered'] = True
-                    safe_rerun()
+                with st.form("yard_form"):
+                    all_yards = sorted(df_all_source['junkyard'].dropna().unique().tolist())
+                    sel_yards = st.multiselect("폐차장 이름", all_yards)
+                    st.markdown("")
+                    if st.form_submit_button("🏭 검색 결과 적용", type="primary"):
+                        yard_df = df_all_source.copy()
+                        if sel_yards:
+                            yard_df = yard_df[yard_df['junkyard'].isin(sel_yards)]
+                        st.session_state['view_data'] = yard_df.reset_index(drop=True)
+                        st.session_state['is_filtered'] = True
+                        safe_rerun()
         
         if not df_all_source.empty:
             if st.button("🔄 전체 목록 보기", use_container_width=True):
@@ -370,12 +370,13 @@ try:
                     safe_rerun()
                 except: pass
 
-    # 메인 화면
+    # ------------------- 메인 -------------------
     st.title("🚗 전국 폐차장 실시간 재고 현황")
 
     df_view = st.session_state['view_data']
     is_filtered = st.session_state['is_filtered']
 
+    # 마스킹
     if not st.session_state.logged_in and not df_view.empty:
         df_view = df_view.copy()
         df_view['junkyard'] = "🔒 회원전용"
@@ -429,7 +430,6 @@ try:
 
         st.divider()
         
-        # 월별 그래프 (막대 + 1월,2월...)
         if 'reg_date' in df_view.columns and not df_view.empty:
             st.subheader("📈 월별 입고 추이")
             monthly_data = df_view.dropna(subset=['reg_date']).copy()
@@ -438,7 +438,6 @@ try:
                 monthly_data['sort_key'] = monthly_data['reg_date'].dt.strftime('%Y-%m')
                 monthly_counts = monthly_data.groupby(['sort_key', 'month_str']).size().reset_index(name='입고량').sort_values('sort_key')
                 
-                # Bar Chart로 변경
                 fig_bar = px.bar(monthly_counts, x='month_str', y='입고량', text='입고량', color='입고량')
                 fig_bar.update_layout(xaxis_title=None, coloraxis_showscale=False)
                 st.plotly_chart(fig_bar, use_container_width=True)

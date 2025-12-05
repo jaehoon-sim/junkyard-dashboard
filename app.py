@@ -3,21 +3,38 @@ import pandas as pd
 import sqlite3
 import plotly.express as px
 import datetime
+import requests
 import re
 import os
 import traceback
+import time
 
 # ---------------------------------------------------------
-# 🔐 [보안] 관리자 계정
+# 🛠️ [설정] 페이지 및 유틸
+# ---------------------------------------------------------
+st.set_page_config(page_title="폐차 관제 시스템 Pro", layout="wide")
+
+def safe_rerun():
+    try:
+        st.rerun()
+    except AttributeError:
+        st.experimental_rerun()
+
+# ---------------------------------------------------------
+# 🔐 [보안] 관리자 계정 & API 키
 # ---------------------------------------------------------
 try:
     ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
+    NAVER_CLIENT_ID = st.secrets["NAVER_CLIENT_ID"]
+    NAVER_CLIENT_SECRET = st.secrets["NAVER_CLIENT_SECRET"]
 except:
     ADMIN_CREDENTIALS = {"admin": "1234"}
+    NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
+    NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
 
 DB_NAME = 'junkyard.db'
 
-# 📍 전국 시/군/구 단위 상세 좌표 데이터베이스 (주소 매핑용)
+# 📍 전국 시/군/구 단위 상세 좌표 데이터베이스 (Fallback용)
 CITY_COORDS = {
     '경기 수원': [37.2636, 127.0286], '경기 성남': [37.4386, 127.1378], '경기 용인': [37.2410, 127.1775],
     '경기 안양': [37.3943, 126.9568], '경기 안산': [37.3219, 126.8309], '경기 과천': [37.4292, 126.9877],
@@ -55,18 +72,6 @@ CITY_COORDS = {
     '울산': [35.5384, 129.3114], '제주': [33.4996, 126.5312]
 }
 
-# ---------------------------------------------------------
-# 🛠️ [유틸] 안전한 Rerun
-# ---------------------------------------------------------
-def safe_rerun():
-    try:
-        st.rerun()
-    except AttributeError:
-        st.experimental_rerun()
-
-# ---------------------------------------------------------
-# 1. 데이터베이스 초기화
-# ---------------------------------------------------------
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -74,7 +79,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (name TEXT PRIMARY KEY, address TEXT, region TEXT, lat REAL, lon REAL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS model_list (manufacturer TEXT, model_name TEXT, PRIMARY KEY (manufacturer, model_name))''')
     
-    # 인덱스
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data(model_name)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_engine ON vehicle_data(engine_code)")
@@ -82,22 +86,98 @@ def init_db():
     conn.commit()
     return conn
 
-def clean_name(name):
-    # (주), 공백 등 제거
-    return re.sub(r'\(주\)|주식회사|\(유\)|합자회사|유한회사|지점', '', str(name)).strip()
+# ---------------------------------------------------------
+# 2. 네이버 API & 주소 처리
+# ---------------------------------------------------------
+def clean_junkyard_name(name):
+    # 괄호 안의 내용 제거 (예: (주)성우 -> 성우)
+    cleaned = re.sub(r'\([^)]*\)', '', str(name))
+    # 특정 키워드 제거
+    cleaned = re.sub(r'주식회사|유한회사|합자회사|지점', '', cleaned)
+    return cleaned.strip()
+
+def search_place_naver(query):
+    # 1차 시도: 원본 이름 검색
+    search_queries = [query]
+    
+    # 2차 시도: 정제된 이름 + "폐차장"
+    cleaned = clean_junkyard_name(query)
+    if '폐차' not in cleaned and len(cleaned) > 1:
+        search_queries.append(f"{cleaned} 폐차장")
+        
+    # 3차 시도: 정제된 이름만
+    if len(cleaned) > 1:
+        search_queries.append(cleaned)
+
+    url = "https://openapi.naver.com/v1/search/local.json"
+    headers = {
+        "X-Naver-Client-Id": NAVER_CLIENT_ID,
+        "X-Naver-Client-Secret": NAVER_CLIENT_SECRET
+    }
+
+    for q in search_queries:
+        try:
+            params = {"query": q, "display": 1, "sort": "random"}
+            response = requests.get(url, headers=headers, params=params)
+            if response.status_code == 200:
+                items = response.json().get('items')
+                if items:
+                    address = items[0]['address']
+                    # 주소 파싱
+                    addr_parts = address.split()
+                    short_region = ""
+                    if len(addr_parts) >= 2:
+                        si_do = addr_parts[0][:2]
+                        si_gun = addr_parts[1]
+                        if si_do in ['서울', '인천', '대전', '대구', '광주', '부산', '울산', '세종', '제주']:
+                            short_region = si_do
+                        else:
+                            gun_name = si_gun.replace('시','').replace('군','').replace('구','')
+                            if len(gun_name) < 1: gun_name = si_gun
+                            
+                            # CITY_COORDS 매칭 시도
+                            temp_key = f"{si_do} {gun_name}"
+                            match_found = False
+                            for k in CITY_COORDS.keys():
+                                if temp_key in k or k in f"{si_do} {si_gun}":
+                                    short_region = k
+                                    match_found = True
+                                    break
+                            if not match_found: short_region = f"{si_do} {si_gun}"
+                    else:
+                        short_region = addr_parts[0][:2]
+
+                    # 좌표 매핑
+                    lat, lon = 0.0, 0.0
+                    if short_region in CITY_COORDS:
+                        lat, lon = CITY_COORDS[short_region]
+                    else:
+                        for k, v in CITY_COORDS.items():
+                            if k in address:
+                                short_region = k
+                                lat, lon = v
+                                break
+                    
+                    return {
+                        'address': address,
+                        'region': short_region, 
+                        'lat': lat,
+                        'lon': lon
+                    }
+        except: continue
+            
+    return None
 
 # ---------------------------------------------------------
-# 2. 파일 업로드 처리 함수 (차량 데이터 / 주소 데이터)
+# 3. 파일 처리 함수들
 # ---------------------------------------------------------
 def save_vehicle_file(uploaded_file):
-    """차량 입고 현황 파일 업로드"""
     try:
         if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file)
         else: 
             try: df = pd.read_excel(uploaded_file, engine='openpyxl')
             except: df = pd.read_excel(uploaded_file, engine='xlrd')
 
-        # 헤더 찾기
         if '차대번호' not in df.columns:
             if uploaded_file.name.endswith('.csv'): uploaded_file.seek(0); df = pd.read_csv(uploaded_file, header=2)
             else: 
@@ -110,8 +190,8 @@ def save_vehicle_file(uploaded_file):
 
         conn = init_db()
         c = conn.cursor()
+        new_cnt = 0
         
-        # 데이터프레임 생성
         df_db = pd.DataFrame()
         df_db['vin'] = df['차대번호'].astype(str).str.strip()
         df_db['reg_date'] = df['등록일자'].astype(str)
@@ -140,26 +220,29 @@ def save_vehicle_file(uploaded_file):
         for _, row in model_list_df.iterrows():
             c.execute("INSERT OR IGNORE INTO model_list (manufacturer, model_name) VALUES (?, ?)", (row['manufacturer'], row['model_name']))
         
+        # [중요] 신규 폐차장을 junkyard_info에 등록 (주소는 일단 비워둠)
+        unique_yards = df_db['junkyard'].unique().tolist()
+        for yard in unique_yards:
+            # 이미 있는지 확인하고 없으면 insert
+            c.execute("INSERT OR IGNORE INTO junkyard_info (name, address, region, lat, lon) VALUES (?, ?, ?, ?, ?)", 
+                      (yard, '검색실패', '기타', 0.0, 0.0))
+
         conn.commit()
         conn.close()
         return new_cnt, 0
     except: return 0, 0
 
 def save_address_file(uploaded_file):
-    """[신규] 폐차장 주소 DB 파일 업로드"""
     try:
         if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file)
         else: 
             try: df = pd.read_excel(uploaded_file, engine='openpyxl')
             except: df = pd.read_excel(uploaded_file, engine='xlrd')
         
-        # 컬럼명 유연하게 찾기 ('폐차장', '업체명', '회원사' 중 하나 / '주소', '소재지' 중 하나)
         name_col = next((c for c in df.columns if '폐차장' in c or '업체' in c or '회원' in c), None)
         addr_col = next((c for c in df.columns if '주소' in c or '소재' in c), None)
         
-        if not name_col or not addr_col:
-            st.error(f"필수 컬럼을 찾을 수 없습니다. (현재 컬럼: {list(df.columns)})")
-            return 0
+        if not name_col or not addr_col: return 0
 
         conn = init_db()
         c = conn.cursor()
@@ -169,59 +252,37 @@ def save_address_file(uploaded_file):
             yard_name = str(row[name_col]).strip()
             address = str(row[addr_col]).strip()
             
-            # 1. 지역명(Region) 추출 (앞 두 글자)
             addr_parts = address.split()
             region = '기타'
             if len(addr_parts) >= 2:
                 si_do = addr_parts[0][:2]
                 si_gun = addr_parts[1]
-                
                 if si_do in ['서울', '인천', '대전', '대구', '광주', '부산', '울산', '제주', '세종']:
                     region = si_do
                 else:
-                    # 경기 이천, 충남 천안 형식으로 변환
                     gun_name = si_gun.replace('시','').replace('군','').replace('구','')
                     if len(gun_name) < 1: gun_name = si_gun
-                    
-                    # 매칭 시도
                     temp_key = f"{si_do} {gun_name}"
-                    found = False
                     for k in CITY_COORDS.keys():
                         if temp_key in k or k in f"{si_do} {si_gun}":
                             region = k
-                            found = True
                             break
-                    if not found: region = f"{si_do} {si_gun}"
-            elif len(addr_parts) == 1:
-                region = addr_parts[0][:2]
-
-            # 2. 좌표 매핑 (CITY_COORDS 사용)
-            lat, lon = 0.0, 0.0
             
-            # 정확한 키 매칭 시도
+            lat, lon = 0.0, 0.0
             if region in CITY_COORDS:
                 lat, lon = CITY_COORDS[region]
             else:
-                # 부분 일치 (예: 주소에 '수원'이 있으면 경기 수원 좌표 사용)
                 for k, v in CITY_COORDS.items():
                     if k.split()[-1] in address:
-                        region = k
-                        lat, lon = v
-                        break
+                        region = k; lat, lon = v; break
             
-            # 3. DB 업데이트 (이미 있으면 덮어쓰기)
-            c.execute("""
-                INSERT OR REPLACE INTO junkyard_info (name, address, region, lat, lon) 
-                VALUES (?, ?, ?, ?, ?)
-            """, (yard_name, address, region, lat, lon))
+            c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region, lat, lon) VALUES (?, ?, ?, ?, ?)", (yard_name, address, region, lat, lon))
             update_cnt += 1
             
         conn.commit()
         conn.close()
         return update_cnt
-    except Exception as e:
-        st.error(f"주소 파일 처리 중 오류: {e}")
-        return 0
+    except: return 0
 
 # ---------------------------------------------------------
 # [캐싱] 데이터 로드
@@ -230,12 +291,7 @@ def save_address_file(uploaded_file):
 def load_all_data():
     try:
         conn = init_db()
-        # 차량 데이터와 폐차장 정보(주소)를 조인
-        query = """
-            SELECT v.*, j.region, j.lat, j.lon, j.address 
-            FROM vehicle_data v 
-            LEFT JOIN junkyard_info j ON v.junkyard = j.name
-        """
+        query = "SELECT v.*, j.region, j.lat, j.lon, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name"
         df = pd.read_sql(query, conn)
         conn.close()
         if not df.empty:
@@ -272,28 +328,33 @@ def load_yard_list():
         return df['name'].tolist()
     except: return []
 
+def get_failed_yards():
+    try:
+        conn = init_db()
+        # 주소가 '검색실패' 이거나 좌표가 0인 곳
+        df = pd.read_sql("SELECT name FROM junkyard_info WHERE address = '검색실패' OR lat = 0.0", conn)
+        conn.close()
+        return df['name'].tolist()
+    except: return []
+
 # ---------------------------------------------------------
 # 메인 로직
 # ---------------------------------------------------------
 try:
-    st.set_page_config(page_title="폐차 관제 시스템 Pro", layout="wide")
-    
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
     if 'view_data' not in st.session_state: 
         st.session_state['view_data'] = load_all_data()
         st.session_state['is_filtered'] = False
 
-    # 데이터 로드
     df_all_source = load_all_data()
     df_models = load_model_list()
     list_engines = load_engine_list()
     list_yards = load_yard_list()
+    failed_yards = get_failed_yards()
 
-    # 사이드바
     with st.sidebar:
         st.title("🛠️ 컨트롤 패널")
         
-        # 로그인
         if not st.session_state.logged_in:
             with st.expander("🔐 관리자 로그인", expanded=True):
                 uid = st.text_input("ID")
@@ -312,10 +373,9 @@ try:
         
         st.divider()
 
-        # 1. 차량 데이터 업로드
         with st.expander("📂 차량 데이터 업로드"):
-            up_files = st.file_uploader("일일 입고 파일 (다중)", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True, key="veh_up")
-            if up_files and st.button("차량 DB 업로드"):
+            up_files = st.file_uploader("차량 파일 (다중)", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True, key="v_up")
+            if up_files and st.button("차량 DB 저장"):
                 if st.session_state.logged_in:
                     total_n = 0
                     bar = st.progress(0)
@@ -324,57 +384,52 @@ try:
                         total_n += n
                         bar.progress((i+1)/len(up_files))
                     bar.empty()
-                    st.success(f"차량 {total_n}대 저장 완료")
+                    st.success(f"차량 {total_n}건 저장 완료")
                     load_all_data.clear()
                     st.session_state['view_data'] = load_all_data()
                     safe_rerun()
-                else: st.warning("관리자만 가능")
+                else: st.warning("권한 없음")
 
-        # 2. 주소 데이터 업로드 (신규 추가)
-        with st.expander("🏢 폐차장 주소 DB 업로드"):
-            addr_file = st.file_uploader("주소 엑셀 파일", type=['xlsx', 'xls', 'csv'], key="addr_up")
-            if addr_file and st.button("주소 DB 업데이트"):
+        with st.expander("🏢 주소 DB 업로드"):
+            addr_file = st.file_uploader("주소 파일", type=['xlsx', 'xls', 'csv'], key="a_up")
+            if addr_file and st.button("주소 DB 저장"):
                 if st.session_state.logged_in:
                     cnt = save_address_file(addr_file)
-                    st.success(f"폐차장 {cnt}곳 주소 업데이트 완료!")
+                    st.success(f"{cnt}곳 주소 업데이트")
                     load_all_data.clear()
                     st.session_state['view_data'] = load_all_data()
                     safe_rerun()
-                else: st.warning("관리자만 가능")
+                else: st.warning("권한 없음")
 
         st.divider()
         
-        # 검색 탭
         search_tabs = st.tabs(["🚙 차량", "🔧 엔진", "🏭 폐차장"])
         
         with search_tabs[0]:
             if not df_models.empty:
                 makers = sorted(df_models['manufacturer'].unique().tolist())
                 makers.insert(0, "전체")
-                sel_maker = st.selectbox("제조사", makers, key="maker_sel")
-
+                sel_maker = st.selectbox("제조사", makers, key="msel")
+                
                 current_year = datetime.datetime.now().year
                 year_opts = list(range(1990, current_year + 2))
                 c1, c2 = st.columns(2)
-                with c1: sel_start_y = st.selectbox("시작", year_opts, index=year_opts.index(2000), key="sy")
-                with c2: 
-                    end_opts = [y for y in year_opts if y >= sel_start_y]
-                    sel_end_y = st.selectbox("종료", end_opts, index=len(end_opts)-1, key="ey")
+                with c1: sel_sy = st.selectbox("시작", year_opts, index=year_opts.index(2000), key="sy")
+                with c2: sel_ey = st.selectbox("종료", year_opts, index=len(year_opts)-1, key="ey")
                 
                 if sel_maker != "전체":
-                    filtered_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].tolist())
+                    f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].tolist())
                 else:
-                    filtered_models = sorted(df_models['model_name'].unique().tolist())
+                    f_models = sorted(df_models['model_name'].unique().tolist())
                 
-                sel_models = st.multiselect(f"모델 ({len(filtered_models)}개)", filtered_models, key="ms")
+                sel_models = st.multiselect(f"모델 ({len(f_models)}개)", f_models, key="mms")
                 
                 st.markdown("")
                 if st.button("✅ 차량 검색 적용", type="primary", use_container_width=True):
                     full_df = load_all_data()
                     if sel_maker != "전체": full_df = full_df[full_df['manufacturer'] == sel_maker]
-                    full_df = full_df[(full_df['model_year'] >= sel_start_y) & (full_df['model_year'] <= sel_end_y)]
+                    full_df = full_df[(full_df['model_year'] >= sel_sy) & (full_df['model_year'] <= sel_ey)]
                     if sel_models: full_df = full_df[full_df['model_name'].isin(sel_models)]
-                    
                     st.session_state['view_data'] = full_df.reset_index(drop=True)
                     st.session_state['is_filtered'] = True
                     safe_rerun()
@@ -400,7 +455,7 @@ try:
                     st.session_state['view_data'] = full_df.reset_index(drop=True)
                     st.session_state['is_filtered'] = True
                     safe_rerun()
-        
+
         if st.button("🔄 전체 목록 보기", use_container_width=True):
             st.session_state['view_data'] = load_all_data()
             st.session_state['is_filtered'] = False
@@ -423,11 +478,13 @@ try:
                     safe_rerun()
                 except: pass
 
-    # 메인
+    # ------------------- 메인 화면 -------------------
     st.title("🚗 전국 폐차장 실시간 재고 현황")
+    
     df_view = st.session_state['view_data']
     is_filtered = st.session_state['is_filtered']
 
+    # 마스킹
     if not st.session_state.logged_in and not df_view.empty:
         df_view = df_view.copy()
         df_view['junkyard'] = "🔒 회원전용"
@@ -443,14 +500,27 @@ try:
         
         if not is_filtered:
             today = datetime.datetime.now().strftime("%Y-%m-%d")
+            # 전체보기 모드일때만 오늘 카운트
             today_cnt = len(df_all_source[df_all_source['reg_date'].astype(str).str.contains(today)])
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("총 재고", f"{len(df_view):,}대")
             c2.metric("오늘 입고", f"{today_cnt}대")
             c3.metric("가맹점", "🔒" if not st.session_state.logged_in else f"{df_view['junkyard'].nunique()}곳")
-            top_reg = df_view['region'].mode()[0] if 'region' in df_view.columns and not df_view['region'].empty else "-"
-            c4.metric("최다 지역", "🔒" if not st.session_state.logged_in else top_reg)
-        
+            
+            # 주소 없는 폐차장 수 표시 (관리자용)
+            if st.session_state.logged_in:
+                missing_addr_cnt = len(failed_yards)
+                c4.metric("주소 미등록", f"{missing_addr_cnt}곳", delta_color="inverse")
+            else:
+                c4.metric("최다 지역", "🔒")
+
+            # [관리자 전용] 주소 일괄 업데이트 패널
+            if st.session_state.logged_in and missing_addr_cnt > 0:
+                st.warning(f"⚠️ 현재 {missing_addr_cnt}개 폐차장의 주소 정보가 없습니다. (지도 미표시)")
+                with st.expander("📍 주소 없는 폐차장 목록 보기"):
+                    st.write(failed_yards)
+                    st.info("상단 '주소 DB 업로드'를 이용하거나, 아래 개별 조회를 이용하세요.")
+
         st.divider()
         
         col1, col2 = st.columns([2, 1])
@@ -459,18 +529,16 @@ try:
             if st.session_state.logged_in:
                 map_df = df_view[(df_view['lat'] != 0.0) & (df_view['lat'].notnull())]
                 if not map_df.empty:
-                    try:
-                        map_agg = map_df.groupby(['junkyard', 'region', 'lat', 'lon']).size().reset_index(name='count')
-                        fig = px.scatter_mapbox(
-                            map_agg, lat="lat", lon="lon", size="count", color="count",
-                            hover_name="junkyard", zoom=6.5, center={"lat": 36.5, "lon": 127.8},
-                            mapbox_style="carto-positron", color_continuous_scale="Reds", size_max=50
-                        )
-                        fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
-                        st.plotly_chart(fig, use_container_width=True)
-                    except: st.error("지도 오류")
-                else: st.warning("위치 데이터 없음 (주소 DB를 업로드해주세요)")
-            else: st.warning("🔒 지도는 관리자(회원) 전용 기능입니다.")
+                    map_agg = map_df.groupby(['junkyard', 'region', 'lat', 'lon']).size().reset_index(name='count')
+                    fig = px.scatter_mapbox(
+                        map_agg, lat="lat", lon="lon", size="count", color="count",
+                        hover_name="junkyard", zoom=6.5, center={"lat": 36.5, "lon": 127.8},
+                        mapbox_style="carto-positron", color_continuous_scale="Reds", size_max=50
+                    )
+                    fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
+                    st.plotly_chart(fig, use_container_width=True)
+                else: st.warning("위치 데이터가 없거나 부족합니다.")
+            else: st.warning("🔒 지도는 관리자(회원) 전용입니다.")
 
         with col2:
             st.subheader("🏭 보유량 TOP")
@@ -479,7 +547,7 @@ try:
                 st.dataframe(top_yards, width=None, use_container_width=True, hide_index=True, height=400)
 
         st.divider()
-        
+
         if 'reg_date' in df_view.columns and not df_view.empty:
             st.subheader("📈 월별 입고 추이")
             monthly_data = df_view.dropna(subset=['reg_date']).copy()
@@ -494,31 +562,53 @@ try:
         st.divider()
         
         if is_filtered:
-            st.subheader("📑 견적 요청")
-            if st.session_state.logged_in:
-                yard_summary = df_view.groupby(['junkyard', 'region', 'address']).size().reset_index(name='보유수량').sort_values('보유수량', ascending=False)
-            else:
-                yard_summary = df_view.groupby(['junkyard']).size().reset_index(name='보유수량').sort_values('보유수량', ascending=False)
-                yard_summary['address'] = "🔒"
-                yard_summary['region'] = "🔒"
-
-            selection = st.dataframe(yard_summary, width=None, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
+            st.subheader("📑 견적 요청 & 주소 업데이트")
+            
+            yard_summary = df_view.groupby(['junkyard', 'region', 'address']).size().reset_index(name='보유수량').sort_values('보유수량', ascending=False)
+            
+            # 선택 가능한 테이블
+            selection = st.dataframe(
+                yard_summary,
+                width=None, use_container_width=True, hide_index=True, 
+                selection_mode="single-row", on_select="rerun"
+            )
             
             if len(selection.selection.rows) > 0:
-                sel_row = yard_summary.iloc[selection.selection.rows[0]]
-                target = sel_row['junkyard']
-                st.info(f"📩 **{target}** 견적 요청")
+                sel_idx = selection.selection.rows[0]
+                sel_row = yard_summary.iloc[sel_idx]
+                target_yard = sel_row['junkyard']
+                current_addr = sel_row['address']
+                
+                # [신규] 주소 조회 버튼 (검색실패 상태일 때만 표시)
+                if st.session_state.logged_in and "검색실패" in str(current_addr):
+                     if st.button(f"🔍 '{target_yard}' 네이버 주소 검색 실행"):
+                        conn = init_db()
+                        info = search_place_naver(target_yard)
+                        if info:
+                            c = conn.cursor()
+                            c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region, lat, lon) VALUES (?, ?, ?, ?, ?)", 
+                                      (target_yard, info['address'], info['region'], info['lat'], info['lon']))
+                            conn.commit()
+                            st.success("주소 찾기 성공! (새로고침 됩니다)")
+                            load_all_data.clear()
+                            st.session_state['view_data'] = load_all_data()
+                            safe_rerun()
+                        else:
+                            st.error("네이버에서도 주소를 찾을 수 없습니다.")
+                        conn.close()
+
+                st.info(f"📩 **{target_yard}**에 견적 요청 보내기")
                 with st.form("quote"):
                     c_a, c_b = st.columns(2)
                     with c_a: 
-                        st.text_input("수신", value=target, disabled=True)
+                        st.text_input("수신", value=target_yard, disabled=True)
                         st.text_input("연락처", placeholder="010-0000-0000")
                     with c_b:
                         st.text_input("품목", value=f"검색 결과 {len(df_view)}건 관련")
                         st.text_input("희망가", placeholder="금액 입력")
-                    st.text_area("내용", value=f"{target} 사장님, 보유하신 {sel_row['보유수량']}대에 대한 견적 문의드립니다.", height=100)
+                    st.text_area("내용", value=f"{target_yard} 사장님, 보유하신 {sel_row['보유수량']}대에 대한 견적 문의드립니다.", height=100)
                     if st.form_submit_button("전송"): st.toast("발송 완료!", icon="📨")
-            
+
             st.subheader("📋 차량 목록")
             cols = ['reg_date', 'manufacturer', 'model_name', 'model_year', 'engine_code', 'junkyard', 'address', 'vin']
             valid_cols = [c for c in cols if c in df_view.columns]
@@ -541,6 +631,8 @@ try:
                 st.plotly_chart(f_mod, use_container_width=True)
     else:
         st.info("데이터가 없습니다.")
+
 except Exception as e:
-    st.error("앱 실행 중 오류")
-    st.code(traceback.format_exc())
+    st.error("⛔ 앱 실행 중 문제가 발생했습니다.")
+    with st.expander("상세 오류 보기"):
+        st.code(traceback.format_exc())

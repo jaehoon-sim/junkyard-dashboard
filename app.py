@@ -105,6 +105,7 @@ def clean_junkyard_name(name):
     return cleaned.strip()
 
 def search_place_naver(query):
+    # API 검색 로직
     cleaned_name = clean_junkyard_name(query)
     search_queries = [query]
     if '폐차' not in cleaned_name and len(cleaned_name) < 5: search_queries.append(f"{cleaned_name} 폐차장")
@@ -220,6 +221,7 @@ def save_vehicle_file(uploaded_file):
         
         del df, df_db
         gc.collect()
+        
         return new_cnt, 0
     except: return 0, 0
 
@@ -232,6 +234,7 @@ def save_address_file(uploaded_file):
         
         name_col = next((c for c in df.columns if '폐차장' in c or '업체' in c or '회원' in c), None)
         addr_col = next((c for c in df.columns if '주소' in c or '소재' in c), None)
+        
         if not name_col or not addr_col: return 0
 
         conn = init_db()
@@ -257,6 +260,10 @@ def save_address_file(uploaded_file):
             
             lat, lon = 0.0, 0.0
             if region in CITY_COORDS: lat, lon = CITY_COORDS[region]
+            else:
+                for k, v in CITY_COORDS.items():
+                    if k.split()[-1] in address:
+                        region = k; lat, lon = v; break
             
             c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region, lat, lon) VALUES (?, ?, ?, ?, ?)", (yard_name, address, region, lat, lon))
             update_cnt += 1
@@ -474,19 +481,21 @@ try:
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("조회된 재고", f"{len(df_view):,}대")
         
-        # 오늘 입고 (간소화)
+        # 오늘 입고량
+        conn = init_db()
         today = datetime.datetime.now().strftime("%Y-%m-%d")
         try:
-            # 뷰 데이터 내에서 오늘 날짜 카운트
-            today_cnt = len(df_view[df_view['reg_date'].astype(str).str.contains(today)])
+            today_cnt = pd.read_sql(f"SELECT COUNT(*) as cnt FROM vehicle_data WHERE reg_date LIKE '{today}%'", conn)['cnt'][0]
         except: today_cnt = 0
+        conn.close()
         
-        c2.metric("오늘 입고 (조회 내)", f"{today_cnt}대")
+        c2.metric("오늘 전체 입고", f"{today_cnt}대")
         c3.metric("관련 업체", "🔒" if not st.session_state.logged_in else f"{df_view['junkyard'].nunique()}곳")
         
         if st.session_state.logged_in and 'region' in df_view.columns and not df_view['region'].empty:
             c4.metric("최다 지역", df_view['region'].mode()[0])
-        else: c4.metric("최다 지역", "🔒")
+        else:
+            c4.metric("최다 지역", "🔒")
 
         st.divider()
         
@@ -497,16 +506,15 @@ try:
                 map_df = df_view[(df_view['lat'] != 0.0) & (df_view['lat'].notnull())]
                 if not map_df.empty:
                     try:
-                        # ⚡ 수정: groupby observed=True 추가 + scatter_map 사용
                         map_agg = map_df.groupby(['junkyard', 'region', 'lat', 'lon'], observed=True).size().reset_index(name='count')
-                        fig = px.scatter_map(
+                        fig = px.scatter_mapbox(
                             map_agg, lat="lat", lon="lon", size="count", color="count",
                             hover_name="junkyard", zoom=6.5, center={"lat": 36.5, "lon": 127.8},
-                            map_style="carto-positron", color_continuous_scale="Reds", size_max=50
+                            mapbox_style="carto-positron", color_continuous_scale="Reds", size_max=50
                         )
                         fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
                         st.plotly_chart(fig, use_container_width=True)
-                    except Exception as e: st.error("지도 오류")
+                    except Exception as e: st.error("지도 생성 중 오류")
                 else: st.warning("위치 데이터 없음 (주소 DB를 업로드해주세요)")
             else:
                 st.warning("🔒 지도는 관리자(회원) 전용입니다.")
@@ -514,7 +522,6 @@ try:
         with col2:
             st.subheader("🏭 보유량 TOP")
             if 'junkyard' in df_view.columns:
-                # ⚡ 수정: groupby observed=True
                 top_yards = df_view.groupby(['junkyard'], observed=True).size().reset_index(name='수량').sort_values('수량', ascending=False).head(15)
                 st.dataframe(top_yards, width=None, use_container_width=True, hide_index=True, height=400)
 
@@ -527,7 +534,7 @@ try:
             if not monthly_data.empty:
                 monthly_data['month_str'] = monthly_data['reg_date'].dt.month.astype(str) + '월'
                 monthly_data['sort_key'] = monthly_data['reg_date'].dt.strftime('%Y-%m')
-                # ⚡ 수정: groupby observed=True (여기서는 month_str이 카테고리가 아닐 수 있으니 에러 방지용으로 뺌, 만약 카테고리라면 True 권장)
+                # observed=True 옵션은 groupby 대상이 categorical일때만 유효하므로 안전하게 제거하거나 상황에 맞게 사용
                 monthly_counts = monthly_data.groupby(['sort_key', 'month_str']).size().reset_index(name='입고량').sort_values('sort_key')
                 fig_bar = px.bar(monthly_counts, x='month_str', y='입고량', text='입고량', color='입고량')
                 fig_bar.update_layout(xaxis_title=None, coloraxis_showscale=False)
@@ -540,13 +547,11 @@ try:
             
             view_copy = df_view.copy()
             if st.session_state.logged_in:
-                # 카테고리 타입이면 fillna 전에 str로 변환하거나 add_categories 필요
                 if isinstance(view_copy['address'].dtype, pd.CategoricalDtype):
                     view_copy['address'] = view_copy['address'].astype(str)
                 view_copy['address'] = view_copy['address'].fillna('🔍 조회 필요').replace('검색실패', '🔍 조회 필요')
             
-            # ⚡ 수정: groupby observed=True
-            yard_summary = view_copy.groupby(['junkyard', 'region', 'address']).size().reset_index(name='보유수량').sort_values('보유수량', ascending=False)
+            yard_summary = view_copy.groupby(['junkyard', 'region', 'address'], observed=True).size().reset_index(name='보유수량').sort_values('보유수량', ascending=False)
             
             selection = st.dataframe(
                 yard_summary,
@@ -593,7 +598,6 @@ try:
             c_a, c_b = st.columns(2)
             with c_a:
                 st.subheader("🔥 엔진 TOP 10")
-                # ⚡ 수정: groupby observed=True
                 eng_d = df_view['engine_code'].value_counts().head(10).reset_index()
                 eng_d.columns = ['코드', '수량']
                 f_eng = px.bar(eng_d, x='코드', y='수량', text='수량', color='수량')
@@ -601,14 +605,11 @@ try:
                 st.plotly_chart(f_eng, use_container_width=True)
             with c_b:
                 st.subheader("🚙 모델 TOP 10")
-                # ⚡ 수정: groupby observed=True
                 mod_d = df_view['model_name'].value_counts().head(10).reset_index()
                 mod_d.columns = ['모델', '수량']
                 f_mod = px.bar(mod_d, x='모델', y='수량', text='수량', color='수량')
                 f_mod.update_layout(xaxis_tickangle=0, coloraxis_showscale=False)
                 st.plotly_chart(f_mod, use_container_width=True)
-    else:
-        st.info("데이터가 없습니다.")
 
 except Exception as e:
     st.error("⛔ 앱 실행 중 문제가 발생했습니다.")

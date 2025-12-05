@@ -8,7 +8,7 @@ import re
 import os
 import traceback
 import time
-import gc # 🗑️ 메모리 관리를 위한 가비지 컬렉터
+import gc
 
 # ---------------------------------------------------------
 # 🛠️ [설정] 페이지 및 유틸
@@ -89,29 +89,23 @@ def init_db():
     return conn
 
 # ---------------------------------------------------------
-# [메모리 최적화] 데이터프레임 경량화 함수 ⭐️
+# [성능최적화] 데이터프레임 경량화 함수
 # ---------------------------------------------------------
 def optimize_dataframe(df):
-    """
-    Pandas DataFrame의 메모리 사용량을 줄이기 위해 
-    Object(문자열) 타입을 Category 타입으로 변환합니다.
-    """
     for col in df.select_dtypes(include=['object']).columns:
-        # 고유값이 전체 행의 50% 미만이면 카테고리로 변환 (압축 효과 큼)
         num_unique_values = len(df[col].unique())
         num_total_values = len(df[col])
         if num_total_values > 0 and num_unique_values / num_total_values < 0.5:
             df[col] = df[col].astype('category')
     return df
 
-# ... (API 관련 함수들은 기존과 동일) ...
 def clean_junkyard_name(name):
     cleaned = re.sub(r'\(주\)|주식회사|\(유\)|합자회사|유한회사', '', str(name))
     cleaned = re.sub(r'지점', '', cleaned) 
     return cleaned.strip()
 
 def search_place_naver(query):
-    # (API 검색 로직 기존 동일 - 생략 없이 유지)
+    # API 검색 로직 (기존과 동일)
     cleaned_name = clean_junkyard_name(query)
     search_queries = [query]
     if '폐차' not in cleaned_name and len(cleaned_name) < 5: search_queries.append(f"{cleaned_name} 폐차장")
@@ -164,56 +158,70 @@ def update_single_junkyard(conn, yard_name):
         conn.commit()
         return False, "검색실패"
 
+# ⚡ [수정] 대량 파일 저장 (Robust Bulk Insert)
 def save_uploaded_file(uploaded_file):
     try:
-        if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file)
+        if uploaded_file.name.endswith('.csv'): 
+            # csv도 대용량일 경우를 대비해 dtype 지정
+            df = pd.read_csv(uploaded_file, dtype=str)
         else: 
-            try: df = pd.read_excel(uploaded_file, engine='openpyxl')
-            except: df = pd.read_excel(uploaded_file, engine='xlrd')
+            try: df = pd.read_excel(uploaded_file, engine='openpyxl', dtype=str)
+            except: df = pd.read_excel(uploaded_file, engine='xlrd', dtype=str)
 
+        # 헤더 자동 보정
         if '차대번호' not in df.columns:
-            if uploaded_file.name.endswith('.csv'): uploaded_file.seek(0); df = pd.read_csv(uploaded_file, header=2)
+            if uploaded_file.name.endswith('.csv'): 
+                uploaded_file.seek(0)
+                df = pd.read_csv(uploaded_file, header=2, dtype=str)
             else: 
-                try: df = pd.read_excel(uploaded_file, header=2, engine='openpyxl')
-                except: df = pd.read_excel(uploaded_file, header=2, engine='xlrd')
+                try: df = pd.read_excel(uploaded_file, header=2, engine='openpyxl', dtype=str)
+                except: df = pd.read_excel(uploaded_file, header=2, engine='xlrd', dtype=str)
         
         df.columns = [str(c).strip() for c in df.columns]
         required = ['등록일자', '차량번호', '차대번호', '제조사', '차량명', '회원사', '원동기형식']
-        if not all(col in df.columns for col in required): return 0, 0
+        
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            st.error(f"필수 컬럼 누락: {missing}")
+            return 0, 0
 
         conn = init_db()
         c = conn.cursor()
         
-        # 데이터프레임 생성
+        # 데이터프레임 생성 (문자열로 강제)
         df_db = pd.DataFrame()
-        df_db['vin'] = df['차대번호'].astype(str).str.strip()
-        df_db['reg_date'] = df['등록일자'].astype(str)
-        df_db['car_no'] = df['차량번호'].astype(str)
-        df_db['manufacturer'] = df['제조사'].astype(str)
-        df_db['model_name'] = df['차량명'].astype(str)
-        df_db['junkyard'] = df['회원사'].astype(str)
-        df_db['engine_code'] = df['원동기형식'].astype(str)
+        df_db['vin'] = df['차대번호'].fillna('').astype(str).str.strip()
+        df_db['reg_date'] = df['등록일자'].fillna('').astype(str)
+        df_db['car_no'] = df['차량번호'].fillna('').astype(str)
+        df_db['manufacturer'] = df['제조사'].fillna('').astype(str)
+        df_db['model_name'] = df['차량명'].fillna('').astype(str)
+        df_db['junkyard'] = df['회원사'].fillna('').astype(str)
+        df_db['engine_code'] = df['원동기형식'].fillna('').astype(str)
         
         def parse_year(x):
             try: return float(re.findall(r"[\d\.]+", str(x))[0])
             except: return 0.0
         df_db['model_year'] = df['연식'].apply(parse_year)
 
-        # Bulk Insert
-        c.execute("CREATE TEMP TABLE IF NOT EXISTS temp_vehicles AS SELECT * FROM vehicle_data WHERE 0")
-        df_db.to_sql('temp_vehicles', conn, if_exists='append', index=False)
-        c.execute("""INSERT OR IGNORE INTO vehicle_data (vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code)
-                     SELECT vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code FROM temp_vehicles""")
+        # ⚡ 핵심: replace로 테이블을 새로 만들어서 스키마 충돌 방지
+        df_db.to_sql('temp_vehicles', conn, if_exists='replace', index=False)
+        
+        # 메인 테이블로 병합
+        c.execute("""
+            INSERT OR IGNORE INTO vehicle_data (vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code)
+            SELECT vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code FROM temp_vehicles
+        """)
         
         new_cnt = len(df_db)
         c.execute("DROP TABLE temp_vehicles")
         
         # 모델 리스트 업데이트
         model_list_df = df_db[['manufacturer', 'model_name']].drop_duplicates()
-        for _, row in model_list_df.iterrows():
-            c.execute("INSERT OR IGNORE INTO model_list (manufacturer, model_name) VALUES (?, ?)", (row['manufacturer'], row['model_name']))
+        model_list_df.to_sql('temp_models', conn, if_exists='replace', index=False)
+        c.execute("INSERT OR IGNORE INTO model_list (manufacturer, model_name) SELECT manufacturer, model_name FROM temp_models")
+        c.execute("DROP TABLE temp_models")
         
-        # 신규 폐차장 등록 (주소 없음)
+        # 신규 폐차장 등록 (주소 없음 상태)
         unique_yards = df_db['junkyard'].unique().tolist()
         for yard in unique_yards:
              c.execute("INSERT OR IGNORE INTO junkyard_info (name, address, region, lat, lon) VALUES (?, ?, ?, ?, ?)", 
@@ -222,15 +230,18 @@ def save_uploaded_file(uploaded_file):
         conn.commit()
         conn.close()
         
-        # 메모리 정리
+        # 메모리 즉시 해제
         del df, df_db
         gc.collect()
         
         return new_cnt, 0
-    except: return 0, 0
+    except Exception as e:
+        st.error(f"파일 처리 중 오류: {e}")
+        st.code(traceback.format_exc()) # 상세 에러 출력
+        return 0, 0
 
 def save_address_file(uploaded_file):
-    # (주소 파일 업로드 로직 - 기존 동일)
+    # (주소 파일 업로드 로직)
     try:
         if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file)
         else: 
@@ -249,9 +260,25 @@ def save_address_file(uploaded_file):
         for _, row in df.iterrows():
             yard_name = str(row[name_col]).strip()
             address = str(row[addr_col]).strip()
-            # ... (좌표 매핑 로직은 위와 동일하므로 생략 - 이전 답변의 코드와 같음) ...
-            # 간소화를 위해 핵심만 유지:
-            c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region, lat, lon) VALUES (?, ?, ?, ?, ?)", (yard_name, address, '기타', 0.0, 0.0)) # 좌표 매핑 로직은 복잡하니 일단 생략하거나 이전코드 사용
+            
+            # 주소 파싱 로직 (간소화)
+            region = '기타'
+            addr_parts = address.split()
+            if len(addr_parts) >= 2:
+                si_do = addr_parts[0][:2]
+                si_gun = addr_parts[1]
+                if si_do in ['서울', '인천', '대전', '대구', '광주', '부산', '울산', '제주', '세종']: region = si_do
+                else:
+                    gun_name = si_gun.replace('시','').replace('군','').replace('구','')
+                    if len(gun_name) < 1: gun_name = si_gun
+                    temp_key = f"{si_do} {gun_name}"
+                    for k in CITY_COORDS.keys():
+                        if temp_key in k or k in f"{si_do} {si_gun}": region = k; break
+            
+            lat, lon = 0.0, 0.0
+            if region in CITY_COORDS: lat, lon = CITY_COORDS[region]
+            
+            c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region, lat, lon) VALUES (?, ?, ?, ?, ?)", (yard_name, address, region, lat, lon))
             update_cnt += 1
             
         conn.commit()
@@ -259,9 +286,6 @@ def save_address_file(uploaded_file):
         return update_cnt
     except: return 0
 
-# ---------------------------------------------------------
-# [데이터 로드] - 메모리 최적화 적용 ⭐️
-# ---------------------------------------------------------
 @st.cache_data(ttl=300)
 def load_all_data():
     try:
@@ -269,15 +293,14 @@ def load_all_data():
         query = "SELECT v.*, j.region, j.lat, j.lon, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name"
         df = pd.read_sql(query, conn)
         conn.close()
-        
         if not df.empty:
-            # 날짜 및 숫자 변환
+            df['model_name'] = df['model_name'].astype(str)
+            df['manufacturer'] = df['manufacturer'].astype(str)
+            df['engine_code'] = df['engine_code'].astype(str)
+            df['junkyard'] = df['junkyard'].astype(str)
             df['model_year'] = pd.to_numeric(df['model_year'], errors='coerce').fillna(0)
             df['reg_date'] = pd.to_datetime(df['reg_date'], errors='coerce')
-            
-            # ⚡ 메모리 다이어트: 문자열 -> 카테고리
-            df = optimize_dataframe(df)
-            
+            df = optimize_dataframe(df) # 메모리 최적화
         return df
     except Exception: return pd.DataFrame()
 
@@ -311,12 +334,12 @@ def load_yard_list():
 try:
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
     
-    # ⚡ 처음에는 데이터를 로드하지 않음 (대시보드 속도 향상)
+    # ⚡ 처음 시작 시 데이터를 로드하지 않음 (대시보드 속도 향상)
     if 'view_data' not in st.session_state: 
-        st.session_state['view_data'] = pd.DataFrame() # 빈 껍데기로 시작
+        st.session_state['view_data'] = pd.DataFrame()
         st.session_state['is_filtered'] = False
 
-    # 필터용 데이터는 가벼우니까 로드
+    df_all_source = load_all_data() # 캐시된 데이터
     df_models = load_model_list()
     list_engines = load_engine_list()
     list_yards = load_yard_list()
@@ -342,9 +365,8 @@ try:
         
         st.divider()
 
-        # 업로드 섹션
         with st.expander("📂 차량 데이터 업로드"):
-            up_files = st.file_uploader("파일 선택", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True, key="v_up")
+            up_files = st.file_uploader("파일 선택 (다중 가능)", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True, key="v_up")
             if up_files and st.button("DB 저장"):
                 if st.session_state.logged_in:
                     total_n = 0
@@ -355,8 +377,7 @@ try:
                         bar.progress((i+1)/len(up_files))
                     bar.empty()
                     st.success(f"{total_n}건 저장 완료")
-                    load_all_data.clear() # 캐시 초기화
-                    # 여기서는 굳이 view_data 갱신 안 함 (메모리 절약)
+                    load_all_data.clear() 
                     safe_rerun()
                 else: st.warning("권한 없음")
 
@@ -372,7 +393,6 @@ try:
 
         st.divider()
         
-        # 검색 탭
         search_tabs = st.tabs(["🚙 차량", "🔧 엔진", "🏭 폐차장"])
         
         with search_tabs[0]:
@@ -396,9 +416,7 @@ try:
                 
                 st.markdown("")
                 if st.button("✅ 차량 검색 적용", type="primary", use_container_width=True):
-                    # ⚡ 버튼 누를 때만 무거운 데이터 로드
                     full_df = load_all_data()
-                    
                     if sel_maker != "전체": full_df = full_df[full_df['manufacturer'] == sel_maker]
                     full_df = full_df[(full_df['model_year'] >= sel_sy) & (full_df['model_year'] <= sel_ey)]
                     if sel_models: full_df = full_df[full_df['model_name'].isin(sel_models)]
@@ -429,7 +447,6 @@ try:
                     st.session_state['is_filtered'] = True
                     safe_rerun()
         
-        # 전체 보기 버튼 (이때는 전체 데이터를 로드)
         if st.button("🔄 전체 목록 보기 (메모리 주의)", use_container_width=True):
             st.session_state['view_data'] = load_all_data()
             st.session_state['is_filtered'] = False
@@ -452,13 +469,12 @@ try:
                     safe_rerun()
                 except: pass
 
-    # ------------------- 메인 화면 -------------------
+    # 메인 화면
     st.title("🚗 전국 폐차장 실시간 재고 현황")
     
     df_view = st.session_state['view_data']
     is_filtered = st.session_state['is_filtered']
 
-    # 데이터가 비어있으면(처음 시작 시) 안내 문구
     if df_view.empty:
         st.info("👈 좌측 패널에서 검색 조건을 선택하고 **[적용]** 버튼을 눌러주세요.")
         st.caption("※ 대용량 데이터 처리를 위해 검색 시에만 데이터를 불러옵니다.")
@@ -513,9 +529,10 @@ try:
                         )
                         fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
                         st.plotly_chart(fig, use_container_width=True)
-                    except: st.error("지도 오류")
-                else: st.warning("위치 정보가 없습니다.")
-            else: st.warning("🔒 지도는 관리자 전용입니다.")
+                    except Exception as e: st.error("지도 생성 중 오류")
+                else: st.warning("위치 데이터 없음")
+            else:
+                st.warning("🔒 지도는 관리자(회원) 전용입니다.")
 
         with col2:
             st.subheader("🏭 보유량 TOP")
@@ -570,7 +587,7 @@ try:
                         if success:
                             st.success(f"성공! ({new_addr})")
                             load_all_data.clear()
-                            st.session_state['view_data'] = load_all_data() # 전체 데이터 다시 로드
+                            time.sleep(1)
                             safe_rerun()
                         else: st.error("실패")
 
@@ -591,7 +608,6 @@ try:
             valid_cols = [c for c in cols if c in df_view.columns]
             st.dataframe(df_view[valid_cols].sort_values('reg_date', ascending=False), width=None, use_container_width=True)
         else:
-            # 전체 보기일 때는 무거우니까 차트만 표시
             c_a, c_b = st.columns(2)
             with c_a:
                 st.subheader("🔥 엔진 TOP 10")

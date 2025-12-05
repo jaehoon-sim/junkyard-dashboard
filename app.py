@@ -188,9 +188,6 @@ def save_uploaded_file(uploaded_file):
         return new_cnt, dup_cnt
     except: return 0, 0
 
-# ---------------------------------------------------------
-# [성능최적화] 데이터 로드 캐싱
-# ---------------------------------------------------------
 @st.cache_data(ttl=300)
 def load_all_data():
     try:
@@ -202,6 +199,7 @@ def load_all_data():
             df['model_name'] = df['model_name'].astype(str)
             df['manufacturer'] = df['manufacturer'].astype(str)
             df['engine_code'] = df['engine_code'].astype(str)
+            df['junkyard'] = df['junkyard'].astype(str)
             df['model_year'] = pd.to_numeric(df['model_year'], errors='coerce').fillna(0)
             # 날짜 변환 (월별 집계용)
             df['reg_date'] = pd.to_datetime(df['reg_date'], errors='coerce')
@@ -221,6 +219,7 @@ try:
 
     df_all_source = load_all_data()
 
+    # 사이드바
     with st.sidebar:
         st.title("🛠️ 컨트롤 패널")
         
@@ -403,29 +402,32 @@ try:
             st.subheader("🏭 보유량 TOP")
             if 'junkyard' in df_view.columns:
                 top_yards = df_view.groupby(['junkyard']).size().reset_index(name='수량').sort_values('수량', ascending=False).head(15)
-                st.dataframe(top_yards, hide_index=True, height=400)
+                st.dataframe(top_yards, width=None, use_container_width=True, hide_index=True, height=400)
 
         st.divider()
 
-        # [추가] 월별 입고 추이 그래프 (데이터가 존재할 경우 표시)
+        # [추가] 월별 입고 추이 그래프
         if 'reg_date' in df_view.columns and not df_view.empty:
             st.subheader("📈 월별 입고 추이")
-            # 날짜 컬럼이 datetime인지 확인 (로드 시 변환했지만 안전장치)
             df_view['reg_date'] = pd.to_datetime(df_view['reg_date'], errors='coerce')
-            
-            # 'YYYY-MM' 형태로 변환하여 그룹핑
             monthly_data = df_view.dropna(subset=['reg_date']).copy()
             if not monthly_data.empty:
-                monthly_data['month'] = monthly_data['reg_date'].dt.strftime('%Y-%m')
-                monthly_counts = monthly_data.groupby('month').size().reset_index(name='입고량')
+                # '1월', '2월' 형태로 데이터 가공
+                monthly_data['month_str'] = monthly_data['reg_date'].dt.month.astype(str) + '월'
+                monthly_data['sort_key'] = monthly_data['reg_date'].dt.strftime('%Y-%m') # 정렬용 키
                 
-                fig_line = px.line(monthly_counts, x='month', y='입고량', markers=True)
-                fig_line.update_layout(xaxis_title="월(Month)", yaxis_title="입고 수량")
-                st.plotly_chart(fig_line, use_container_width=True)
+                # 집계
+                monthly_counts = monthly_data.groupby(['sort_key', 'month_str']).size().reset_index(name='입고량')
+                monthly_counts = monthly_counts.sort_values('sort_key')
+                
+                # 막대 그래프 그리기
+                fig_bar = px.bar(monthly_counts, x='month_str', y='입고량', text='입고량', color='입고량')
+                fig_bar.update_layout(xaxis_title=None, coloraxis_showscale=False)
+                st.plotly_chart(fig_bar, use_container_width=True)
             else:
-                st.info("날짜 데이터가 없어 추이 그래프를 표시할 수 없습니다.")
-            
-            st.divider()
+                st.info("날짜 데이터가 부족하여 그래프를 표시할 수 없습니다.")
+        
+        st.divider()
         
         # [폐차장별 재고 요약 & 견적 요청]
         if is_filtered:
@@ -442,6 +444,7 @@ try:
             
             selection = st.dataframe(
                 yard_summary,
+                width=None,
                 use_container_width=True,
                 hide_index=True,
                 selection_mode="single-row",
@@ -475,7 +478,7 @@ try:
             st.subheader("📋 상세 차량 리스트")
             display_cols = ['reg_date', 'manufacturer', 'model_name', 'model_year', 'engine_code', 'junkyard', 'address', 'vin']
             valid_cols = [c for c in display_cols if c in df_view.columns]
-            st.dataframe(df_view[valid_cols].sort_values('reg_date', ascending=False), use_container_width=True)
+            st.dataframe(df_view[valid_cols].sort_values('reg_date', ascending=False), width=None, use_container_width=True)
             
         else:
             c_a, c_b = st.columns(2)

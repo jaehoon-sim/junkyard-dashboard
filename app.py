@@ -20,7 +20,6 @@ def safe_rerun():
 # ---------------------------------------------------------
 # 🔐 [보안] 관리자 계정
 # ---------------------------------------------------------
-# Streamlit Cloud 배포 시 Secrets 사용 권장
 try:
     ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
 except:
@@ -33,7 +32,6 @@ try:
     NAVER_CLIENT_ID = st.secrets["NAVER_CLIENT_ID"]
     NAVER_CLIENT_SECRET = st.secrets["NAVER_CLIENT_SECRET"]
 except:
-    # 로컬 테스트용 키 (배포 시에는 Secrets에 설정 필요)
     NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
     NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
 
@@ -201,6 +199,7 @@ def load_all_data():
             df['model_name'] = df['model_name'].astype(str)
             df['manufacturer'] = df['manufacturer'].astype(str)
             df['engine_code'] = df['engine_code'].astype(str)
+            df['junkyard'] = df['junkyard'].astype(str)
             df['model_year'] = pd.to_numeric(df['model_year'], errors='coerce').fillna(0)
         return df
     except Exception: return pd.DataFrame()
@@ -218,6 +217,7 @@ try:
 
     df_all_source = load_all_data()
 
+    # 사이드바
     with st.sidebar:
         st.title("🛠️ 컨트롤 패널")
         
@@ -255,9 +255,10 @@ try:
 
         st.divider()
         
-        search_tabs = st.tabs(["🚙 차량 검색", "🔧 엔진 검색"])
+        # [수정] 탭 3개로 확장 (폐차장 검색 추가)
+        search_tabs = st.tabs(["🚙 차량 검색", "🔧 엔진 검색", "🏭 폐차장 검색"])
         
-        with search_tabs[0]:
+        with search_tabs[0]: # 차량 검색
             if not df_all_source.empty:
                 makers = sorted(df_all_source['manufacturer'].unique().tolist())
                 makers.insert(0, "전체")
@@ -293,7 +294,7 @@ try:
                     st.session_state['is_filtered'] = True
                     safe_rerun()
 
-        with search_tabs[1]:
+        with search_tabs[1]: # 엔진 검색
             if not df_all_source.empty:
                 st.caption("엔진코드(예: D4CB) 선택")
                 all_engines = sorted(df_all_source['engine_code'].dropna().unique().tolist())
@@ -305,6 +306,22 @@ try:
                     if sel_engines:
                         engine_df = engine_df[engine_df['engine_code'].isin(sel_engines)]
                     st.session_state['view_data'] = engine_df.reset_index(drop=True)
+                    st.session_state['is_filtered'] = True
+                    safe_rerun()
+
+        with search_tabs[2]: # [신규] 폐차장 검색
+            if not df_all_source.empty:
+                st.caption("폐차장 이름으로 검색")
+                all_yards = sorted(df_all_source['junkyard'].dropna().unique().tolist())
+                sel_yards = st.multiselect("폐차장 선택", all_yards, key="yard_sel")
+
+                st.markdown("")
+                if st.button("🏭 폐차장 검색 적용", type="primary", use_container_width=True):
+                    yard_df = df_all_source.copy()
+                    if sel_yards:
+                        yard_df = yard_df[yard_df['junkyard'].isin(sel_yards)]
+                    
+                    st.session_state['view_data'] = yard_df.reset_index(drop=True)
                     st.session_state['is_filtered'] = True
                     safe_rerun()
         
@@ -361,6 +378,7 @@ try:
         
         st.divider()
         
+        # 지도 시각화
         col1, col2 = st.columns([2, 1])
         with col1:
             st.subheader("📍 위치 분포")
@@ -384,13 +402,13 @@ try:
         with col2:
             st.subheader("🏭 보유량 TOP")
             if 'junkyard' in df_view.columns:
-                # 수정: use_container_width -> width='stretch' 로 변경 (Streamlit 경고 해결)
+                # 검색 필터에 따라 동적으로 변하는 폐차장 순위
                 top_yards = df_view.groupby(['junkyard']).size().reset_index(name='수량').sort_values('수량', ascending=False).head(15)
                 st.dataframe(top_yards, width=None, use_container_width=True, hide_index=True, height=400)
 
         st.divider()
         
-        # [추가됨] 폐차장별 재고 요약 및 견적 요청 섹션
+        # [폐차장별 재고 요약 & 견적 요청]
         if is_filtered:
             st.subheader("📑 폐차장별 재고 요약 & 견적 요청")
             
@@ -457,6 +475,7 @@ try:
                 f_mod = px.bar(mod_d, x='모델', y='수량', text='수량', color='수량')
                 f_mod.update_layout(xaxis_tickangle=0, coloraxis_showscale=False)
                 st.plotly_chart(f_mod, use_container_width=True)
+
     else:
         st.info("데이터가 없습니다.")
 

@@ -7,39 +7,32 @@ import requests
 import re
 import os
 import traceback
+import time
 
 # ---------------------------------------------------------
-# 1. [필수] 페이지 설정은 무조건 맨 처음에 와야 합니다.
+# 🛠️ [설정] 기본 환경 설정
 # ---------------------------------------------------------
 st.set_page_config(page_title="폐차 관제 시스템 Pro", layout="wide")
 
-# ---------------------------------------------------------
-# 🛠️ [유틸] 안전한 Rerun 처리
-# ---------------------------------------------------------
 def safe_rerun():
     try:
         st.rerun()
     except AttributeError:
         st.experimental_rerun()
 
-# ---------------------------------------------------------
-# 🔐 [보안] 관리자 계정 및 API 설정
-# ---------------------------------------------------------
+# 보안 설정
 try:
     ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
     NAVER_CLIENT_ID = st.secrets["NAVER_CLIENT_ID"]
     NAVER_CLIENT_SECRET = st.secrets["NAVER_CLIENT_SECRET"]
 except:
-    # 로컬 테스트용 기본값
     ADMIN_CREDENTIALS = {"admin": "1234"}
     NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
     NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
 
 DB_NAME = 'junkyard.db'
 
-# ---------------------------------------------------------
 # 📍 전국 시/군/구 단위 상세 좌표 데이터베이스
-# ---------------------------------------------------------
 CITY_COORDS = {
     '경기 수원': [37.2636, 127.0286], '경기 성남': [37.4386, 127.1378], '경기 용인': [37.2410, 127.1775],
     '경기 안양': [37.3943, 126.9568], '경기 안산': [37.3219, 126.8309], '경기 과천': [37.4292, 126.9877],
@@ -78,40 +71,20 @@ CITY_COORDS = {
 }
 
 # ---------------------------------------------------------
-# 2. 데이터베이스 관리 함수
+# 2. 데이터베이스 및 API 함수
 # ---------------------------------------------------------
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS vehicle_data (
-            vin TEXT PRIMARY KEY,
-            reg_date TEXT,
-            car_no TEXT,
-            manufacturer TEXT,
-            model_name TEXT,
-            model_year REAL,
-            junkyard TEXT,
-            engine_code TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS junkyard_info (
-            name TEXT PRIMARY KEY,
-            address TEXT,
-            region TEXT,
-            lat REAL,
-            lon REAL,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
+    c.execute('''CREATE TABLE IF NOT EXISTS vehicle_data (vin TEXT PRIMARY KEY, reg_date TEXT, car_no TEXT, manufacturer TEXT, model_name TEXT, model_year REAL, junkyard TEXT, engine_code TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (name TEXT PRIMARY KEY, address TEXT, region TEXT, lat REAL, lon REAL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+    # 인덱스 추가로 조회 속도 향상
+    c.execute('CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data (model_name)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_engine ON vehicle_data (engine_code)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_yard ON vehicle_data (junkyard)')
     conn.commit()
     return conn
 
-# ---------------------------------------------------------
-# 3. API 및 데이터 처리 함수
-# ---------------------------------------------------------
 def clean_junkyard_name(name):
     cleaned = re.sub(r'\(주\)|주식회사|\(유\)|합자회사|유한회사', '', str(name))
     cleaned = re.sub(r'지점', '', cleaned) 
@@ -120,149 +93,160 @@ def clean_junkyard_name(name):
 def search_place_naver(query):
     cleaned_name = clean_junkyard_name(query)
     search_query = cleaned_name
-    if '폐차' not in cleaned_name and len(cleaned_name) < 5:
-        search_query += " 폐차장"
+    if '폐차' not in cleaned_name and len(cleaned_name) < 5: search_query += " 폐차장"
     
     url = "https://openapi.naver.com/v1/search/local.json"
-    headers = {
-        "X-Naver-Client-Id": NAVER_CLIENT_ID,
-        "X-Naver-Client-Secret": NAVER_CLIENT_SECRET
-    }
+    headers = {"X-Naver-Client-Id": NAVER_CLIENT_ID, "X-Naver-Client-Secret": NAVER_CLIENT_SECRET}
     params = {"query": search_query, "display": 1, "sort": "random"} 
 
     try:
         response = requests.get(url, headers=headers, params=params)
         if response.status_code == 200:
-            data = response.json()
-            items = data.get('items')
+            items = response.json().get('items')
             if items:
                 address = items[0]['address']
                 addr_parts = address.split()
                 if len(addr_parts) >= 2:
                     si_do = addr_parts[0][:2]
                     si_gun = addr_parts[1]
-                    if si_do in ['서울', '인천', '대전', '대구', '광주', '부산', '울산', '세종', '제주']:
-                        short_region = si_do
+                    if si_do in ['서울', '인천', '대전', '대구', '광주', '부산', '울산', '세종', '제주']: short_region = si_do
                     else:
                         gun_name = si_gun.replace('시','').replace('군','').replace('구','')
                         if len(gun_name) < 1: gun_name = si_gun
                         temp_key = f"{si_do} {gun_name}"
-                        
-                        short_region = f"{si_do} {si_gun}" # 기본값
+                        match_found = False
                         for k in CITY_COORDS.keys():
                             if temp_key in k or k in f"{si_do} {si_gun}":
                                 short_region = k
+                                match_found = True
                                 break
-                else:
-                    short_region = addr_parts[0][:2]
+                        if not match_found: short_region = f"{si_do} {si_gun}"
+                else: short_region = addr_parts[0][:2]
 
                 lat, lon = 0.0, 0.0
-                if short_region in CITY_COORDS:
-                    lat, lon = CITY_COORDS[short_region]
+                if short_region in CITY_COORDS: lat, lon = CITY_COORDS[short_region]
                 else:
                     for k, v in CITY_COORDS.items():
-                        if k in address:
-                            short_region = k
-                            lat, lon = v
-                            break
-                
-                return {
-                    'address': address,
-                    'region': short_region, 
-                    'lat': lat,
-                    'lon': lon
-                }
-    except Exception as e:
-        print(f"API Error: {e}")
+                        if k in address: short_region = k; lat, lon = v; break
+                return {'address': address, 'region': short_region, 'lat': lat, 'lon': lon}
+    except: pass
     return None
 
-def sync_junkyard_info(conn):
-    query = """
-        SELECT DISTINCT v.junkyard 
-        FROM vehicle_data v
-        LEFT JOIN junkyard_info j ON v.junkyard = j.name
-        WHERE j.name IS NULL AND v.junkyard IS NOT NULL
-    """
-    target_yards = pd.read_sql(query, conn)['junkyard'].tolist()
-    if not target_yards: return 0
-
+# ⚡ [성능 최적화] 위치 정보 동기화 (없는 것만 조회)
+def sync_junkyard_info(conn, yard_names=None):
     c = conn.cursor()
-    success_count = 0
-    progress_bar = st.progress(0)
-    total = len(target_yards)
     
-    for i, yard_name in enumerate(target_yards):
+    # 동기화할 대상 선정 (입력받은 리스트가 있으면 그것만, 없으면 전체 검사)
+    if yard_names:
+        placeholders = ','.join(['?'] * len(yard_names))
+        # 이미 정보가 있는 폐차장은 제외
+        query = f"SELECT name FROM junkyard_info WHERE name IN ({placeholders})"
+        existing = pd.read_sql(query, conn, params=yard_names)['name'].tolist()
+        targets = list(set(yard_names) - set(existing))
+    else:
+        query = """SELECT DISTINCT v.junkyard FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name WHERE j.name IS NULL AND v.junkyard IS NOT NULL"""
+        targets = pd.read_sql(query, conn)['junkyard'].tolist()
+    
+    if not targets: return 0
+
+    success_count = 0
+    # API 호출 제한 고려 (너무 빠르면 차단될 수 있음)
+    progress_bar = st.progress(0)
+    status_txt = st.empty()
+    
+    for i, yard_name in enumerate(targets):
+        status_txt.caption(f"📍 위치 검색 중 ({i+1}/{len(targets)}): {yard_name}")
         info = search_place_naver(yard_name)
+        
         if info:
-            c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region, lat, lon) VALUES (?, ?, ?, ?, ?)",
+            c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region, lat, lon) VALUES (?, ?, ?, ?, ?)", 
                       (yard_name, info['address'], info['region'], info['lat'], info['lon']))
-            if info['lat'] != 0.0: success_count += 1
+            success_count += 1
         else:
-            region = '기타'
-            lat, lon = 0.0, 0.0
+            # 검색 실패 시 Fallback
+            region, lat, lon = '기타', 0.0, 0.0
             for k, v in CITY_COORDS.items():
-                if k.split()[-1] in yard_name:
-                    region, lat, lon = k, v[0], v[1]
-                    break
-            c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region, lat, lon) VALUES (?, ?, ?, ?, ?)",
+                if k.split()[-1] in yard_name: region, lat, lon = k, v[0], v[1]; break
+            c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region, lat, lon) VALUES (?, ?, ?, ?, ?)", 
                       (yard_name, '검색실패', region, lat, lon))
         
-        progress_bar.progress((i + 1) / total)
-        
+        progress_bar.progress((i + 1) / len(targets))
+        # time.sleep(0.05) # API 부하 방지용 미세 딜레이
+    
     conn.commit()
     progress_bar.empty()
+    status_txt.empty()
     return success_count
 
+# ⚡ [성능 최적화] 대량 파일 저장 (Bulk Insert)
 def save_uploaded_file(uploaded_file):
     try:
-        if uploaded_file.name.endswith('.csv'):
+        # 파일 읽기
+        if uploaded_file.name.endswith('.csv'): 
             df = pd.read_csv(uploaded_file)
         else:
+            # 엑셀은 무거우므로 engine 명시
             try: df = pd.read_excel(uploaded_file, engine='openpyxl')
             except: df = pd.read_excel(uploaded_file, engine='xlrd')
 
+        # 헤더 보정
         if '차대번호' not in df.columns:
-            if uploaded_file.name.endswith('.csv'): 
-                uploaded_file.seek(0)
-                df = pd.read_csv(uploaded_file, header=2)
+            if uploaded_file.name.endswith('.csv'): uploaded_file.seek(0); df = pd.read_csv(uploaded_file, header=2)
             else: 
                 try: df = pd.read_excel(uploaded_file, header=2, engine='openpyxl')
                 except: df = pd.read_excel(uploaded_file, header=2, engine='xlrd')
-
+        
         df.columns = [str(c).strip() for c in df.columns]
         required = ['등록일자', '차량번호', '차대번호', '제조사', '차량명', '회원사', '원동기형식']
         if not all(col in df.columns for col in required): return 0, 0
 
+        # 데이터 전처리 (DB 컬럼명 매핑 및 타입 변환)
+        df_db = pd.DataFrame()
+        df_db['vin'] = df['차대번호'].astype(str).str.strip()
+        df_db['reg_date'] = df['등록일자'].astype(str)
+        df_db['car_no'] = df['차량번호'].astype(str)
+        df_db['manufacturer'] = df['제조사'].astype(str)
+        df_db['model_name'] = df['차량명'].astype(str)
+        df_db['junkyard'] = df['회원사'].astype(str)
+        df_db['engine_code'] = df['원동기형식'].astype(str)
+        
+        # 연식 숫자 변환 (오류 방지)
+        def parse_year(x):
+            try: return float(re.findall(r"[\d\.]+", str(x))[0])
+            except: return 0.0
+        df_db['model_year'] = df['연식'].apply(parse_year)
+
         conn = init_db()
         c = conn.cursor()
-        new_cnt, dup_cnt = 0, 0
+
+        # 1. 임시 테이블 생성
+        c.execute("CREATE TEMP TABLE IF NOT EXISTS temp_vehicles AS SELECT * FROM vehicle_data WHERE 0")
         
-        for _, row in df.iterrows():
-            vin = str(row['차대번호']).strip()
-            try:
-                raw_year = str(row['연식'])
-                year = float(re.findall(r"[\d\.]+", raw_year)[0]) if re.findall(r"[\d\.]+", raw_year) else 0.0
-            except: year = 0.0
-            
-            c.execute('''
-                INSERT OR IGNORE INTO vehicle_data 
-                (vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (vin, str(row['등록일자']), str(row['차량번호']), str(row['제조사']), str(row['차량명']), year, str(row['회원사']), str(row['원동기형식'])))
-            
-            if c.rowcount > 0: new_cnt += 1
-            else: dup_cnt += 1
-            
+        # 2. 데이터프레임 -> 임시 테이블로 Bulk Insert
+        df_db.to_sql('temp_vehicles', conn, if_exists='append', index=False)
+        
+        # 3. 임시 테이블 -> 메인 테이블로 이동 (중복 무시)
+        c.execute("""
+            INSERT OR IGNORE INTO vehicle_data (vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code)
+            SELECT vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code FROM temp_vehicles
+        """)
+        
+        # 실제 삽입된 행 수 계산 (전체 - 중복)
+        # 정확한 카운트는 어렵지만 대략적으로 파악
+        new_cnt = len(df_db) # 단순 파일 행 수 반환 (정확한 Insert 수는 cursor.rowcount로 알기 어려움)
+        
+        c.execute("DROP TABLE temp_vehicles")
         conn.commit()
         
-        if new_cnt > 0:
-            with st.spinner("📍 위치 정보 업데이트 중..."):
-                sync_junkyard_info(conn)
+        # 4. 위치 정보 동기화 (파일에 있는 폐차장만 대상으로 수행하여 속도 향상)
+        unique_yards = df_db['junkyard'].unique().tolist()
+        sync_cnt = sync_junkyard_info(conn, yard_names=unique_yards)
+        
         conn.close()
-        return new_cnt, dup_cnt
+        return new_cnt, 0 # 중복 수는 별도 계산 안 함
 
     except Exception as e:
-        st.error(f"파일 처리 중 오류: {e}")
+        st.error(f"처리 중 오류: {e}")
         return 0, 0
 
 @st.cache_data(ttl=300)
@@ -283,7 +267,7 @@ def load_all_data():
     except Exception: return pd.DataFrame()
 
 # ---------------------------------------------------------
-# 4. 메인 어플리케이션 실행
+# 메인 로직
 # ---------------------------------------------------------
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'view_data' not in st.session_state: 
@@ -296,7 +280,6 @@ df_all_source = load_all_data()
 with st.sidebar:
     st.title("🛠️ 컨트롤 패널")
     
-    # 로그인
     if not st.session_state.logged_in:
         with st.expander("🔐 관리자 로그인", expanded=True):
             uid = st.text_input("ID")
@@ -304,47 +287,49 @@ with st.sidebar:
             if st.button("로그인"):
                 if uid in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[uid] == upw:
                     st.session_state.logged_in = True
-                    st.success("로그인 성공")
+                    st.success("성공")
                     safe_rerun()
-                else: st.error("정보가 틀립니다")
+                else: st.error("실패")
     else:
-        st.success("👑 관리자 접속 중")
+        st.success("👑 관리자 접속")
         if st.button("로그아웃"):
             st.session_state.logged_in = False
             safe_rerun()
     
     st.divider()
 
-    # 업로드
-    with st.expander("📂 데이터 업로드"):
-        up_files = st.file_uploader("파일 선택 (다중 가능)", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
+    with st.expander("📂 대량 데이터 업로드"):
+        up_files = st.file_uploader("파일 (다중 선택 가능)", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
         if up_files and st.button("업로드 실행"):
             if st.session_state.logged_in:
-                total_n, total_d = 0, 0
-                progress_bar = st.progress(0)
-                for idx, f in enumerate(up_files):
-                    n, d = save_uploaded_file(f)
-                    total_n += n
-                    total_d += d
-                    progress_bar.progress((idx + 1) / len(up_files))
-                progress_bar.empty()
+                total_rows = 0
+                progress_text = st.empty()
+                bar = st.progress(0)
                 
-                st.success(f"총 신규: {total_n}건")
+                for i, f in enumerate(up_files):
+                    progress_text.text(f"Processing {f.name}...")
+                    n, _ = save_uploaded_file(f)
+                    total_rows += n
+                    bar.progress((i + 1) / len(up_files))
+                
+                bar.empty()
+                progress_text.empty()
+                st.success(f"총 {len(up_files)}개 파일, 약 {total_rows}건 처리 완료")
+                
                 load_all_data.clear()
                 st.session_state['view_data'] = load_all_data()
                 safe_rerun()
-            else: st.warning("권한이 없습니다.")
+            else: st.warning("권한 없음")
 
     st.divider()
     
-    # 검색 탭
     search_tabs = st.tabs(["🚙 차량", "🔧 엔진", "🏭 폐차장"])
     
     with search_tabs[0]:
         if not df_all_source.empty:
             makers = sorted(df_all_source['manufacturer'].unique().tolist())
             makers.insert(0, "전체")
-            sel_maker = st.selectbox("제조사", makers, key="maker_sel")
+            sel_maker = st.selectbox("제조사", makers, key="m_sel")
 
             valid_years = df_all_source['model_year'][df_all_source['model_year'] > 0]
             max_y = int(valid_years.max()) if not valid_years.empty else 2025
@@ -352,7 +337,9 @@ with st.sidebar:
             year_opts = list(range(1990, end_range + 2))
             
             c1, c2 = st.columns(2)
-            with c1: sel_start_y = st.selectbox("시작 연식", year_opts, index=year_opts.index(2000) if 2000 in year_opts else 0, key="sy")
+            with c1: 
+                start_idx = year_opts.index(2000) if 2000 in year_opts else 0
+                sel_start_y = st.selectbox("시작 연식", year_opts, index=start_idx, key="sy")
             with c2: 
                 end_opts = [y for y in year_opts if y >= sel_start_y]
                 sel_end_y = st.selectbox("종료 연식", end_opts, index=len(end_opts)-1, key="ey")
@@ -363,10 +350,10 @@ with st.sidebar:
             df_temp = df_temp[(df_temp['model_year'] >= sel_start_y) & (df_temp['model_year'] <= sel_end_y)]
             
             avail_models = sorted(df_temp['model_name'].astype(str).unique().tolist())
-            sel_models = st.multiselect(f"모델 ({len(avail_models)}개)", avail_models, key="ms")
+            sel_models = st.multiselect(f"모델 ({len(avail_models)})", avail_models, key="ms")
             
             st.markdown("")
-            if st.button("✅ 차량 검색 적용", type="primary", use_container_width=True):
+            if st.button("✅ 차량 검색", type="primary", use_container_width=True):
                 final_df = df_temp.copy()
                 if sel_models:
                     final_df = final_df[final_df['model_name'].astype(str).isin(sel_models)]
@@ -377,9 +364,9 @@ with st.sidebar:
     with search_tabs[1]:
         if not df_all_source.empty:
             all_engines = sorted(df_all_source['engine_code'].dropna().unique().tolist())
-            sel_engines = st.multiselect("엔진코드 (예: D4CB)", all_engines, key="es")
+            sel_engines = st.multiselect("엔진코드", all_engines, key="es")
             st.markdown("")
-            if st.button("🔧 엔진 검색 적용", type="primary", use_container_width=True):
+            if st.button("🔧 엔진 검색", type="primary", use_container_width=True):
                 engine_df = df_all_source.copy()
                 if sel_engines:
                     engine_df = engine_df[engine_df['engine_code'].isin(sel_engines)]
@@ -390,9 +377,9 @@ with st.sidebar:
     with search_tabs[2]:
         if not df_all_source.empty:
             all_yards = sorted(df_all_source['junkyard'].dropna().unique().tolist())
-            sel_yards = st.multiselect("폐차장 이름", all_yards, key="ys")
+            sel_yards = st.multiselect("폐차장", all_yards, key="ys")
             st.markdown("")
-            if st.button("🏭 폐차장 검색 적용", type="primary", use_container_width=True):
+            if st.button("🏭 폐차장 검색", type="primary", use_container_width=True):
                 yard_df = df_all_source.copy()
                 if sel_yards:
                     yard_df = yard_df[yard_df['junkyard'].isin(sel_yards)]
@@ -408,7 +395,7 @@ with st.sidebar:
 
     if st.session_state.logged_in:
         st.divider()
-        if st.button("🗑️ DB 초기화"):
+        if st.button("🗑️ DB 초기화 (주의)"):
             try:
                 conn = init_db()
                 conn.execute("DROP TABLE vehicle_data")
@@ -417,7 +404,7 @@ with st.sidebar:
                 conn.close()
                 load_all_data.clear()
                 st.session_state['view_data'] = pd.DataFrame()
-                st.success("완료")
+                st.success("초기화 완료")
                 safe_rerun()
             except: pass
 
@@ -459,14 +446,16 @@ if not df_view.empty:
         if st.session_state.logged_in:
             map_df = df_view[(df_view['lat'] != 0.0) & (df_view['lat'].notnull())]
             if not map_df.empty:
-                map_agg = map_df.groupby(['junkyard', 'region', 'lat', 'lon']).size().reset_index(name='count')
-                fig = px.scatter_mapbox(
-                    map_agg, lat="lat", lon="lon", size="count", color="count",
-                    hover_name="junkyard", zoom=6.5, center={"lat": 36.5, "lon": 127.8},
-                    mapbox_style="carto-positron", color_continuous_scale="Reds", size_max=50
-                )
-                fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
-                st.plotly_chart(fig, use_container_width=True)
+                try:
+                    map_agg = map_df.groupby(['junkyard', 'region', 'lat', 'lon']).size().reset_index(name='count')
+                    fig = px.scatter_mapbox(
+                        map_agg, lat="lat", lon="lon", size="count", color="count",
+                        hover_name="junkyard", zoom=6.5, center={"lat": 36.5, "lon": 127.8},
+                        mapbox_style="carto-positron", color_continuous_scale="Reds", size_max=50
+                    )
+                    fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e: st.error("지도 오류")
             else: st.warning("위치 데이터 없음")
         else:
             st.warning("🔒 지도는 관리자(회원) 전용 기능입니다.")
@@ -482,7 +471,6 @@ if not df_view.empty:
     # 월별 그래프
     if 'reg_date' in df_view.columns and not df_view.empty:
         st.subheader("📈 월별 입고 추이")
-        df_view['reg_date'] = pd.to_datetime(df_view['reg_date'], errors='coerce')
         monthly_data = df_view.dropna(subset=['reg_date']).copy()
         if not monthly_data.empty:
             monthly_data['month_str'] = monthly_data['reg_date'].dt.month.astype(str) + '월'

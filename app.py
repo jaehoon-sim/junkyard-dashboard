@@ -380,6 +380,7 @@ try:
 
         st.divider()
         
+        # 검색 탭
         search_tabs = st.tabs(["🚙 차량", "🔧 엔진", "🏭 폐차장"])
         
         with search_tabs[0]:
@@ -433,9 +434,21 @@ try:
                     st.session_state['is_filtered'] = True
                     safe_rerun()
         
-        if st.button("🔄 전체 목록 보기 (메모리 주의)", use_container_width=True):
+        # [수정] 전체 목록 보기 (초기화) 버튼 로직 개선
+        if st.button("🔄 전체 목록 보기 (필터 초기화)", use_container_width=True):
+            # 1. 뷰 데이터 초기화 (메모리 문제로 빈 데이터로 시작하거나, 전체를 보여주거나 선택)
+            # 여기서는 전체를 보여주는 것으로 하되 캐시된 데이터 사용
             st.session_state['view_data'] = load_all_data()
             st.session_state['is_filtered'] = False
+            
+            # 2. 필터 세션 값 초기화 (강제 설정)
+            if 'msel' in st.session_state: st.session_state['msel'] = "전체"
+            if 'sy' in st.session_state: st.session_state['sy'] = 2000
+            if 'ey' in st.session_state: st.session_state['ey'] = datetime.datetime.now().year
+            if 'mms' in st.session_state: st.session_state['mms'] = []
+            if 'es' in st.session_state: st.session_state['es'] = []
+            if 'ys' in st.session_state: st.session_state['ys'] = []
+            
             safe_rerun()
 
         if st.session_state.logged_in:
@@ -481,11 +494,9 @@ try:
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("조회된 재고", f"{len(df_view):,}대")
         
-        # 오늘 입고량
         conn = init_db()
         today = datetime.datetime.now().strftime("%Y-%m-%d")
-        try:
-            today_cnt = pd.read_sql(f"SELECT COUNT(*) as cnt FROM vehicle_data WHERE reg_date LIKE '{today}%'", conn)['cnt'][0]
+        try: today_cnt = pd.read_sql(f"SELECT COUNT(*) as cnt FROM vehicle_data WHERE reg_date LIKE '{today}%'", conn)['cnt'][0]
         except: today_cnt = 0
         conn.close()
         
@@ -494,8 +505,7 @@ try:
         
         if st.session_state.logged_in and 'region' in df_view.columns and not df_view['region'].empty:
             c4.metric("최다 지역", df_view['region'].mode()[0])
-        else:
-            c4.metric("최다 지역", "🔒")
+        else: c4.metric("최다 지역", "🔒")
 
         st.divider()
         

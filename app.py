@@ -9,16 +9,31 @@ import os
 import traceback
 
 # ---------------------------------------------------------
-# 🔐 [설정] 관리자 계정 및 API 키 (Secrets 사용)
+# 🛠️ [유틸] 안전한 Rerun 처리
+# ---------------------------------------------------------
+def safe_rerun():
+    try:
+        st.rerun()
+    except AttributeError:
+        st.experimental_rerun()
+
+# ---------------------------------------------------------
+# 🔐 [보안] 관리자 계정
+# ---------------------------------------------------------
+# Streamlit Cloud 배포 시 Secrets 사용 권장
+try:
+    ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
+except:
+    ADMIN_CREDENTIALS = {"admin": "1234"}
+
+# ---------------------------------------------------------
+# 🔧 [설정] 네이버 검색 API 키
 # ---------------------------------------------------------
 try:
-    # Streamlit Cloud 배포 환경
-    ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
     NAVER_CLIENT_ID = st.secrets["NAVER_CLIENT_ID"]
     NAVER_CLIENT_SECRET = st.secrets["NAVER_CLIENT_SECRET"]
 except:
-    # 로컬 테스트용 Fallback (secrets.toml이 없을 때)
-    ADMIN_CREDENTIALS = {"admin": "1234"}
+    # 로컬 테스트용 키 (배포 시에는 Secrets에 설정 필요)
     NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
     NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
 
@@ -175,9 +190,6 @@ def save_uploaded_file(uploaded_file):
         return new_cnt, dup_cnt
     except: return 0, 0
 
-# ---------------------------------------------------------
-# [성능최적화] 데이터 로드 캐싱
-# ---------------------------------------------------------
 @st.cache_data(ttl=300)
 def load_all_data():
     try:
@@ -194,7 +206,7 @@ def load_all_data():
     except Exception: return pd.DataFrame()
 
 # ---------------------------------------------------------
-# 메인 어플리케이션 로직
+# 메인 어플리케이션
 # ---------------------------------------------------------
 try:
     st.set_page_config(page_title="폐차 관제 시스템 Pro", layout="wide")
@@ -206,7 +218,6 @@ try:
 
     df_all_source = load_all_data()
 
-    # 사이드바
     with st.sidebar:
         st.title("🛠️ 컨트롤 패널")
         
@@ -218,13 +229,13 @@ try:
                     if uid in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[uid] == upw:
                         st.session_state.logged_in = True
                         st.success("성공")
-                        st.rerun()
+                        safe_rerun()
                     else: st.error("실패")
         else:
             st.success("👑 관리자 접속")
             if st.button("로그아웃"):
                 st.session_state.logged_in = False
-                st.rerun()
+                safe_rerun()
         
         st.divider()
         with st.expander("📂 데이터 업로드"):
@@ -239,7 +250,7 @@ try:
                     st.success(f"총 신규: {total_n}건")
                     load_all_data.clear()
                     st.session_state['view_data'] = load_all_data()
-                    st.rerun()
+                    safe_rerun()
                 else: st.warning("권한 없음")
 
         st.divider()
@@ -280,7 +291,7 @@ try:
                         final_df = final_df[final_df['model_name'].astype(str).isin(sel_models)]
                     st.session_state['view_data'] = final_df.reset_index(drop=True)
                     st.session_state['is_filtered'] = True
-                    st.rerun()
+                    safe_rerun()
 
         with search_tabs[1]:
             if not df_all_source.empty:
@@ -295,13 +306,13 @@ try:
                         engine_df = engine_df[engine_df['engine_code'].isin(sel_engines)]
                     st.session_state['view_data'] = engine_df.reset_index(drop=True)
                     st.session_state['is_filtered'] = True
-                    st.rerun()
+                    safe_rerun()
         
         if not df_all_source.empty:
             if st.button("🔄 전체 목록 보기", use_container_width=True):
                 st.session_state['view_data'] = df_all_source
                 st.session_state['is_filtered'] = False
-                st.rerun()
+                safe_rerun()
 
         if st.session_state.logged_in:
             st.divider()
@@ -315,7 +326,7 @@ try:
                     load_all_data.clear()
                     st.session_state['view_data'] = pd.DataFrame()
                     st.success("완료")
-                    st.rerun()
+                    safe_rerun()
                 except: pass
 
     # ------------------- 메인 컨텐츠 -------------------
@@ -350,7 +361,6 @@ try:
         
         st.divider()
         
-        # 지도 시각화
         col1, col2 = st.columns([2, 1])
         with col1:
             st.subheader("📍 위치 분포")
@@ -373,10 +383,10 @@ try:
 
         with col2:
             st.subheader("🏭 보유량 TOP")
-            # 폐차장별 집계 (지도 옆에 보여질 테이블)
             if 'junkyard' in df_view.columns:
+                # 수정: use_container_width -> width='stretch' 로 변경 (Streamlit 경고 해결)
                 top_yards = df_view.groupby(['junkyard']).size().reset_index(name='수량').sort_values('수량', ascending=False).head(15)
-                st.dataframe(top_yards, use_container_width=True, hide_index=True, height=400)
+                st.dataframe(top_yards, width=None, use_container_width=True, hide_index=True, height=400)
 
         st.divider()
         
@@ -384,7 +394,6 @@ try:
         if is_filtered:
             st.subheader("📑 폐차장별 재고 요약 & 견적 요청")
             
-            # 폐차장별로 집계 (주소 포함)
             if st.session_state.logged_in:
                 yard_summary = df_view.groupby(['junkyard', 'region', 'address']).size().reset_index(name='보유수량')
             else:
@@ -394,16 +403,15 @@ try:
             
             yard_summary = yard_summary.sort_values('보유수량', ascending=False)
             
-            # 선택 가능한 데이터프레임 표시
             selection = st.dataframe(
                 yard_summary,
+                width=None,
                 use_container_width=True,
                 hide_index=True,
                 selection_mode="single-row",
                 on_select="rerun"
             )
             
-            # 행이 선택되었을 때 견적 요청 폼 띄우기
             if len(selection.selection.rows) > 0:
                 selected_idx = selection.selection.rows[0]
                 selected_row = yard_summary.iloc[selected_idx]
@@ -417,7 +425,6 @@ try:
                         st.text_input("수신 업체", value=target_yard, disabled=True)
                         st.text_input("신청자 연락처", placeholder="010-0000-0000")
                     with c_b:
-                        # [수정] 요청 품목 직접 입력 가능하도록 변경
                         st.text_input("요청 품목", value=f"검색된 {len(df_view)}대 차량 관련 부품 일체")
                         st.text_input("희망 단가", placeholder="예: 개당 00만원")
                     
@@ -432,10 +439,9 @@ try:
             st.subheader("📋 상세 차량 리스트")
             display_cols = ['reg_date', 'manufacturer', 'model_name', 'model_year', 'engine_code', 'junkyard', 'address', 'vin']
             valid_cols = [c for c in display_cols if c in df_view.columns]
-            st.dataframe(df_view[valid_cols].sort_values('reg_date', ascending=False), use_container_width=True)
+            st.dataframe(df_view[valid_cols].sort_values('reg_date', ascending=False), width=None, use_container_width=True)
             
         else:
-            # 전체 모드일 때 차트 표시
             c_a, c_b = st.columns(2)
             with c_a:
                 st.subheader("🔥 엔진 TOP 10")
@@ -451,7 +457,6 @@ try:
                 f_mod = px.bar(mod_d, x='모델', y='수량', text='수량', color='수량')
                 f_mod.update_layout(xaxis_tickangle=0, coloraxis_showscale=False)
                 st.plotly_chart(f_mod, use_container_width=True)
-
     else:
         st.info("데이터가 없습니다.")
 

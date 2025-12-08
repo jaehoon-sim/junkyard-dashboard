@@ -26,22 +26,18 @@ def safe_rerun():
 # ---------------------------------------------------------
 # 🔐 [보안] 계정 설정
 # ---------------------------------------------------------
-# 관리자 계정 (Secrets 또는 기본값)
 try:
     ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
     NAVER_CLIENT_ID = st.secrets["NAVER_CLIENT_ID"]
     NAVER_CLIENT_SECRET = st.secrets["NAVER_CLIENT_SECRET"]
 except:
     ADMIN_CREDENTIALS = {"admin": "1234"}
+    BUYER_CREDENTIALS = {"buyer": "1111", "global": "2222"}
     NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
     NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
-
-# 바이어 계정 (테스트용 포함)
-BUYER_CREDENTIALS = {
-    "buyer": "1111",
-    "global": "2222",
-    "testbuyer": "1234"  # 🟢 [추가됨] 테스트용 계정
-}
+else:
+    if "buyer" not in locals(): 
+        BUYER_CREDENTIALS = {"buyer": "1111", "global": "2222"}
 
 DB_NAME = 'junkyard.db'
 
@@ -73,30 +69,36 @@ def init_db():
     return conn
 
 # ---------------------------------------------------------
-# 🕵️ [직거래 방지] 데이터 마스킹
+# 🕵️ [직거래 방지] 데이터 마스킹 (수정됨)
 # ---------------------------------------------------------
 def generate_alias(real_name):
-    if not isinstance(real_name, str): return "Unknown"
     hash_object = hashlib.md5(str(real_name).encode())
     hash_int = int(hash_object.hexdigest(), 16) % 900 + 100 
     return f"Partner #{hash_int}"
 
 def mask_dataframe(df, role):
+    """권한(role)에 따라 데이터 마스킹 수준 결정"""
     if df.empty: return df
     df_safe = df.copy()
     
+    # 1. [관리자] 원본 유지 + 편의상 Alias 컬럼 추가
     if role == 'admin':
         if 'junkyard' in df_safe.columns:
-            df_safe['real_junkyard'] = df_safe['junkyard']
+            df_safe['partner_alias'] = df_safe['junkyard'].apply(generate_alias)
+            # 관리자는 real_junkyard 컬럼을 따로 만들 필요 없이 원본 junkyard를 보면 됨
         return df_safe
 
+    # 2. [바이어/게스트] 보안 처리
+    
+    # A. 업체명(junkyard) 익명화
     if 'junkyard' in df_safe.columns:
-        df_safe['real_junkyard'] = df_safe['junkyard']
         if role == 'buyer':
+            # 원본 이름을 바로 덮어씌움 (real_junkyard 컬럼 생성 X)
             df_safe['junkyard'] = df_safe['junkyard'].apply(generate_alias)
         else:
             df_safe['junkyard'] = "🔒 Login Required"
 
+    # B. 주소(address) 광역화
     def simplify_address(addr):
         s = str(addr)
         if '경기' in s: return 'Gyeonggi-do, Korea'
@@ -111,12 +113,19 @@ def mask_dataframe(df, role):
         else:
             df_safe['address'] = "🔒 Login Required"
 
+    # C. 민감정보(VIN, 차량번호) 제거
     if 'vin' in df_safe.columns:
         df_safe['vin'] = df_safe['vin'].astype(str).apply(lambda x: x[:8] + "****" if len(x) > 8 else "****")
     
     if 'car_no' in df_safe.columns:
         df_safe = df_safe.drop(columns=['car_no'], errors='ignore')
     
+    # D. 혹시 모를 내부용 컬럼 제거
+    if 'real_junkyard' in df_safe.columns:
+        df_safe = df_safe.drop(columns=['real_junkyard'])
+    
+    # E. 위치 정보 (게스트는 숨김, 바이어는 지도 표시용으로 유지하되 좌표값은 그대로 둠)
+    # 바이어 화면에서는 좌표가 있어도 지도상 마커 이름을 Alias로 표시하면 됨.
     if role == 'guest' and 'lat' in df_safe.columns:
         df_safe['lat'] = 0.0
         df_safe['lon'] = 0.0
@@ -124,7 +133,7 @@ def mask_dataframe(df, role):
     return df_safe
 
 # ---------------------------------------------------------
-# 기능 함수들
+# 기능 함수들 (로그, 업로드 등)
 # ---------------------------------------------------------
 def log_search(keywords, s_type):
     if not keywords: return
@@ -413,6 +422,8 @@ else:
     st.title("🇰🇷 Korea Used Auto Parts Inventory")
     
     df_view = st.session_state['view_data']
+    
+    # 🛡️ 마스킹 적용
     df_display = mask_dataframe(df_view, st.session_state.user_role)
     
     if st.session_state.user_role == 'admin':
@@ -454,13 +465,12 @@ else:
                         st.markdown(f"### 📨 Request Quote to {target_partner}")
                         c_a, c_b = st.columns(2)
                         with c_a:
-                            # 🟢 [개선] 사용자 ID 자동 입력
                             buyer_name = st.text_input("Name / Company", value=st.session_state.username)
                             contact = st.text_input("Contact (Email/Phone)")
                         with c_b:
                             st.text_input("Item", value=f"Selected {stock_cnt} items", disabled=True)
                             offer = st.text_input("Offer Price (USD)", placeholder="e.g. $1,500")
-                        msg = st.text_area("Message to Admin", height=80)
+                        msg = st.text_area("Message", height=80)
                         
                         if st.form_submit_button("🚀 Send Inquiry"):
                             conn = init_db()
@@ -468,10 +478,12 @@ else:
                             real_name = target_partner
                             if st.session_state.user_role == 'buyer':
                                 try:
+                                    # 역추적을 위해 원본 데이터(df_view) 참조
                                     match = df_view[df_view['junkyard'].apply(generate_alias) == target_partner]
                                     if not match.empty:
                                         real_name = match['junkyard'].iloc[0]
                                 except: real_name = "Unknown"
+
                             cur.execute("INSERT INTO orders (buyer_id, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?)",
                                         (buyer_name, target_partner, real_name, f"Qty:{stock_cnt}, Offer:{offer}, {msg}", 'PENDING'))
                             conn.commit()

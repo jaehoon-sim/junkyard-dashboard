@@ -26,18 +26,23 @@ def safe_rerun():
 # ---------------------------------------------------------
 # 🔐 [보안] 계정 설정
 # ---------------------------------------------------------
+# 1. 관리자 계정 (Secrets 우선, 없으면 기본값)
 try:
     ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
     NAVER_CLIENT_ID = st.secrets["NAVER_CLIENT_ID"]
     NAVER_CLIENT_SECRET = st.secrets["NAVER_CLIENT_SECRET"]
 except:
     ADMIN_CREDENTIALS = {"admin": "1234"}
-    BUYER_CREDENTIALS = {"buyer": "1111", "global": "2222"}
     NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
     NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
-else:
-    if "buyer" not in locals(): 
-        BUYER_CREDENTIALS = {"buyer": "1111", "global": "2222"}
+
+# 2. 바이어 계정 (테스트용 고정)
+# 이 부분이 확실하게 선언되어야 로그인이 됩니다.
+BUYER_CREDENTIALS = {
+    "buyer": "1111",
+    "global": "2222",
+    "testbuyer": "1234"  # ✅ 테스트 계정 확실하게 추가됨
+}
 
 DB_NAME = 'junkyard.db'
 
@@ -69,7 +74,7 @@ def init_db():
     return conn
 
 # ---------------------------------------------------------
-# 🕵️ [직거래 방지] 데이터 마스킹 (수정됨)
+# 🕵️ [직거래 방지] 데이터 마스킹
 # ---------------------------------------------------------
 def generate_alias(real_name):
     hash_object = hashlib.md5(str(real_name).encode())
@@ -77,28 +82,23 @@ def generate_alias(real_name):
     return f"Partner #{hash_int}"
 
 def mask_dataframe(df, role):
-    """권한(role)에 따라 데이터 마스킹 수준 결정"""
     if df.empty: return df
     df_safe = df.copy()
     
-    # 1. [관리자] 원본 유지 + 편의상 Alias 컬럼 추가
+    # 관리자는 원본
     if role == 'admin':
         if 'junkyard' in df_safe.columns:
             df_safe['partner_alias'] = df_safe['junkyard'].apply(generate_alias)
-            # 관리자는 real_junkyard 컬럼을 따로 만들 필요 없이 원본 junkyard를 보면 됨
         return df_safe
 
-    # 2. [바이어/게스트] 보안 처리
-    
-    # A. 업체명(junkyard) 익명화
+    # 바이어/게스트
     if 'junkyard' in df_safe.columns:
+        df_safe['real_junkyard'] = df_safe['junkyard'] # 내부 백업
         if role == 'buyer':
-            # 원본 이름을 바로 덮어씌움 (real_junkyard 컬럼 생성 X)
             df_safe['junkyard'] = df_safe['junkyard'].apply(generate_alias)
         else:
             df_safe['junkyard'] = "🔒 Login Required"
 
-    # B. 주소(address) 광역화
     def simplify_address(addr):
         s = str(addr)
         if '경기' in s: return 'Gyeonggi-do, Korea'
@@ -113,19 +113,15 @@ def mask_dataframe(df, role):
         else:
             df_safe['address'] = "🔒 Login Required"
 
-    # C. 민감정보(VIN, 차량번호) 제거
     if 'vin' in df_safe.columns:
         df_safe['vin'] = df_safe['vin'].astype(str).apply(lambda x: x[:8] + "****" if len(x) > 8 else "****")
     
     if 'car_no' in df_safe.columns:
         df_safe = df_safe.drop(columns=['car_no'], errors='ignore')
     
-    # D. 혹시 모를 내부용 컬럼 제거
     if 'real_junkyard' in df_safe.columns:
-        df_safe = df_safe.drop(columns=['real_junkyard'])
-    
-    # E. 위치 정보 (게스트는 숨김, 바이어는 지도 표시용으로 유지하되 좌표값은 그대로 둠)
-    # 바이어 화면에서는 좌표가 있어도 지도상 마커 이름을 Alias로 표시하면 됨.
+        df_safe = df_safe.drop(columns=['real_junkyard'], errors='ignore')
+
     if role == 'guest' and 'lat' in df_safe.columns:
         df_safe['lat'] = 0.0
         df_safe['lon'] = 0.0
@@ -133,7 +129,7 @@ def mask_dataframe(df, role):
     return df_safe
 
 # ---------------------------------------------------------
-# 기능 함수들 (로그, 업로드 등)
+# 기능 함수들
 # ---------------------------------------------------------
 def log_search(keywords, s_type):
     if not keywords: return
@@ -241,7 +237,6 @@ def load_engine_list():
         return df['engine_code'].tolist()
     except: return []
 
-# [중요] 필터용 폐차장 목록 (바이어는 Alias로만 검색 가능하게)
 def load_yard_list_for_filter(role):
     try:
         conn = init_db()
@@ -272,6 +267,7 @@ list_engines = load_engine_list()
 with st.sidebar:
     st.title("K-Parts Global Hub")
     
+    # 로그인
     if st.session_state.user_role == 'guest':
         with st.expander("🔐 Login", expanded=True):
             uid = st.text_input("ID")
@@ -478,7 +474,6 @@ else:
                             real_name = target_partner
                             if st.session_state.user_role == 'buyer':
                                 try:
-                                    # 역추적을 위해 원본 데이터(df_view) 참조
                                     match = df_view[df_view['junkyard'].apply(generate_alias) == target_partner]
                                     if not match.empty:
                                         real_name = match['junkyard'].iloc[0]

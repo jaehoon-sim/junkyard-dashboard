@@ -9,7 +9,6 @@ import os
 import traceback
 import time
 import gc
-import numpy as np # 데이터 생성을 위해 추가
 
 # ---------------------------------------------------------
 # 🛠️ [설정] 페이지 및 유틸
@@ -74,14 +73,6 @@ CITY_COORDS = {
     '울산': [35.5384, 129.3114], '제주': [33.4996, 126.5312]
 }
 
-# 🌍 중앙아시아 주요 거점 좌표 (수요 예측용)
-CENTRAL_ASIA_HUBS = {
-    '카자흐스탄 (알마티)': [43.2551, 76.9126],
-    '우즈베키스탄 (타슈켄트)': [41.2995, 69.2401],
-    '키르기스스탄 (비슈케크)': [42.8746, 74.5698],
-    '타지키스탄 (두샨베)': [38.5598, 68.7870]
-}
-
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -89,13 +80,41 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (name TEXT PRIMARY KEY, address TEXT, region TEXT, lat REAL, lon REAL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS model_list (manufacturer TEXT, model_name TEXT, PRIMARY KEY (manufacturer, model_name))''')
     
+    # 🟢 [신규] 검색 로그 테이블 (수요 분석용)
+    c.execute('''CREATE TABLE IF NOT EXISTS search_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        keyword TEXT,
+        search_type TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    
     # 인덱스 최적화
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data(model_name)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_engine ON vehicle_data(engine_code)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_yard ON vehicle_data(junkyard)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_log_type ON search_logs(search_type)")
     conn.commit()
     return conn
+
+# ---------------------------------------------------------
+# [기능] 검색 로그 저장 함수
+# ---------------------------------------------------------
+def log_search(keywords, s_type):
+    """사용자의 검색 행위를 DB에 기록합니다."""
+    if not keywords: return
+    conn = init_db()
+    c = conn.cursor()
+    
+    # 리스트면 반복 저장
+    if isinstance(keywords, list):
+        for k in keywords:
+            c.execute("INSERT INTO search_logs (keyword, search_type) VALUES (?, ?)", (str(k), s_type))
+    else:
+        c.execute("INSERT INTO search_logs (keyword, search_type) VALUES (?, ?)", (str(keywords), s_type))
+        
+    conn.commit()
+    conn.close()
 
 # ---------------------------------------------------------
 # [메모리 최적화] 데이터프레임 경량화 함수
@@ -325,44 +344,28 @@ def load_yard_list():
     except: return []
 
 # ---------------------------------------------------------
-# [신규] 중앙아시아 수요 예측 데이터 생성 (모의 데이터)
+# [신규] 수요 예측용 검색어 분석 함수
 # ---------------------------------------------------------
-def get_central_asia_demand(engine_list):
-    """
-    보유한 엔진 리스트를 기반으로 중앙아시아 4개국의 가상 수요를 생성합니다.
-    (실제로는 외부 API 연동이 필요하지만, 여기서는 데모용 로직 구현)
-    """
-    if not engine_list: return pd.DataFrame()
-    
-    # 중앙아시아 선호 엔진 (가상 가중치)
-    preferred_engines = ['D4CB', 'D4BH', 'J3', 'D4EA', 'G4FA', 'G4FC']
-    
-    demand_data = []
-    for city, coords in CENTRAL_ASIA_HUBS.items():
-        for eng in engine_list:
-            if eng in preferred_engines:
-                base_demand = np.random.randint(50, 200) # 인기 엔진은 수요 높음
-            else:
-                base_demand = np.random.randint(5, 50)   # 일반 엔진
-            
-            demand_data.append({
-                'city': city,
-                'lat': coords[0],
-                'lon': coords[1],
-                'engine_code': eng,
-                'demand_qty': base_demand
-            })
-            
-    return pd.DataFrame(demand_data)
+def get_search_trends():
+    """DB에 저장된 검색 로그를 분석하여 인기 검색어(수요)를 반환"""
+    try:
+        conn = init_db()
+        # 최근 검색된 엔진코드 TOP 10
+        engine_trends = pd.read_sql("SELECT keyword, COUNT(*) as count FROM search_logs WHERE search_type='engine' GROUP BY keyword ORDER BY count DESC LIMIT 10", conn)
+        # 최근 검색된 모델명 TOP 10
+        model_trends = pd.read_sql("SELECT keyword, COUNT(*) as count FROM search_logs WHERE search_type='model' GROUP BY keyword ORDER BY count DESC LIMIT 10", conn)
+        conn.close()
+        return engine_trends, model_trends
+    except:
+        return pd.DataFrame(), pd.DataFrame()
 
 # ---------------------------------------------------------
 # 메인 로직
 # ---------------------------------------------------------
 try:
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
-    
     if 'view_data' not in st.session_state: 
-        st.session_state['view_data'] = pd.DataFrame()
+        st.session_state['view_data'] = load_all_data()
         st.session_state['is_filtered'] = False
 
     df_models = load_model_list()
@@ -391,7 +394,7 @@ try:
         st.divider()
 
         with st.expander("📂 차량 데이터 업로드"):
-            up_files = st.file_uploader("파일 선택", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True, key="v_up")
+            up_files = st.file_uploader("파일 선택 (다중 가능)", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True, key="v_up")
             if up_files and st.button("DB 저장"):
                 if st.session_state.logged_in:
                     total_n = 0
@@ -418,8 +421,7 @@ try:
 
         st.divider()
         
-        # 탭 확장 (수요 예측 추가)
-        search_tabs = st.tabs(["🚙 차량", "🔧 엔진", "🏭 폐차장", "🔮 수요 예측"])
+        search_tabs = st.tabs(["🚙 차량", "🔧 엔진", "🏭 폐차장", "📈 수요"])
         
         with search_tabs[0]:
             if not df_models.empty:
@@ -442,10 +444,15 @@ try:
                 
                 st.markdown("")
                 if st.button("✅ 차량 검색 적용", type="primary", use_container_width=True):
+                    # 🟢 [로그 기록] 차량 모델 검색어 저장
+                    if sel_models:
+                        log_search(sel_models, 'model')
+                    
                     full_df = load_all_data()
                     if sel_maker != "전체": full_df = full_df[full_df['manufacturer'] == sel_maker]
                     full_df = full_df[(full_df['model_year'] >= sel_sy) & (full_df['model_year'] <= sel_ey)]
                     if sel_models: full_df = full_df[full_df['model_name'].isin(sel_models)]
+                    
                     st.session_state['view_data'] = full_df.reset_index(drop=True)
                     st.session_state['is_filtered'] = True
                     safe_rerun()
@@ -455,6 +462,10 @@ try:
                 sel_engines = st.multiselect("엔진코드", list_engines, key="es")
                 st.markdown("")
                 if st.button("🔧 엔진 검색 적용", type="primary", use_container_width=True):
+                    # 🟢 [로그 기록] 엔진 검색어 저장
+                    if sel_engines:
+                        log_search(sel_engines, 'engine')
+
                     full_df = load_all_data()
                     if sel_engines: full_df = full_df[full_df['engine_code'].isin(sel_engines)]
                     st.session_state['view_data'] = full_df.reset_index(drop=True)
@@ -472,31 +483,16 @@ try:
                     st.session_state['is_filtered'] = True
                     safe_rerun()
         
-        with search_tabs[3]: # [신규] 수요 예측 탭
-            st.caption("중앙아시아(카자흐, 우즈벡 등) 수출 수요 예측")
-            st.info("💡 현지 선호 엔진(D4CB, G4FA 등) 기반 예측")
-            
-            if st.button("🔮 수요 분석 실행", type="primary", use_container_width=True):
-                # 전체 재고 로드
-                full_df = load_all_data()
-                # 현재 재고 중 상위 20개 엔진코드만 추출하여 분석
-                top_engines = full_df['engine_code'].value_counts().head(20).index.tolist()
-                
-                # 예측 모델 실행 (Mock)
-                demand_df = get_central_asia_demand(top_engines)
-                
-                # 재고 데이터와 병합 (Supply vs Demand)
-                supply_df = full_df[full_df['engine_code'].isin(top_engines)].groupby('engine_code').size().reset_index(name='supply_qty')
-                merged_df = pd.merge(demand_df, supply_df, on='engine_code', how='left').fillna(0)
-                merged_df['gap'] = merged_df['supply_qty'] - merged_df['demand_qty'] # +면 과잉, -면 부족
-                
-                st.session_state['demand_data'] = merged_df
+        with search_tabs[3]: # [신규] 실시간 수요 분석 탭
+            st.info("💡 바이어들이 많이 찾은(검색한) 키워드 순위입니다.")
+            if st.button("📊 실시간 수요 분석", type="primary"):
+                st.session_state['show_trends'] = True
                 safe_rerun()
 
         if st.button("🔄 전체 목록 보기", use_container_width=True):
             st.session_state['view_data'] = load_all_data()
             st.session_state['is_filtered'] = False
-            if 'demand_data' in st.session_state: del st.session_state['demand_data']
+            st.session_state['show_trends'] = False
             safe_rerun()
 
         if st.session_state.logged_in:
@@ -508,6 +504,7 @@ try:
                     c.execute("DROP TABLE vehicle_data")
                     c.execute("DROP TABLE junkyard_info")
                     c.execute("DROP TABLE model_list")
+                    c.execute("DROP TABLE search_logs") # 로그도 삭제
                     conn.commit()
                     conn.close()
                     load_all_data.clear()
@@ -518,51 +515,31 @@ try:
 
     # ------------------- 메인 화면 (분기 처리) -------------------
     
-    # 1. 수요 예측 모드 (demand_data가 있을 때)
-    if 'demand_data' in st.session_state:
-        st.title("🔮 중앙아시아 수출 수요 예측 리포트")
-        d_df = st.session_state['demand_data']
+    # 1. [신규] 수요 분석 화면
+    if st.session_state.get('show_trends'):
+        st.title("📈 실시간 바이어 수요(검색) 트렌드")
+        st.caption("사용자들의 검색 기록을 기반으로 한 실제 수요 데이터입니다.")
         
-        m1, m2, m3 = st.columns(3)
-        total_demand = d_df['demand_qty'].sum()
-        total_supply = d_df['supply_qty'].sum()  # 중복 합산 주의 (도시별로 엔진이 반복되므로 supply는 unique 엔진별로 다시 계산해야 함)
-        unique_supply = d_df.drop_duplicates(subset=['engine_code'])['supply_qty'].sum()
+        eng_trend, mod_trend = get_search_trends()
         
-        m1.metric("총 예상 수요 (4개국)", f"{total_demand:,}개")
-        m2.metric("보유 재고 (매칭)", f"{int(unique_supply):,}개")
-        m3.metric("수출 기회 지수", f"{int((unique_supply/total_demand)*100)}점" if total_demand > 0 else "0점")
-        
-        st.divider()
-        
-        c1, c2 = st.columns([2, 1])
+        c1, c2 = st.columns(2)
         with c1:
-            st.subheader("🗺️ 지역별 수요 히트맵")
-            # 도시별 총 수요 집계
-            city_agg = d_df.groupby(['city', 'lat', 'lon'])['demand_qty'].sum().reset_index()
-            fig_map = px.scatter_map(
-                city_agg, lat="lat", lon="lon", size="demand_qty", color="demand_qty",
-                hover_name="city", zoom=3.5, center={"lat": 41.0, "lon": 70.0},
-                map_style="carto-positron", color_continuous_scale="Viridis", size_max=60
-            )
-            fig_map.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
-            st.plotly_chart(fig_map, use_container_width=True)
+            st.subheader("🔥 가장 많이 찾는 엔진 TOP 10")
+            if not eng_trend.empty:
+                fig = px.bar(eng_trend, x='count', y='keyword', orientation='h', text='count', title="엔진 검색 순위")
+                fig.update_layout(yaxis={'categoryorder':'total ascending'})
+                st.plotly_chart(fig, use_container_width=True)
+            else: st.info("아직 검색 데이터가 충분하지 않습니다.")
             
         with c2:
-            st.subheader("🔥 엔진별 부족/과잉 현황")
-            # 엔진별 Gap (부족한 순서대로)
-            engine_gap = d_df.groupby('engine_code')[['demand_qty', 'supply_qty']].mean().reset_index() # 도시별 평균이 아니라 합계여야 함. 로직 수정 필요하나 Mock이므로 단순화
-            # 정확한 Gap 계산: 총 수요 - 총 공급
-            engine_demand = d_df.groupby('engine_code')['demand_qty'].sum()
-            engine_supply = d_df.groupby('engine_code')['supply_qty'].mean() # supply는 동일하므로 mean
-            gap_df = pd.DataFrame({'수요': engine_demand, '공급': engine_supply})
-            gap_df['부족량'] = gap_df['수요'] - gap_df['공급']
-            gap_df = gap_df.sort_values('부족량', ascending=False).head(10)
-            
-            st.dataframe(gap_df, use_container_width=True)
-            
-        st.info("Tip: '부족량'이 높은 엔진은 수출 시 높은 마진을 기대할 수 있습니다. 해당 엔진을 보유한 폐차장을 검색해보세요.")
+            st.subheader("🚙 가장 많이 찾는 차종 TOP 10")
+            if not mod_trend.empty:
+                fig = px.bar(mod_trend, x='count', y='keyword', orientation='h', text='count', title="차종 검색 순위")
+                fig.update_layout(yaxis={'categoryorder':'total ascending'})
+                st.plotly_chart(fig, use_container_width=True)
+            else: st.info("아직 검색 데이터가 충분하지 않습니다.")
 
-    # 2. 일반 재고 모드
+    # 2. 일반 재고 조회 화면
     else:
         st.title("🚗 전국 폐차장 실시간 재고 현황")
         df_view = st.session_state['view_data']
@@ -607,16 +584,17 @@ try:
                     if not map_df.empty:
                         try:
                             map_agg = map_df.groupby(['junkyard', 'region', 'lat', 'lon'], observed=True).size().reset_index(name='count')
-                            fig = px.scatter_map(
+                            fig = px.scatter_mapbox(
                                 map_agg, lat="lat", lon="lon", size="count", color="count",
                                 hover_name="junkyard", zoom=6.5, center={"lat": 36.5, "lon": 127.8},
-                                map_style="carto-positron", color_continuous_scale="Reds", size_max=50
+                                mapbox_style="carto-positron", color_continuous_scale="Reds", size_max=50
                             )
                             fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
                             st.plotly_chart(fig, use_container_width=True)
                         except Exception as e: st.error("지도 생성 중 오류")
                     else: st.warning("위치 데이터 없음")
-                else: st.warning("🔒 지도는 관리자(회원) 전용입니다.")
+                else:
+                    st.warning("🔒 지도는 관리자(회원) 전용입니다.")
 
             with col2:
                 st.subheader("🏭 보유량 TOP")
@@ -663,7 +641,7 @@ try:
                     current_addr = sel_row['address']
                     
                     if st.session_state.logged_in and "조회 필요" in str(current_addr):
-                         if st.button(f"🔄 '{target_yard}' 주소 검색 실행"):
+                        if st.button(f"🔄 '{target_yard}' 주소 검색 실행"):
                             conn = init_db()
                             with st.spinner("주소 찾는 중..."):
                                 success, new_addr = update_single_junkyard(conn, target_yard)

@@ -182,6 +182,7 @@ def save_vehicle_file(uploaded_file):
         conn = init_db()
         c = conn.cursor()
         
+        # 데이터프레임 생성
         df_db = pd.DataFrame()
         df_db['vin'] = df['차대번호'].fillna('').astype(str).str.strip()
         df_db['reg_date'] = df['등록일자'].fillna('').astype(str)
@@ -234,7 +235,6 @@ def save_address_file(uploaded_file):
         
         name_col = next((c for c in df.columns if '폐차장' in c or '업체' in c or '회원' in c), None)
         addr_col = next((c for c in df.columns if '주소' in c or '소재' in c), None)
-        
         if not name_col or not addr_col: return 0
 
         conn = init_db()
@@ -316,6 +316,22 @@ def load_yard_list():
     except: return []
 
 # ---------------------------------------------------------
+# 🛠️ [필터 초기화 함수] - Callback 방식
+# ---------------------------------------------------------
+def reset_all_filters():
+    # 데이터 리셋
+    st.session_state['view_data'] = load_all_data()
+    st.session_state['is_filtered'] = False
+    
+    # 위젯 상태 리셋 (키가 존재할 경우)
+    if 'msel' in st.session_state: st.session_state['msel'] = "전체"
+    if 'sy' in st.session_state: st.session_state['sy'] = 2000
+    if 'ey' in st.session_state: st.session_state['ey'] = datetime.datetime.now().year
+    if 'mms' in st.session_state: st.session_state['mms'] = []
+    if 'es' in st.session_state: st.session_state['es'] = []
+    if 'ys' in st.session_state: st.session_state['ys'] = []
+
+# ---------------------------------------------------------
 # 메인 로직
 # ---------------------------------------------------------
 try:
@@ -329,7 +345,6 @@ try:
     df_models = load_model_list()
     list_engines = load_engine_list()
     list_yards = load_yard_list()
-    # 전체 데이터는 여기서 로드하지 않음 (캐시된 것 사용)
     
     with st.sidebar:
         st.title("🛠️ 컨트롤 패널")
@@ -380,19 +395,20 @@ try:
 
         st.divider()
         
-        # 검색 탭
         search_tabs = st.tabs(["🚙 차량", "🔧 엔진", "🏭 폐차장"])
         
         with search_tabs[0]:
             if not df_models.empty:
                 makers = sorted(df_models['manufacturer'].unique().tolist())
                 makers.insert(0, "전체")
+                # 위젯 키 'msel'
                 sel_maker = st.selectbox("제조사", makers, key="msel")
                 
                 current_year = datetime.datetime.now().year
                 year_opts = list(range(1990, current_year + 2))
                 c1, c2 = st.columns(2)
-                with c1: sel_sy = st.selectbox("시작", year_opts, index=year_opts.index(2000), key="sy")
+                # 위젯 키 'sy', 'ey'
+                with c1: sel_sy = st.selectbox("시작", year_opts, index=year_opts.index(2000) if 2000 in year_opts else 0, key="sy")
                 with c2: sel_ey = st.selectbox("종료", year_opts, index=len(year_opts)-1, key="ey")
                 
                 if sel_maker != "전체":
@@ -400,6 +416,7 @@ try:
                 else:
                     f_models = sorted(df_models['model_name'].unique().tolist())
                 
+                # 위젯 키 'mms'
                 sel_models = st.multiselect(f"모델 ({len(f_models)}개)", f_models, key="mms")
                 
                 st.markdown("")
@@ -414,6 +431,7 @@ try:
 
         with search_tabs[1]:
             if list_engines:
+                # 위젯 키 'es'
                 sel_engines = st.multiselect("엔진코드", list_engines, key="es")
                 st.markdown("")
                 if st.button("🔧 엔진 검색 적용", type="primary", use_container_width=True):
@@ -425,6 +443,7 @@ try:
 
         with search_tabs[2]:
             if list_yards:
+                # 위젯 키 'ys'
                 sel_yards = st.multiselect("폐차장 이름", list_yards, key="ys")
                 st.markdown("")
                 if st.button("🏭 폐차장 검색 적용", type="primary", use_container_width=True):
@@ -434,22 +453,8 @@ try:
                     st.session_state['is_filtered'] = True
                     safe_rerun()
         
-        # [수정] 전체 목록 보기 (초기화) 버튼 로직 개선
-        if st.button("🔄 전체 목록 보기 (필터 초기화)", use_container_width=True):
-            # 1. 뷰 데이터 초기화 (메모리 문제로 빈 데이터로 시작하거나, 전체를 보여주거나 선택)
-            # 여기서는 전체를 보여주는 것으로 하되 캐시된 데이터 사용
-            st.session_state['view_data'] = load_all_data()
-            st.session_state['is_filtered'] = False
-            
-            # 2. 필터 세션 값 초기화 (강제 설정)
-            if 'msel' in st.session_state: st.session_state['msel'] = "전체"
-            if 'sy' in st.session_state: st.session_state['sy'] = 2000
-            if 'ey' in st.session_state: st.session_state['ey'] = datetime.datetime.now().year
-            if 'mms' in st.session_state: st.session_state['mms'] = []
-            if 'es' in st.session_state: st.session_state['es'] = []
-            if 'ys' in st.session_state: st.session_state['ys'] = []
-            
-            safe_rerun()
+        # [수정된 초기화 버튼] 콜백 사용
+        st.button("🔄 전체 목록 보기 (필터 초기화)", use_container_width=True, on_click=reset_all_filters)
 
         if st.session_state.logged_in:
             st.divider()
@@ -494,11 +499,12 @@ try:
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("조회된 재고", f"{len(df_view):,}대")
         
-        conn = init_db()
+        # 전체 데이터 기반 오늘 입고량 (캐시 사용)
+        full_source = load_all_data()
         today = datetime.datetime.now().strftime("%Y-%m-%d")
-        try: today_cnt = pd.read_sql(f"SELECT COUNT(*) as cnt FROM vehicle_data WHERE reg_date LIKE '{today}%'", conn)['cnt'][0]
-        except: today_cnt = 0
-        conn.close()
+        if not full_source.empty:
+            today_cnt = len(full_source[full_source['reg_date'].astype(str).str.contains(today)])
+        else: today_cnt = 0
         
         c2.metric("오늘 전체 입고", f"{today_cnt}대")
         c3.metric("관련 업체", "🔒" if not st.session_state.logged_in else f"{df_view['junkyard'].nunique()}곳")
@@ -525,7 +531,7 @@ try:
                         fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
                         st.plotly_chart(fig, use_container_width=True)
                     except Exception as e: st.error("지도 생성 중 오류")
-                else: st.warning("위치 데이터 없음 (주소 DB를 업로드해주세요)")
+                else: st.warning("위치 데이터 없음")
             else:
                 st.warning("🔒 지도는 관리자(회원) 전용입니다.")
 
@@ -544,7 +550,6 @@ try:
             if not monthly_data.empty:
                 monthly_data['month_str'] = monthly_data['reg_date'].dt.month.astype(str) + '월'
                 monthly_data['sort_key'] = monthly_data['reg_date'].dt.strftime('%Y-%m')
-                # observed=True 옵션은 groupby 대상이 categorical일때만 유효하므로 안전하게 제거하거나 상황에 맞게 사용
                 monthly_counts = monthly_data.groupby(['sort_key', 'month_str']).size().reset_index(name='입고량').sort_values('sort_key')
                 fig_bar = px.bar(monthly_counts, x='month_str', y='입고량', text='입고량', color='입고량')
                 fig_bar.update_layout(xaxis_title=None, coloraxis_showscale=False)

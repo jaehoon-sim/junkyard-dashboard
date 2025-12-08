@@ -45,16 +45,27 @@ BUYER_CREDENTIALS = {
 DB_NAME = 'junkyard.db'
 
 # ---------------------------------------------------------
+# 🚦 [설정] 거래 상태 코드 정의
+# ---------------------------------------------------------
+ORDER_STATUS_OPTIONS = [
+    "PENDING",      # 접수 대기
+    "QUOTED",       # 견적 발송
+    "PAID",         # 결제 완료
+    "PROCESSING",   # 작업/준비 중
+    "SHIPPING",     # 배송/선적 중
+    "DONE",         # 거래 완료
+    "CANCELLED"     # 취소됨
+]
+
+# ---------------------------------------------------------
 # 🌍 [설정] 주소 영문 변환 매핑
 # ---------------------------------------------------------
 REGION_EN_MAP = {
-    '경기': 'Gyeonggi-do', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon-do',
+    '경기': 'Gyeonggi', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon',
     '충북': 'Chungbuk', '충남': 'Chungnam', '대전': 'Daejeon', '세종': 'Sejong',
     '전북': 'Jeonbuk', '전남': 'Jeonnam', '광주': 'Gwangju',
     '경북': 'Gyeongbuk', '경남': 'Gyeongnam', '대구': 'Daegu', '부산': 'Busan', '울산': 'Ulsan',
-    '제주': 'Jeju', '경상남도': 'Gyeongnam', '경상북도': 'Gyeongbuk', 
-    '전라남도': 'Jeonnam', '전라북도': 'Jeonbuk', '충청남도': 'Chungnam', '충청북도': 'Chungbuk',
-    '경기도': 'Gyeonggi-do', '강원도': 'Gangwon-do', '제주도': 'Jeju'
+    '제주': 'Jeju'
 }
 
 CITY_MAP = {
@@ -134,7 +145,6 @@ def generate_alias(real_name):
     return f"Partner #{hash_int}"
 
 def translate_address(addr):
-    """한글 주소 -> 영문 주소 변환 (시/군 단위)"""
     if not isinstance(addr, str) or addr == "검색실패" or "조회" in addr:
         return "Unknown Address"
         
@@ -347,6 +357,12 @@ def load_yard_list_for_filter(role):
         return []
     except: return []
 
+def update_order_status(order_id, new_status):
+    conn = init_db()
+    conn.execute("UPDATE orders SET status = ? WHERE id = ?", (new_status, order_id))
+    conn.commit()
+    conn.close()
+
 def reset_dashboard():
     st.session_state['view_data'] = load_all_data()
     st.session_state['is_filtered'] = False
@@ -376,7 +392,6 @@ list_engines = load_engine_list()
 with st.sidebar:
     st.title("K-Parts Global Hub")
     
-    # 로그인
     if st.session_state.user_role == 'guest':
         with st.expander("🔐 Login", expanded=True):
             uid = st.text_input("ID")
@@ -404,9 +419,8 @@ with st.sidebar:
 
     if st.session_state.user_role == 'admin':
         with st.expander("📂 Admin Tools"):
-            # 차량 데이터 업로드
-            up_files = st.file_uploader("Vehicle Data", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
-            if up_files and st.button("Save Data"):
+            up_files = st.file_uploader("Data Upload", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
+            if up_files and st.button("Save"):
                 tot = 0
                 bar = st.progress(0)
                 for i, f in enumerate(up_files):
@@ -417,17 +431,13 @@ with st.sidebar:
                 load_all_data.clear()
                 safe_rerun()
             
-            st.divider()
-            
-            # 🟢 [복구] 주소 DB 업로드
-            addr_file = st.file_uploader("Address DB", type=['xlsx', 'xls', 'csv'], key="admin_addr")
+            addr_file = st.file_uploader("Address DB", type=['xlsx', 'xls', 'csv'], key="a_up")
             if addr_file and st.button("Save Address"):
                 cnt = save_address_file(addr_file)
                 st.success(f"{cnt} addresses updated.")
                 load_all_data.clear()
                 safe_rerun()
 
-            st.divider()
             if st.button("🗑️ Reset DB"):
                 conn = init_db()
                 conn.execute("DROP TABLE vehicle_data")
@@ -598,6 +608,7 @@ else:
                             if not s_engines: item_desc.append(f"({s_sy}~{s_ey})")
                             
                             def_item = " ".join(item_desc)
+                            
                             item = st.text_input("Item *", value=def_item)
                             offer = st.text_input("Target Unit Price (USD) *", placeholder="e.g. $500/ea")
                         
@@ -630,9 +641,32 @@ else:
 
     if st.session_state.user_role == 'admin':
         with main_tabs[1]:
-            st.subheader("📩 Quote Requests")
+            st.subheader("📩 Incoming Quote Requests")
             conn = init_db()
             orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
             conn.close()
-            if not orders.empty: st.dataframe(orders)
-            else: st.info("No orders.")
+            
+            if not orders.empty:
+                for idx, row in orders.iterrows():
+                    # 🟢 [수정] 주문 관리 패널 (상태 변경 기능 포함)
+                    with st.expander(f"[{row['status']}] {row['created_at']} | From: {row['buyer_id']}"):
+                        st.write(f"**Contact:** {row['contact_info']}")
+                        st.write(f"**Target:** {row['real_junkyard_name']} ({row['target_partner_alias']})")
+                        st.info(f"**Request:** {row['items_summary']}")
+                        
+                        c1, c2 = st.columns([3, 1])
+                        with c1:
+                            new_status = st.selectbox("Change Status", 
+                                                      ["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"],
+                                                      index=["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"].index(row['status']),
+                                                      key=f"st_{row['id']}")
+                        with c2:
+                            st.write("")
+                            st.write("")
+                            if st.button("Update", key=f"btn_{row['id']}"):
+                                update_order_status(row['id'], new_status)
+                                st.success("Updated!")
+                                time.sleep(0.5)
+                                safe_rerun()
+            else:
+                st.info("No pending orders.")

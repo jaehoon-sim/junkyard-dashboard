@@ -45,55 +45,6 @@ BUYER_CREDENTIALS = {
 DB_NAME = 'junkyard.db'
 
 # ---------------------------------------------------------
-# 🌍 [설정] 지역명 한글 -> 영문 매핑 테이블
-# ---------------------------------------------------------
-REGION_EN_MAP = {
-    '경기': 'Gyeonggi', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon',
-    '충북': 'Chungbuk', '충남': 'Chungnam', '대전': 'Daejeon', '세종': 'Sejong',
-    '전북': 'Jeonbuk', '전남': 'Jeonnam', '광주': 'Gwangju',
-    '경북': 'Gyeongbuk', '경남': 'Gyeongnam', '대구': 'Daegu', '부산': 'Busan', '울산': 'Ulsan',
-    '제주': 'Jeju', '기타': 'Other'
-}
-
-# 📍 전국 시/군/구 단위 상세 좌표 데이터베이스 (Fallback용)
-CITY_COORDS = {
-    '경기 수원': [37.2636, 127.0286], '경기 성남': [37.4386, 127.1378], '경기 용인': [37.2410, 127.1775],
-    '경기 안양': [37.3943, 126.9568], '경기 안산': [37.3219, 126.8309], '경기 과천': [37.4292, 126.9877],
-    '경기 광명': [37.4784, 126.8647], '경기 광주': [37.4293, 127.2551], '경기 군포': [37.3614, 126.9352],
-    '경기 부천': [37.5034, 126.7660], '경기 시흥': [37.3801, 126.8029], '경기 김포': [37.6152, 126.7157],
-    '경기 안성': [37.0080, 127.2797], '경기 오산': [37.1498, 127.0771], '경기 의왕': [37.3447, 126.9683],
-    '경기 이천': [37.2892, 127.4452], '경기 평택': [36.9924, 127.1127], '경기 하남': [37.5393, 127.2148],
-    '경기 화성': [37.1995, 126.8315], '경기 여주': [37.2983, 127.6373], '경기 양평': [37.4918, 127.4876],
-    '경기 고양': [37.6584, 126.8320], '경기 구리': [37.5943, 127.1296], '경기 남양주': [37.6360, 127.2165],
-    '경기 동두천': [37.9019, 127.0607], '경기 양주': [37.7853, 127.0459], '경기 의정부': [37.7381, 127.0337],
-    '경기 파주': [37.7600, 126.7798], '경기 포천': [37.8949, 127.2003], '경기 연천': [38.0964, 127.0749],
-    '경기 가평': [37.8315, 127.5097],
-    '충북 청주': [36.6424, 127.4890], '충북 충주': [36.9915, 127.9260], '충북 제천': [37.1326, 128.1910],
-    '충북 음성': [36.9403, 127.6903], '충북 진천': [36.8553, 127.4355], '충북 괴산': [36.8153, 127.7867],
-    '충남 천안': [36.8151, 127.1139], '충남 공주': [36.4465, 127.1190], '충남 보령': [36.3333, 126.6129],
-    '충남 아산': [36.7898, 127.0018], '충남 서산': [36.7848, 126.4503], '충남 논산': [36.2021, 127.0850],
-    '충남 당진': [36.8906, 126.6290], '충남 금산': [36.1087, 127.4883], '충남 예산': [36.6816, 126.8437],
-    '충남 홍성': [36.6015, 126.6607], '충남 부여': [36.2755, 126.9097], '세종': [36.4800, 127.2890],
-    '경북 포항': [36.0190, 129.3435], '경북 경주': [35.8562, 129.2247], '경북 김천': [36.1398, 128.1136],
-    '경북 안동': [36.5684, 128.7294], '경북 구미': [36.1195, 128.3443], '경북 영주': [36.8055, 128.6241],
-    '경북 영천': [35.9733, 128.9385], '경북 상주': [36.4109, 128.1591], '경북 경산': [35.8251, 128.7414],
-    '경북 칠곡': [35.9610, 128.4014], '경북 성주': [35.9190, 128.2829],
-    '경남 창원': [35.2279, 128.6818], '경남 진주': [35.1805, 128.1076], '경남 통영': [34.8544, 128.4332],
-    '경남 사천': [35.0038, 128.0642], '경남 김해': [35.2285, 128.8894], '경남 밀양': [35.5038, 128.7466],
-    '경남 거제': [34.8806, 128.6211], '경남 양산': [35.3350, 129.0373], '경남 함안': [35.2725, 128.4065],
-    '경남 창녕': [35.5413, 128.4923], '경남 고성': [34.9755, 128.3232], '경남 거창': [35.6865, 127.9093],
-    '전북 전주': [35.8242, 127.1480], '전북 군산': [35.9676, 126.7366], '전북 익산': [35.9483, 126.9578],
-    '전북 정읍': [35.5699, 126.8559], '전북 남원': [35.4164, 127.3904], '전북 김제': [35.8036, 126.8809],
-    '전북 완주': [35.9048, 127.1620],
-    '전남 목포': [34.8118, 126.3922], '전남 여수': [34.7604, 127.6622], '전남 순천': [34.9506, 127.4872],
-    '전남 나주': [35.0158, 126.7108], '전남 광양': [34.9407, 127.6959], '전남 화순': [35.0645, 126.9863],
-    '전남 담양': [35.3211, 126.9881], '전남 해남': [34.5708, 126.5990],
-    '서울': [37.5665, 126.9780], '인천': [37.4563, 126.7052], '대전': [36.3504, 127.3845],
-    '대구': [35.8714, 128.6014], '광주': [35.1595, 126.8526], '부산': [35.1796, 129.0756],
-    '울산': [35.5384, 129.3114], '제주': [33.4996, 126.5312]
-}
-
-# ---------------------------------------------------------
 # 1. 데이터베이스 초기화
 # ---------------------------------------------------------
 def init_db():
@@ -121,7 +72,7 @@ def init_db():
     return conn
 
 # ---------------------------------------------------------
-# 🕵️ [직거래 방지] 데이터 마스킹 & 포맷팅
+# 🕵️ [직거래 방지] 데이터 마스킹
 # ---------------------------------------------------------
 def generate_alias(real_name):
     if not isinstance(real_name, str): return "Unknown"
@@ -129,42 +80,29 @@ def generate_alias(real_name):
     hash_int = int(hash_object.hexdigest(), 16) % 900 + 100 
     return f"Partner #{hash_int}"
 
-def translate_region(region_kr):
-    """한글 지역명을 영문으로 변환 (Mapping + Fallback)"""
-    s = str(region_kr)
-    # 매핑 테이블에서 먼저 찾기
-    for kr, en in REGION_EN_MAP.items():
-        if kr in s: return en
-    return "Korea" # Fallback
-
 def mask_dataframe(df, role):
     if df.empty: return df
     df_safe = df.copy()
     
-    # 🟢 [수정] Region 영문 변환 (모든 권한 공통)
-    if 'region' in df_safe.columns:
-        df_safe['region'] = df_safe['region'].apply(translate_region)
-
-    # 1. 관리자: 원본 유지하되 편의상 Alias만 추가
     if role == 'admin':
         if 'junkyard' in df_safe.columns:
             df_safe['partner_alias'] = df_safe['junkyard'].apply(generate_alias)
         return df_safe
 
-    # 2. 바이어/게스트: 마스킹 적용
-    
-    # 업체명 (내부 백업 후 Alias로 교체)
     if 'junkyard' in df_safe.columns:
-        df_safe['real_junkyard'] = df_safe['junkyard'] # 로직용 백업
+        df_safe['real_junkyard'] = df_safe['junkyard']
         if role == 'buyer':
             df_safe['junkyard'] = df_safe['junkyard'].apply(generate_alias)
         else:
             df_safe['junkyard'] = "🔒 Login Required"
 
-    # 주소 (상세주소 제거 후 광역 영문 주소로 변경)
     def simplify_address(addr):
-        # 주소 문자열에서 지역명 찾아서 영문 변환
-        return f"{translate_region(addr)}, South Korea"
+        s = str(addr)
+        if '경기' in s: return 'Gyeonggi-do, Korea'
+        if '인천' in s: return 'Incheon, Korea'
+        if '서울' in s: return 'Seoul, Korea'
+        if '경남' in s or '부산' in s: return 'Busan/Gyeongnam, Korea'
+        return 'South Korea'
     
     if 'address' in df_safe.columns:
         if role == 'buyer':
@@ -172,14 +110,19 @@ def mask_dataframe(df, role):
         else:
             df_safe['address'] = "🔒 Login Required"
 
-    # 민감정보 제거
     if 'vin' in df_safe.columns:
         df_safe['vin'] = df_safe['vin'].astype(str).apply(lambda x: x[:8] + "****" if len(x) > 8 else "****")
     
-    # 🟢 [수정] Lat, Lon, Car_no, real_junkyard 컬럼 완전 제거 (화면 표시 방지)
-    drop_cols = ['car_no', 'lat', 'lon', 'real_junkyard']
-    df_safe = df_safe.drop(columns=[c for c in drop_cols if c in df_safe.columns], errors='ignore')
+    if 'car_no' in df_safe.columns:
+        df_safe = df_safe.drop(columns=['car_no'], errors='ignore')
+    
+    if 'real_junkyard' in df_safe.columns:
+        df_safe = df_safe.drop(columns=['real_junkyard'], errors='ignore')
 
+    if role == 'guest' and 'lat' in df_safe.columns:
+        df_safe['lat'] = 0.0
+        df_safe['lon'] = 0.0
+        
     return df_safe
 
 # ---------------------------------------------------------
@@ -266,7 +209,7 @@ def save_vehicle_file(uploaded_file):
 def load_all_data():
     try:
         conn = init_db()
-        # [수정] lat, lon 컬럼 삭제됨
+        # lat, lon 제거됨
         query = "SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name"
         df = pd.read_sql(query, conn)
         conn.close()
@@ -396,8 +339,8 @@ with st.sidebar:
             sel_maker = st.selectbox("Manufacturer", makers, key="msel")
             
             c1, c2 = st.columns(2)
-            with c1: sel_sy = st.number_input("From", 1990, 2030, 2000)
-            with c2: sel_ey = st.number_input("To", 1990, 2030, 2025)
+            with c1: sel_sy = st.number_input("From", 1990, 2030, 2000, key="sy")
+            with c2: sel_ey = st.number_input("To", 1990, 2030, 2025, key="ey")
             
             if sel_maker != "All":
                 f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].tolist())
@@ -419,7 +362,7 @@ with st.sidebar:
 
     with search_tabs[1]: 
         if list_engines:
-            sel_engines = st.multiselect("Engine Code", list_engines)
+            sel_engines = st.multiselect("Engine Code", list_engines, key="es")
             if st.button("🔍 Search Engine", type="primary"):
                 log_search(sel_engines, 'engine')
                 res = load_all_data()
@@ -529,24 +472,29 @@ else:
                             contact = st.text_input("Contact (Email/Phone) *")
                             req_qty = st.number_input("Quantity *", min_value=1, value=1)
                         with c_b:
-                            # 🟢 [핵심] 검색 필터 기반 자동 품목 생성
+                            # 🟢 [핵심] 검색 조건에 따라 Item 텍스트 생성
                             s_maker = st.session_state.get('msel', 'All')
                             s_models = st.session_state.get('mms', [])
                             s_engines = st.session_state.get('es', [])
                             s_sy = st.session_state.get('sy', 2000)
                             s_ey = st.session_state.get('ey', 2025)
 
-                            item_desc = []
-                            if s_engines: item_desc.append(f"Engine: {','.join(s_engines[:3])}")
-                            elif s_models: item_desc.append(f"Model: {','.join(s_models[:3])}")
-                            elif s_maker != "All": item_desc.append(f"{s_maker} Cars")
-                            else: item_desc.append("Auto Parts")
+                            item_desc_parts = []
+                            if s_engines: 
+                                item_desc_parts.append(f"Engine: {', '.join(s_engines[:3])}")
+                            elif s_models: 
+                                item_desc_parts.append(f"Model: {', '.join(s_models[:3])}")
+                            elif s_maker != "All": 
+                                item_desc_parts.append(f"{s_maker} Cars")
+                            else: 
+                                item_desc_parts.append("Auto Parts")
                             
-                            if not s_engines: item_desc.append(f"({s_sy}~{s_ey})")
+                            # 엔진 검색이 아닐 경우 연식 정보 추가
+                            if not s_engines:
+                                item_desc_parts.append(f"({s_sy}~{s_ey})")
                             
-                            def_item = " ".join(item_desc)
+                            def_item = " ".join(item_desc_parts)
                             
-                            # 🟢 [수정] 수량 중복 제거 (순수 품목명만)
                             item = st.text_input("Item *", value=def_item)
                             offer = st.text_input("Target Unit Price (USD) *", placeholder="e.g. $500/ea")
                         
@@ -585,3 +533,8 @@ else:
             conn.close()
             if not orders.empty: st.dataframe(orders)
             else: st.info("No orders.")
+            
+        with main_tabs[2]:
+            st.subheader("🗺️ Real Locations")
+            # lat, lon 없으므로 이 탭은 사실상 비활성 또는 주소 텍스트만 보여주도록 변경 가능
+            st.info("Location service is currently disabled.")

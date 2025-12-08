@@ -26,18 +26,22 @@ def safe_rerun():
 # ---------------------------------------------------------
 # 🔐 [보안] 계정 설정
 # ---------------------------------------------------------
+# 관리자 계정 (Secrets 또는 기본값)
 try:
     ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
     NAVER_CLIENT_ID = st.secrets["NAVER_CLIENT_ID"]
     NAVER_CLIENT_SECRET = st.secrets["NAVER_CLIENT_SECRET"]
 except:
     ADMIN_CREDENTIALS = {"admin": "1234"}
-    BUYER_CREDENTIALS = {"buyer": "1111", "global": "2222"}
     NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
     NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
-else:
-    if "buyer" not in locals(): 
-        BUYER_CREDENTIALS = {"buyer": "1111", "global": "2222"}
+
+# 바이어 계정 (테스트용 포함)
+BUYER_CREDENTIALS = {
+    "buyer": "1111",
+    "global": "2222",
+    "testbuyer": "1234"  # 🟢 [추가됨] 테스트용 계정
+}
 
 DB_NAME = 'junkyard.db'
 
@@ -61,7 +65,6 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
     
-    # 인덱스
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data(model_name)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_engine ON vehicle_data(engine_code)")
@@ -70,46 +73,30 @@ def init_db():
     return conn
 
 # ---------------------------------------------------------
-# 🕵️ [직거래 방지] 데이터 마스킹 (핵심)
+# 🕵️ [직거래 방지] 데이터 마스킹
 # ---------------------------------------------------------
 def generate_alias(real_name):
-    """폐차장 실명을 고유한 Partner ID로 변환 (해시 기반)"""
     if not isinstance(real_name, str): return "Unknown"
-    hash_object = hashlib.md5(real_name.encode())
+    hash_object = hashlib.md5(str(real_name).encode())
     hash_int = int(hash_object.hexdigest(), 16) % 900 + 100 
     return f"Partner #{hash_int}"
 
-def apply_security_policy(df, role):
-    """사용자 권한(Role)에 따라 데이터를 변조하거나 삭제함"""
+def mask_dataframe(df, role):
     if df.empty: return df
+    df_safe = df.copy()
     
-    # 원본 보호를 위해 복사
-    df_secure = df.copy()
-    
-    # [공통] 가명(Alias) 컬럼 생성
-    if 'junkyard' in df_secure.columns:
-        df_secure['partner_alias'] = df_secure['junkyard'].apply(generate_alias)
-    
-    # [관리자(Admin)] -> 모든 정보 열람 가능
     if role == 'admin':
-        return df_secure
+        if 'junkyard' in df_safe.columns:
+            df_safe['real_junkyard'] = df_safe['junkyard']
+        return df_safe
 
-    # [바이어(Buyer) & 게스트(Guest)] -> 정보 제한
-    
-    # 1. 실제 폐차장 이름 제거
-    if 'junkyard' in df_secure.columns:
-        # 화면 표시용 컬럼을 Alias로 교체
-        df_secure['junkyard'] = df_secure['partner_alias'] 
-    
-    # 2. 차량번호 제거 (추적 방지)
-    if 'car_no' in df_secure.columns:
-        df_secure = df_secure.drop(columns=['car_no'])
-        
-    # 3. 차대번호 마스킹
-    if 'vin' in df_secure.columns:
-        df_secure['vin'] = df_secure['vin'].astype(str).apply(lambda x: x[:8] + "****" if len(x) > 8 else "****")
-    
-    # 4. 주소 마스킹 (광역 단위만 표시)
+    if 'junkyard' in df_safe.columns:
+        df_safe['real_junkyard'] = df_safe['junkyard']
+        if role == 'buyer':
+            df_safe['junkyard'] = df_safe['junkyard'].apply(generate_alias)
+        else:
+            df_safe['junkyard'] = "🔒 Login Required"
+
     def simplify_address(addr):
         s = str(addr)
         if '경기' in s: return 'Gyeonggi-do, Korea'
@@ -118,19 +105,23 @@ def apply_security_policy(df, role):
         if '경남' in s or '부산' in s: return 'Busan/Gyeongnam, Korea'
         return 'South Korea'
     
-    if 'address' in df_secure.columns:
+    if 'address' in df_safe.columns:
         if role == 'buyer':
-            df_secure['address'] = df_secure['address'].apply(simplify_address)
-        else: # Guest
-            df_secure['address'] = "🔒 Login Required"
-            df_secure['junkyard'] = "🔒 Login Required" # 게스트는 파트너명도 숨김
+            df_safe['address'] = df_safe['address'].apply(simplify_address)
+        else:
+            df_safe['address'] = "🔒 Login Required"
 
-    # 5. 지도 좌표 제거 (게스트)
-    if role == 'guest' and 'lat' in df_secure.columns:
-        df_secure['lat'] = 0.0
-        df_secure['lon'] = 0.0
+    if 'vin' in df_safe.columns:
+        df_safe['vin'] = df_safe['vin'].astype(str).apply(lambda x: x[:8] + "****" if len(x) > 8 else "****")
+    
+    if 'car_no' in df_safe.columns:
+        df_safe = df_safe.drop(columns=['car_no'], errors='ignore')
+    
+    if role == 'guest' and 'lat' in df_safe.columns:
+        df_safe['lat'] = 0.0
+        df_safe['lon'] = 0.0
         
-    return df_secure
+    return df_safe
 
 # ---------------------------------------------------------
 # 기능 함수들
@@ -140,9 +131,7 @@ def log_search(keywords, s_type):
     try:
         conn = init_db()
         c = conn.cursor()
-        # 임의 위치 (서울)
         lat, lon, city, country = 37.5, 127.0, 'Seoul', 'KR' 
-        
         if isinstance(keywords, list):
             for k in keywords:
                 c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city, lat, lon) VALUES (?, ?, ?, ?, ?, ?)", (str(k), s_type, country, city, lat, lon))
@@ -162,11 +151,57 @@ def get_search_trends():
     except: return pd.DataFrame(), pd.DataFrame()
 
 def save_vehicle_file(uploaded_file):
-    # (파일 저장 로직 - 이전과 동일하여 생략, 실제 구동시엔 이전 코드의 내용을 그대로 사용)
-    # 편의상 성공 리턴만 함. 실제로는 DB 저장 로직 수행됨.
-    # *** 이전 답변의 save_vehicle_file 전체 내용을 여기에 복사해야 합니다. ***
-    # 코드 길이 제한으로 인해 생략된 부분은 '이전 답변' 참조
-    return 100, 0 
+    try:
+        if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file, dtype=str)
+        else: 
+            try: df = pd.read_excel(uploaded_file, engine='openpyxl', dtype=str)
+            except: df = pd.read_excel(uploaded_file, engine='xlrd', dtype=str)
+
+        if '차대번호' not in df.columns:
+            if uploaded_file.name.endswith('.csv'): uploaded_file.seek(0); df = pd.read_csv(uploaded_file, header=2, dtype=str)
+            else: 
+                try: df = pd.read_excel(uploaded_file, header=2, engine='openpyxl', dtype=str)
+                except: df = pd.read_excel(uploaded_file, header=2, engine='xlrd', dtype=str)
+        
+        df.columns = [str(c).strip() for c in df.columns]
+        required = ['등록일자', '차량번호', '차대번호', '제조사', '차량명', '회원사', '원동기형식']
+        if not all(col in df.columns for col in required): return 0, 0
+
+        conn = init_db()
+        c = conn.cursor()
+        
+        df_db = pd.DataFrame()
+        df_db['vin'] = df['차대번호'].fillna('').astype(str).str.strip()
+        df_db['reg_date'] = df['등록일자'].fillna('').astype(str)
+        df_db['car_no'] = df['차량번호'].fillna('').astype(str)
+        df_db['manufacturer'] = df['제조사'].fillna('').astype(str)
+        df_db['model_name'] = df['차량명'].fillna('').astype(str)
+        df_db['junkyard'] = df['회원사'].fillna('').astype(str)
+        df_db['engine_code'] = df['원동기형식'].fillna('').astype(str)
+        
+        def parse_year(x):
+            try: return float(re.findall(r"[\d\.]+", str(x))[0])
+            except: return 0.0
+        df_db['model_year'] = df['연식'].apply(parse_year)
+
+        df_db.to_sql('temp_vehicles', conn, if_exists='replace', index=False)
+        c.execute("""INSERT OR IGNORE INTO vehicle_data (vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code)
+                     SELECT vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code FROM temp_vehicles""")
+        cnt = len(df_db)
+        c.execute("DROP TABLE temp_vehicles")
+        
+        model_list_df = df_db[['manufacturer', 'model_name']].drop_duplicates()
+        for _, row in model_list_df.iterrows():
+            c.execute("INSERT OR IGNORE INTO model_list (manufacturer, model_name) VALUES (?, ?)", (row['manufacturer'], row['model_name']))
+
+        unique_yards = df_db['junkyard'].unique().tolist()
+        for yard in unique_yards:
+            c.execute("INSERT OR IGNORE INTO junkyard_info (name, address, region, lat, lon) VALUES (?, ?, ?, ?, ?)", (yard, '검색실패', '기타', 0.0, 0.0))
+            
+        conn.commit()
+        conn.close()
+        return cnt, 0
+    except: return 0, 0
 
 @st.cache_data(ttl=300)
 def load_all_data():
@@ -181,7 +216,6 @@ def load_all_data():
         return df
     except: return pd.DataFrame()
 
-# 참조 데이터 로드
 def load_model_list():
     try:
         conn = init_db()
@@ -198,44 +232,37 @@ def load_engine_list():
         return df['engine_code'].tolist()
     except: return []
 
-# [중요] 필터용 폐차장 목록 로드 (권한에 따라 다르게 리턴)
+# [중요] 필터용 폐차장 목록 (바이어는 Alias로만 검색 가능하게)
 def load_yard_list_for_filter(role):
     try:
         conn = init_db()
         df = pd.read_sql("SELECT name FROM junkyard_info ORDER BY name", conn)
         conn.close()
-        
         real_names = df['name'].tolist()
-        
         if role == 'admin':
-            return real_names # 관리자는 실명 리스트
+            return real_names
         elif role == 'buyer':
-            # 바이어는 Alias 리스트로 변환
             return sorted(list(set([generate_alias(name) for name in real_names])))
-        else:
-            return [] # 게스트는 검색 불가
+        return []
     except: return []
 
 # ---------------------------------------------------------
 # 🚀 메인 어플리케이션
 # ---------------------------------------------------------
 if 'user_role' not in st.session_state: st.session_state.user_role = 'guest'
+if 'username' not in st.session_state: st.session_state.username = 'Guest'
 if 'view_data' not in st.session_state: st.session_state['view_data'] = pd.DataFrame()
 if 'is_filtered' not in st.session_state: st.session_state['is_filtered'] = False
 if 'mode_demand' not in st.session_state: st.session_state.mode_demand = False
 
-# 원본 데이터 로드 (필터링 전)
 df_raw = load_all_data()
-
-# 참조 데이터 로드
 df_models = load_model_list()
 list_engines = load_engine_list()
 
-# 1. 사이드바 (로그인 & 검색 탭)
+# 1. 사이드바
 with st.sidebar:
     st.title("K-Parts Global Hub")
     
-    # 로그인
     if st.session_state.user_role == 'guest':
         with st.expander("🔐 Login", expanded=True):
             uid = st.text_input("ID")
@@ -243,28 +270,35 @@ with st.sidebar:
             if st.button("Sign In"):
                 if uid in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[uid] == upw:
                     st.session_state.user_role = 'admin'
+                    st.session_state.username = uid
                     safe_rerun()
                 elif uid in BUYER_CREDENTIALS and BUYER_CREDENTIALS[uid] == upw:
                     st.session_state.user_role = 'buyer'
+                    st.session_state.username = uid
                     safe_rerun()
                 else:
                     st.error("Invalid Credentials")
     else:
         role_text = "Manager" if st.session_state.user_role == 'admin' else "Global Buyer"
-        st.success(f"Welcome, {role_text}!")
+        st.success(f"Welcome, {st.session_state.username} ({role_text})!")
         if st.button("Logout"):
             st.session_state.user_role = 'guest'
+            st.session_state.username = 'Guest'
             safe_rerun()
 
     st.divider()
 
-    # 관리자 메뉴
     if st.session_state.user_role == 'admin':
         with st.expander("📂 Admin Tools"):
             up_files = st.file_uploader("Data Upload", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
             if up_files and st.button("Save"):
-                # (업로드 로직 생략 - 이전과 동일)
-                st.success("Admin feature (Demo)")
+                tot = 0
+                bar = st.progress(0)
+                for i, f in enumerate(up_files):
+                    n, _ = save_vehicle_file(f)
+                    tot += n
+                    bar.progress((i+1)/len(up_files))
+                st.success(f"{tot} records uploaded.")
                 load_all_data.clear()
                 safe_rerun()
             
@@ -273,16 +307,16 @@ with st.sidebar:
                 conn.execute("DROP TABLE vehicle_data")
                 conn.execute("DROP TABLE junkyard_info")
                 conn.execute("DROP TABLE model_list")
+                conn.execute("DROP TABLE search_logs_v2")
+                conn.execute("DROP TABLE orders")
                 conn.commit()
                 conn.close()
                 st.success("Reset Done")
                 safe_rerun()
 
-    # 🔍 검색 탭
     st.subheader("🔍 Search Filter")
     search_tabs = st.tabs(["🚙 Vehicle", "🔧 Engine", "🏭 Yard", "🔮 Forecast"])
     
-    # 1) 차량 검색
     with search_tabs[0]: 
         if not df_models.empty:
             makers = sorted(df_models['manufacturer'].unique().tolist())
@@ -311,7 +345,6 @@ with st.sidebar:
                 st.session_state['mode_demand'] = False
                 safe_rerun()
 
-    # 2) 엔진 검색
     with search_tabs[1]: 
         if list_engines:
             sel_engines = st.multiselect("Engine Code", list_engines)
@@ -324,31 +357,20 @@ with st.sidebar:
                 st.session_state['mode_demand'] = False
                 safe_rerun()
 
-    # 3) 폐차장 검색 (보안 적용)
     with search_tabs[2]: 
-        # 권한별 목록 로드
         filter_yards = load_yard_list_for_filter(st.session_state.user_role)
-        
         if not filter_yards:
-            st.warning("Login required to search by partner.")
+            st.warning("Login required.")
         else:
             sel_yards = st.multiselect("Partner Name", filter_yards)
             if st.button("🔍 Search Partner", type="primary"):
-                res = load_all_data() # 원본 로드 (실명 포함)
-                
+                res = load_all_data()
                 if sel_yards:
-                    # 필터링 로직: 
-                    # 1. 원본 데이터에 alias 컬럼 생성
                     res['alias_temp'] = res['junkyard'].apply(generate_alias)
-                    
                     if st.session_state.user_role == 'admin':
-                        # 관리자는 실명으로 검색
                         res = res[res['junkyard'].isin(sel_yards)]
                     else:
-                        # 바이어는 Alias로 검색
                         res = res[res['alias_temp'].isin(sel_yards)]
-                    
-                    # 임시 컬럼 삭제
                     if 'alias_temp' in res.columns: res = res.drop(columns=['alias_temp'])
 
                 st.session_state['view_data'] = res.reset_index(drop=True)
@@ -356,14 +378,12 @@ with st.sidebar:
                 st.session_state['mode_demand'] = False
                 safe_rerun()
 
-    # 4) 수요 예측
     with search_tabs[3]: 
         st.info("Check global search trends.")
         if st.button("🔮 Show Trends"):
             st.session_state['mode_demand'] = True
             safe_rerun()
 
-    # 초기화
     if st.button("🔄 Reset Filters", use_container_width=True):
         st.session_state['view_data'] = load_all_data()
         st.session_state['is_filtered'] = False
@@ -371,10 +391,6 @@ with st.sidebar:
         safe_rerun()
 
 # 2. 메인 화면
-# ----------------------------------------
-df_view = st.session_state['view_data']
-
-# [A] 수요 예측 모드
 if st.session_state.mode_demand:
     st.title("📈 Global Demand Trends (Real-time)")
     eng_trend, mod_trend = get_search_trends()
@@ -382,30 +398,28 @@ if st.session_state.mode_demand:
     with c1:
         st.subheader("🔥 Top Searched Engines")
         if not eng_trend.empty:
-            fig = px.bar(eng_trend, x='count', y='keyword', orientation='h')
+            fig = px.bar(eng_trend, x='count', y='keyword', orientation='h', text='count')
+            fig.update_layout(yaxis={'categoryorder':'total ascending'})
             st.plotly_chart(fig, use_container_width=True)
         else: st.info("No data yet.")
     with c2:
         st.subheader("🚙 Top Searched Models")
         if not mod_trend.empty:
-            fig = px.bar(mod_trend, x='count', y='keyword', orientation='h')
+            fig = px.bar(mod_trend, x='count', y='keyword', orientation='h', text='count')
+            fig.update_layout(yaxis={'categoryorder':'total ascending'})
             st.plotly_chart(fig, use_container_width=True)
         else: st.info("No data yet.")
-
-# [B] 재고 조회 모드 (기본)
 else:
     st.title("🇰🇷 Korea Used Auto Parts Inventory")
     
-    # 🛡️ 화면 표시용 데이터 마스킹 적용 (가장 중요)
-    df_display = apply_security_policy(df_view, st.session_state.user_role)
+    df_view = st.session_state['view_data']
+    df_display = mask_dataframe(df_view, st.session_state.user_role)
     
-    # 탭 구성
     if st.session_state.user_role == 'admin':
         main_tabs = st.tabs(["📊 Inventory", "📩 Orders", "🗺️ Real Map"])
     else:
         main_tabs = st.tabs(["📊 Search Results"])
 
-    # 1) Inventory Tab
     with main_tabs[0]:
         if df_display.empty:
             st.info("Please select filters from the sidebar to search.")
@@ -413,28 +427,19 @@ else:
             c1, c2, c3 = st.columns(3)
             c1.metric("Total Vehicles", f"{len(df_display):,} EA")
             c2.metric("Matched Engines", f"{df_display['engine_code'].nunique()} Types")
-            
-            # 공급자 수 표시 (게스트는 숨김)
-            if st.session_state.user_role == 'guest':
-                c3.metric("Suppliers", "🔒 Login Req.")
-            else:
-                sup_label = "Real Junkyards" if st.session_state.user_role == 'admin' else "Partners"
-                c3.metric(sup_label, f"{df_display['junkyard'].nunique()} EA")
+            sup_label = "Real Junkyards" if st.session_state.user_role == 'admin' else "Partners"
+            c3.metric(sup_label, f"{df_display['junkyard'].nunique()} EA")
             
             st.divider()
-            
-            # 업체별 재고 요약
             st.subheader("📦 Stock by Partner")
             
-            # 그룹핑 기준 (관리자는 실명/실주소, 바이어는 Alias/광역주소, 게스트는 잠금)
             grp_cols = ['junkyard', 'address']
-            if st.session_state.user_role == 'admin': grp_cols.append('region')
+            if st.session_state.user_role == 'admin' and 'region' in df_display.columns:
+                grp_cols.append('region')
             
             stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
-            
             selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
             
-            # 선택 시 견적 폼
             if len(selection.selection.rows) > 0:
                 sel_idx = selection.selection.rows[0]
                 sel_row = stock_summary.iloc[sel_idx]
@@ -449,32 +454,24 @@ else:
                         st.markdown(f"### 📨 Request Quote to {target_partner}")
                         c_a, c_b = st.columns(2)
                         with c_a:
-                            buyer_name = st.text_input("Name / Company", value="Buyer")
+                            # 🟢 [개선] 사용자 ID 자동 입력
+                            buyer_name = st.text_input("Name / Company", value=st.session_state.username)
                             contact = st.text_input("Contact (Email/Phone)")
                         with c_b:
                             st.text_input("Item", value=f"Selected {stock_cnt} items", disabled=True)
-                            offer = st.text_input("Offer Price (USD)")
-                        msg = st.text_area("Message", height=80)
+                            offer = st.text_input("Offer Price (USD)", placeholder="e.g. $1,500")
+                        msg = st.text_area("Message to Admin", height=80)
                         
                         if st.form_submit_button("🚀 Send Inquiry"):
                             conn = init_db()
                             cur = conn.cursor()
-                            
-                            # 실제 이름 추적 (관리자는 그대로, 바이어는 Alias 매칭)
                             real_name = target_partner
                             if st.session_state.user_role == 'buyer':
-                                # 현재 뷰 데이터에서 Alias가 일치하는 행의 원본 이름(junkyard)을 찾음
-                                # (load_all_data에서 원본을 가져왔고, mask_dataframe 함수 적용 전의 df_view를 참조해야 함)
                                 try:
-                                    # df_view에는 원본 실명이 'junkyard' 컬럼에 있음
-                                    # df_view['alias']를 임시로 만들어 매칭
-                                    temp_df = df_view.copy()
-                                    temp_df['alias'] = temp_df['junkyard'].apply(generate_alias)
-                                    match = temp_df[temp_df['alias'] == target_partner]
+                                    match = df_view[df_view['junkyard'].apply(generate_alias) == target_partner]
                                     if not match.empty:
                                         real_name = match['junkyard'].iloc[0]
                                 except: real_name = "Unknown"
-
                             cur.execute("INSERT INTO orders (buyer_id, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?)",
                                         (buyer_name, target_partner, real_name, f"Qty:{stock_cnt}, Offer:{offer}, {msg}", 'PENDING'))
                             conn.commit()
@@ -485,26 +482,20 @@ else:
             st.subheader("📋 Item List")
             st.dataframe(df_display, use_container_width=True)
 
-    # 2) Orders Tab (Admin Only)
     if st.session_state.user_role == 'admin':
         with main_tabs[1]:
             st.subheader("📩 Quote Requests")
             conn = init_db()
             orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
             conn.close()
-            if not orders.empty:
-                st.dataframe(orders)
+            if not orders.empty: st.dataframe(orders)
             else: st.info("No orders.")
             
-        with main_tabs[2]: # Real Map
-            st.subheader("🗺️ Location Map")
+        with main_tabs[2]:
+            st.subheader("🗺️ Real Locations")
             if 'lat' in df_display.columns and not df_display.empty:
                  valid_map = df_display[df_display['lat'] != 0]
                  if not valid_map.empty:
-                     fig = px.scatter_mapbox(
-                        valid_map, lat="lat", lon="lon", hover_name="junkyard", 
-                        zoom=6.5, center={"lat": 36.5, "lon": 127.8},
-                        mapbox_style="carto-positron"
-                    )
+                     fig = px.scatter_mapbox(valid_map, lat="lat", lon="lon", hover_name="junkyard", zoom=6, center={"lat": 36.5, "lon": 127.8}, mapbox_style="carto-positron")
                      st.plotly_chart(fig, use_container_width=True)
-                 else: st.warning("No location data available.")
+                 else: st.warning("No location data.")

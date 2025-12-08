@@ -45,51 +45,15 @@ BUYER_CREDENTIALS = {
 DB_NAME = 'junkyard.db'
 
 # ---------------------------------------------------------
-# 1. 데이터베이스 초기화 (lat, lon 제거됨)
+# 1. 데이터베이스 초기화
 # ---------------------------------------------------------
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    
-    # 1. 차량 데이터
-    c.execute('''CREATE TABLE IF NOT EXISTS vehicle_data (
-        vin TEXT PRIMARY KEY, 
-        reg_date TEXT, 
-        car_no TEXT, 
-        manufacturer TEXT, 
-        model_name TEXT, 
-        model_year REAL, 
-        junkyard TEXT, 
-        engine_code TEXT, 
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )''')
-    
-    # 2. 폐차장 정보 (좌표 제거, 지역/주소만 유지)
-    c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (
-        name TEXT PRIMARY KEY, 
-        address TEXT, 
-        region TEXT, 
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )''')
-    
-    # 3. 모델 목록
-    c.execute('''CREATE TABLE IF NOT EXISTS model_list (
-        manufacturer TEXT, 
-        model_name TEXT, 
-        PRIMARY KEY (manufacturer, model_name)
-    )''')
-    
-    # 4. 검색 로그 (좌표 제거)
-    c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, 
-        keyword TEXT, 
-        search_type TEXT, 
-        country TEXT, 
-        city TEXT, 
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )''')
-    
-    # 5. 주문(견적)
+    c.execute('''CREATE TABLE IF NOT EXISTS vehicle_data (vin TEXT PRIMARY KEY, reg_date TEXT, car_no TEXT, manufacturer TEXT, model_name TEXT, model_year REAL, junkyard TEXT, engine_code TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (name TEXT PRIMARY KEY, address TEXT, region TEXT, lat REAL, lon REAL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS model_list (manufacturer TEXT, model_name TEXT, PRIMARY KEY (manufacturer, model_name))''')
+    c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         buyer_id TEXT,
@@ -100,7 +64,6 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
     
-    # 인덱스
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data(model_name)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_engine ON vehicle_data(engine_code)")
@@ -126,7 +89,6 @@ def mask_dataframe(df, role):
             df_safe['partner_alias'] = df_safe['junkyard'].apply(generate_alias)
         return df_safe
 
-    # 업체명 마스킹
     if 'junkyard' in df_safe.columns:
         df_safe['real_junkyard'] = df_safe['junkyard']
         if role == 'buyer':
@@ -134,7 +96,6 @@ def mask_dataframe(df, role):
         else:
             df_safe['junkyard'] = "🔒 Login Required"
 
-    # 주소 마스킹
     def simplify_address(addr):
         s = str(addr)
         if '경기' in s: return 'Gyeonggi-do, Korea'
@@ -149,7 +110,6 @@ def mask_dataframe(df, role):
         else:
             df_safe['address'] = "🔒 Login Required"
 
-    # 민감정보 제거
     if 'vin' in df_safe.columns:
         df_safe['vin'] = df_safe['vin'].astype(str).apply(lambda x: x[:8] + "****" if len(x) > 8 else "****")
     
@@ -159,6 +119,10 @@ def mask_dataframe(df, role):
     if 'real_junkyard' in df_safe.columns:
         df_safe = df_safe.drop(columns=['real_junkyard'], errors='ignore')
 
+    if role == 'guest' and 'lat' in df_safe.columns:
+        df_safe['lat'] = 0.0
+        df_safe['lon'] = 0.0
+        
     return df_safe
 
 # ---------------------------------------------------------
@@ -169,14 +133,12 @@ def log_search(keywords, s_type):
     try:
         conn = init_db()
         c = conn.cursor()
-        # IP 기반 위치 추적 (간소화)
-        city, country = 'Seoul', 'KR' 
-        
+        lat, lon, city, country = 37.5, 127.0, 'Seoul', 'KR' 
         if isinstance(keywords, list):
             for k in keywords:
-                c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city) VALUES (?, ?, ?, ?)", (str(k), s_type, country, city))
+                c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city, lat, lon) VALUES (?, ?, ?, ?, ?, ?)", (str(k), s_type, country, city, lat, lon))
         else:
-            c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city) VALUES (?, ?, ?, ?)", (str(keywords), s_type, country, city))
+            c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city, lat, lon) VALUES (?, ?, ?, ?, ?, ?)", (str(keywords), s_type, country, city, lat, lon))
         conn.commit()
         conn.close()
     except: pass
@@ -234,93 +196,25 @@ def save_vehicle_file(uploaded_file):
         for _, row in model_list_df.iterrows():
             c.execute("INSERT OR IGNORE INTO model_list (manufacturer, model_name) VALUES (?, ?)", (row['manufacturer'], row['model_name']))
 
-        # 폐차장 정보 등록 (주소 없음 상태)
         unique_yards = df_db['junkyard'].unique().tolist()
         for yard in unique_yards:
-            c.execute("INSERT OR IGNORE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (yard, '주소없음', '기타'))
+            c.execute("INSERT OR IGNORE INTO junkyard_info (name, address, region, lat, lon) VALUES (?, ?, ?, ?, ?)", (yard, '검색실패', '기타', 0.0, 0.0))
             
         conn.commit()
         conn.close()
         return cnt, 0
     except: return 0, 0
 
-def save_address_file(uploaded_file):
-    """주소 엑셀 업로드 (좌표 없이 주소만 저장)"""
-    try:
-        if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file)
-        else: 
-            try: df = pd.read_excel(uploaded_file, engine='openpyxl')
-            except: df = pd.read_excel(uploaded_file, engine='xlrd')
-        
-        name_col = next((c for c in df.columns if '폐차장' in c or '업체' in c or '회원' in c), None)
-        addr_col = next((c for c in df.columns if '주소' in c or '소재' in c), None)
-        if not name_col or not addr_col: return 0
-
-        conn = init_db()
-        c = conn.cursor()
-        update_cnt = 0
-        
-        for _, row in df.iterrows():
-            yard_name = str(row[name_col]).strip()
-            address = str(row[addr_col]).strip()
-            
-            # 지역명 파싱
-            addr_parts = address.split()
-            region = addr_parts[0][:2] if len(addr_parts) > 0 else '기타'
-            
-            c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (yard_name, address, region))
-            update_cnt += 1
-            
-        conn.commit()
-        conn.close()
-        return update_cnt
-    except: return 0
-
-def update_single_junkyard(conn, yard_name):
-    """네이버 API로 주소 텍스트만 업데이트 (좌표 X)"""
-    # 네이버 API 호출 로직 (주소 텍스트 확보용)
-    cleaned_name = re.sub(r'\(주\)|주식회사|\(유\)|합자회사|유한회사', '', str(yard_name)).strip()
-    search_query = cleaned_name + " 폐차장"
-    
-    url = "https://openapi.naver.com/v1/search/local.json"
-    headers = {"X-Naver-Client-Id": NAVER_CLIENT_ID, "X-Naver-Client-Secret": NAVER_CLIENT_SECRET}
-    
-    try:
-        resp = requests.get(url, headers=headers, params={"query": search_query, "display": 1, "sort": "random"})
-        if resp.status_code == 200:
-            items = resp.json().get('items')
-            if items:
-                address = items[0]['address']
-                region = address.split()[0][:2]
-                
-                c = conn.cursor()
-                c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (yard_name, address, region))
-                conn.commit()
-                return True, address
-    except: pass
-    
-    # 실패 시
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (yard_name, '검색실패', '기타'))
-    conn.commit()
-    return False, "검색실패"
-
 @st.cache_data(ttl=300)
 def load_all_data():
     try:
         conn = init_db()
-        # lat, lon 제거됨
-        query = "SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name"
+        query = "SELECT v.*, j.region, j.lat, j.lon, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name"
         df = pd.read_sql(query, conn)
         conn.close()
         if not df.empty:
             df['model_year'] = pd.to_numeric(df['model_year'], errors='coerce').fillna(0)
             df['reg_date'] = pd.to_datetime(df['reg_date'], errors='coerce')
-            
-            # 최적화
-            for col in df.select_dtypes(include=['object']).columns:
-                if len(df[col].unique()) / len(df) < 0.5:
-                    df[col] = df[col].astype('category')
         return df
     except: return pd.DataFrame()
 
@@ -346,10 +240,24 @@ def load_yard_list_for_filter(role):
         df = pd.read_sql("SELECT name FROM junkyard_info ORDER BY name", conn)
         conn.close()
         real_names = df['name'].tolist()
-        if role == 'admin': return real_names
-        elif role == 'buyer': return sorted(list(set([generate_alias(name) for name in real_names])))
+        if role == 'admin':
+            return real_names
+        elif role == 'buyer':
+            return sorted(list(set([generate_alias(name) for name in real_names])))
         return []
     except: return []
+
+def reset_dashboard():
+    st.session_state['view_data'] = load_all_data()
+    st.session_state['is_filtered'] = False
+    st.session_state['mode_demand'] = False
+    
+    if 'maker_sel' in st.session_state: st.session_state['maker_sel'] = "All"
+    if 'sy' in st.session_state: st.session_state['sy'] = 2000
+    if 'ey' in st.session_state: st.session_state['ey'] = datetime.datetime.now().year
+    if 'mms' in st.session_state: st.session_state['mms'] = []
+    if 'es' in st.session_state: st.session_state['es'] = []
+    if 'ys' in st.session_state: st.session_state['ys'] = []
 
 # ---------------------------------------------------------
 # 🚀 메인 어플리케이션
@@ -368,6 +276,7 @@ list_engines = load_engine_list()
 with st.sidebar:
     st.title("K-Parts Global Hub")
     
+    # 로그인
     if st.session_state.user_role == 'guest':
         with st.expander("🔐 Login", expanded=True):
             uid = st.text_input("ID")
@@ -396,7 +305,7 @@ with st.sidebar:
     if st.session_state.user_role == 'admin':
         with st.expander("📂 Admin Tools"):
             up_files = st.file_uploader("Data Upload", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
-            if up_files and st.button("Save Data"):
+            if up_files and st.button("Save"):
                 tot = 0
                 bar = st.progress(0)
                 for i, f in enumerate(up_files):
@@ -407,13 +316,6 @@ with st.sidebar:
                 load_all_data.clear()
                 safe_rerun()
             
-            addr_file = st.file_uploader("Address Upload", type=['xlsx', 'xls', 'csv'])
-            if addr_file and st.button("Save Address"):
-                cnt = save_address_file(addr_file)
-                st.success(f"{cnt} addresses updated.")
-                load_all_data.clear()
-                safe_rerun()
-
             if st.button("🗑️ Reset DB"):
                 conn = init_db()
                 conn.execute("DROP TABLE vehicle_data")
@@ -436,14 +338,14 @@ with st.sidebar:
             sel_maker = st.selectbox("Manufacturer", makers, key="msel")
             
             c1, c2 = st.columns(2)
-            with c1: sel_sy = st.number_input("From", 1990, 2030, 2000)
-            with c2: sel_ey = st.number_input("To", 1990, 2030, 2025)
+            with c1: sel_sy = st.number_input("From", 1990, 2030, 2000, key="sy")
+            with c2: sel_ey = st.number_input("To", 1990, 2030, 2025, key="ey")
             
             if sel_maker != "All":
                 f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].tolist())
             else:
                 f_models = sorted(df_models['model_name'].unique().tolist())
-            sel_models = st.multiselect("Model", f_models)
+            sel_models = st.multiselect("Model", f_models, key="mms")
             
             if st.button("🔍 Search Vehicle", type="primary"):
                 log_search(sel_models, 'model')
@@ -459,7 +361,7 @@ with st.sidebar:
 
     with search_tabs[1]: 
         if list_engines:
-            sel_engines = st.multiselect("Engine Code", list_engines)
+            sel_engines = st.multiselect("Engine Code", list_engines, key="es")
             if st.button("🔍 Search Engine", type="primary"):
                 log_search(sel_engines, 'engine')
                 res = load_all_data()
@@ -474,11 +376,10 @@ with st.sidebar:
         if not filter_yards:
             st.warning("Login required.")
         else:
-            sel_yards = st.multiselect("Partner Name", filter_yards)
+            sel_yards = st.multiselect("Partner Name", filter_yards, key="ys")
             if st.button("🔍 Search Partner", type="primary"):
                 res = load_all_data()
                 if sel_yards:
-                    # 마스킹 처리 전 원본에서 필터링
                     res['alias_temp'] = res['junkyard'].apply(generate_alias)
                     if st.session_state.user_role == 'admin':
                         res = res[res['junkyard'].isin(sel_yards)]
@@ -497,11 +398,8 @@ with st.sidebar:
             st.session_state['mode_demand'] = True
             safe_rerun()
 
-    if st.button("🔄 Reset Filters", use_container_width=True):
-        st.session_state['view_data'] = load_all_data()
-        st.session_state['is_filtered'] = False
-        st.session_state['mode_demand'] = False
-        safe_rerun()
+    if st.button("🔄 Reset Filters", use_container_width=True, on_click=reset_dashboard):
+        pass
 
 # 2. 메인 화면
 if st.session_state.mode_demand:
@@ -524,6 +422,8 @@ else:
     st.title("🇰🇷 Korea Used Auto Parts Inventory")
     
     df_view = st.session_state['view_data']
+    
+    # 🛡️ 마스킹 적용
     df_display = mask_dataframe(df_view, st.session_state.user_role)
     
     if st.session_state.user_role == 'admin':
@@ -551,28 +451,13 @@ else:
             stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
             selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
             
+            # [수정됨] 견적 요청 폼
             if len(selection.selection.rows) > 0:
                 sel_idx = selection.selection.rows[0]
                 sel_row = stock_summary.iloc[sel_idx]
                 target_partner = sel_row['junkyard']
                 stock_cnt = sel_row['qty']
                 
-                # 주소 업데이트 버튼 (관리자 전용 & 주소 없을때)
-                if st.session_state.user_role == 'admin':
-                    current_addr = sel_row['address']
-                    if "검색실패" in str(current_addr) or "주소없음" in str(current_addr):
-                        if st.button(f"🔄 '{target_partner}' Address Update"):
-                            conn = init_db()
-                            with st.spinner("Searching..."):
-                                success, new_addr = update_single_junkyard(conn, target_partner)
-                            conn.close()
-                            if success:
-                                st.success(f"Updated: {new_addr}")
-                                load_all_data.clear()
-                                time.sleep(1)
-                                safe_rerun()
-                            else: st.error("Failed.")
-
                 if st.session_state.user_role == 'guest':
                     st.warning("🔒 Login required to request a quote.")
                 else:
@@ -586,14 +471,32 @@ else:
                             contact = st.text_input("Contact (Email/Phone) *")
                             req_qty = st.number_input("Quantity *", min_value=1, value=1)
                         with c_b:
-                            item = st.text_input("Item *", value=f"Selected {stock_cnt} items from search")
+                            # 🟢 [핵심] 검색 필터 기반 자동 품목 생성
+                            s_maker = st.session_state.get('msel', 'All')
+                            s_models = st.session_state.get('mms', [])
+                            s_engines = st.session_state.get('es', [])
+                            s_sy = st.session_state.get('sy', 2000)
+                            s_ey = st.session_state.get('ey', 2025)
+
+                            item_desc = []
+                            if s_engines: item_desc.append(f"Engine: {','.join(s_engines[:3])}")
+                            elif s_models: item_desc.append(f"Model: {','.join(s_models[:3])}")
+                            elif s_maker != "All": item_desc.append(f"{s_maker} Cars")
+                            else: item_desc.append("Auto Parts")
+                            
+                            if not s_engines: item_desc.append(f"({s_sy}~{s_ey})")
+                            
+                            def_item = " ".join(item_desc)
+                            
+                            # 🟢 [수정] 수량 중복 제거 (순수 품목명만)
+                            item = st.text_input("Item *", value=def_item)
                             offer = st.text_input("Target Unit Price (USD) *", placeholder="e.g. $500/ea")
                         
                         msg = st.text_area("Message to Admin", height=80, placeholder="Details...")
                         
                         if st.form_submit_button("🚀 Send Inquiry"):
                             if not contact or not item or not offer:
-                                st.error("⚠️ Please fill in Contact, Item, and Price.")
+                                st.error("⚠️ Please fill in all required fields: Contact, Item, and Price.")
                             else:
                                 conn = init_db()
                                 cur = conn.cursor()

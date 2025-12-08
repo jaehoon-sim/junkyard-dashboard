@@ -45,59 +45,6 @@ BUYER_CREDENTIALS = {
 DB_NAME = 'junkyard.db'
 
 # ---------------------------------------------------------
-# 🌍 [설정] 영문 변환 매핑 테이블
-# ---------------------------------------------------------
-PROVINCE_MAP = {
-    '경기': 'Gyeonggi-do', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon-do',
-    '충북': 'Chungbuk', '충남': 'Chungnam', '대전': 'Daejeon', '세종': 'Sejong',
-    '전북': 'Jeonbuk', '전남': 'Jeonnam', '광주': 'Gwangju',
-    '경북': 'Gyeongbuk', '경남': 'Gyeongnam', '대구': 'Daegu', '부산': 'Busan', '울산': 'Ulsan',
-    '제주': 'Jeju', '경상남도': 'Gyeongnam', '경상북도': 'Gyeongbuk', 
-    '전라남도': 'Jeonnam', '전라북도': 'Jeonbuk', '충청남도': 'Chungnam', '충청북도': 'Chungbuk',
-    '경기도': 'Gyeonggi-do', '강원도': 'Gangwon-do', '제주도': 'Jeju'
-}
-
-# 주요 도시 매핑 (나머지는 로마자 표기법 라이브러리 없으므로 약식 변환)
-CITY_MAP = {
-    '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang',
-    '부천': 'Bucheon', '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon',
-    '안산': 'Ansan', '고양': 'Goyang', '과천': 'Gwacheon', '구리': 'Guri',
-    '남양주': 'Namyangju', '오산': 'Osan', '시흥': 'Siheung', '군포': 'Gunpo',
-    '의왕': 'Uiwang', '하남': 'Hanam', '용인': 'Yongin', '파주': 'Paju',
-    '이천': 'Icheon', '안성': 'Anseong', '김포': 'Gimpo', '화성': 'Hwaseong',
-    '광주': 'Gwangju', '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju',
-    '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong',
-    '천안': 'Cheonan', '공주': 'Gongju', '보령': 'Boryeong', '아산': 'Asan',
-    '서산': 'Seosan', '논산': 'Nonsan', '계룡': 'Gyeryong', '당진': 'Dangjin',
-    '금산': 'Geumsan', '부여': 'Buyeo', '서천': 'Seocheon', '청양': 'Cheongyang',
-    '홍성': 'Hongseong', '예산': 'Yesan', '태안': 'Taean',
-    '청주': 'Cheongju', '충주': 'Chungju', '제천': 'Jecheon', '보은': 'Boeun',
-    '옥천': 'Okcheon', '영동': 'Yeongdong', '증평': 'Jeungpyeong', '진천': 'Jincheon',
-    '괴산': 'Goesan', '음성': 'Eumseong', '단양': 'Danyang',
-    '포항': 'Pohang', '경주': 'Gyeongju', '김천': 'Gimcheon', '안동': 'Andong',
-    '구미': 'Gumi', '영주': 'Yeongju', '영천': 'Yeongcheon', '상주': 'Sangju',
-    '문경': 'Mungyeong', '경산': 'Gyeongsan', '군위': 'Gunwi', '의성': 'Uiseong',
-    '청송': 'Cheongsong', '영양': 'Yeongyang', '영덕': 'Yeongdeok', '청도': 'Cheongdo',
-    '고령': 'Goryeong', '성주': 'Seongju', '칠곡': 'Chilgok', '예천': 'Yecheon',
-    '봉화': 'Bonghwa', '울진': 'Uljin', '울릉': 'Ulleung',
-    '창원': 'Changwon', '진주': 'Jinju', '통영': 'Tongyeong', '사천': 'Sacheon',
-    '김해': 'Gimhae', '밀양': 'Miryang', '거제': 'Geoje', '양산': 'Yangsan',
-    '의령': 'Uiryeong', '함안': 'Haman', '창녕': 'Changnyeong', '고성': 'Goseong',
-    '남해': 'Namhae', '하동': 'Hadong', '산청': 'Sancheong', '함양': 'Hamyang',
-    '거창': 'Geochang', '합천': 'Hapcheon',
-    '전주': 'Jeonju', '군산': 'Gunsan', '익산': 'Iksan', '정읍': 'Jeongeup',
-    '남원': 'Namwon', '김제': 'Gimje', '완주': 'Wanju', '진안': 'Jinan',
-    '무주': 'Muju', '장수': 'Jangsu', '임실': 'Imsil', '순창': 'Sunchang',
-    '고창': 'Gochang', '부안': 'Buan',
-    '목포': 'Mokpo', '여수': 'Yeosu', '순천': 'Suncheon', '나주': 'Naju',
-    '광양': 'Gwangyang', '담양': 'Damyang', '곡성': 'Gokseong', '구례': 'Gurye',
-    '고흥': 'Goheung', '보성': 'Boseong', '화순': 'Hwasun', '장흥': 'Jangheung',
-    '강진': 'Gangjin', '해남': 'Haenam', '영암': 'Yeongam', '무안': 'Muan',
-    '함평': 'Hampyeong', '영광': 'Yeonggwang', '장성': 'Jangseong', '완도': 'Wando',
-    '진도': 'Jindo', '신안': 'Sinan'
-}
-
-# ---------------------------------------------------------
 # 1. 데이터베이스 초기화
 # ---------------------------------------------------------
 def init_db():
@@ -107,9 +54,12 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (name TEXT PRIMARY KEY, address TEXT, region TEXT, lat REAL, lon REAL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS model_list (manufacturer TEXT, model_name TEXT, PRIMARY KEY (manufacturer, model_name))''')
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+    
+    # 🟢 [수정] contact_info 컬럼 추가
     c.execute('''CREATE TABLE IF NOT EXISTS orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         buyer_id TEXT,
+        contact_info TEXT, -- 연락처 컬럼 추가
         target_partner_alias TEXT,
         real_junkyard_name TEXT,
         items_summary TEXT,
@@ -125,7 +75,7 @@ def init_db():
     return conn
 
 # ---------------------------------------------------------
-# 🕵️ [직거래 방지] 데이터 마스킹 & 영문 변환
+# 🕵️ [직거래 방지] 데이터 마스킹
 # ---------------------------------------------------------
 def generate_alias(real_name):
     if not isinstance(real_name, str): return "Unknown"
@@ -133,81 +83,49 @@ def generate_alias(real_name):
     hash_int = int(hash_object.hexdigest(), 16) % 900 + 100 
     return f"Partner #{hash_int}"
 
-def translate_address(addr):
-    """한글 주소 -> 영문 주소 변환 (시/군 단위)"""
-    if not isinstance(addr, str) or addr == "검색실패" or "조회" in addr:
-        return "Unknown Address"
-        
-    parts = addr.split()
-    if len(parts) < 2: return "South Korea"
-    
-    k_do = parts[0][:2]   # 경기, 서울
-    k_city = parts[1]     # 수원시, 강남구
-    
-    # 1. 도/광역시 변환
-    en_do = PROVINCE_MAP.get(k_do, k_do) # 없으면 한글 그대로 (Fallback)
-    for k, v in PROVINCE_MAP.items():
-        if k in parts[0]: 
-            en_do = v
-            break
-            
-    # 2. 시/군 변환
-    # '시', '군', '구' 제거하고 매핑
-    city_core = k_city.replace('시','').replace('군','').replace('구','')
-    en_city = CITY_MAP.get(city_core, city_core)
-    
-    # 접미사 붙이기 (광역시의 '구'는 생략, 도의 '시/군'은 붙임)
-    if en_do in ['Seoul', 'Incheon', 'Busan', 'Daegu', 'Daejeon', 'Gwangju', 'Ulsan']:
-        return f"{en_do}, Korea"
-    else:
-        suffix = "-si" if "시" in k_city else ("-gun" if "군" in k_city else "")
-        # 이미 영어로 변환된 경우라면 suffix 붙임
-        if en_city != city_core: 
-             return f"{en_do}, {en_city}{suffix}"
-        else:
-             # 매핑 안된 도시는 그냥 Korea만 표시하거나 발음대로(어려움) -> 여기선 Korea
-             return f"{en_do}, Korea"
-
 def mask_dataframe(df, role):
     if df.empty: return df
     df_safe = df.copy()
     
-    # 1. [관리자] 원본 유지 (Alias만 추가)
     if role == 'admin':
         if 'junkyard' in df_safe.columns:
             df_safe['partner_alias'] = df_safe['junkyard'].apply(generate_alias)
         return df_safe
 
-    # 2. [바이어] 영문 변환 및 마스킹
-    if role == 'buyer':
-        # 업체명 Alias
-        if 'junkyard' in df_safe.columns:
-            df_safe['real_junkyard'] = df_safe['junkyard']
+    if 'junkyard' in df_safe.columns:
+        df_safe['real_junkyard'] = df_safe['junkyard']
+        if role == 'buyer':
             df_safe['junkyard'] = df_safe['junkyard'].apply(generate_alias)
-        
-        # 주소 영문 변환
-        if 'address' in df_safe.columns:
-            df_safe['address'] = df_safe['address'].apply(translate_address)
-            
-        # Region 컬럼도 영문으로 교체
-        if 'region' in df_safe.columns and 'address' in df_safe.columns:
-            # 주소의 앞부분(Province)을 Region으로 사용
-            df_safe['region'] = df_safe['address'].apply(lambda x: x.split(',')[0] if ',' in str(x) else x)
+        else:
+            df_safe['junkyard'] = "🔒 Login Required"
 
-    # 3. [게스트] 완전 잠금
-    if role == 'guest':
-        df_safe['junkyard'] = "🔒 Login Required"
-        df_safe['address'] = "🔒 Login Required"
-        df_safe['region'] = "🔒"
-        
-    # 공통 민감정보 제거
+    def simplify_address(addr):
+        s = str(addr)
+        if '경기' in s: return 'Gyeonggi-do, Korea'
+        if '인천' in s: return 'Incheon, Korea'
+        if '서울' in s: return 'Seoul, Korea'
+        if '경남' in s or '부산' in s: return 'Busan/Gyeongnam, Korea'
+        return 'South Korea'
+    
+    if 'address' in df_safe.columns:
+        if role == 'buyer':
+            df_safe['address'] = df_safe['address'].apply(simplify_address)
+        else:
+            df_safe['address'] = "🔒 Login Required"
+
     if 'vin' in df_safe.columns:
         df_safe['vin'] = df_safe['vin'].astype(str).apply(lambda x: x[:8] + "****" if len(x) > 8 else "****")
     
-    # 💥 좌표 및 내부 컬럼 완전 삭제 (화면 표시 방지)
-    drop_cols = ['car_no', 'lat', 'lon', 'real_junkyard']
-    df_safe = df_safe.drop(columns=[c for c in drop_cols if c in df_safe.columns], errors='ignore')
+    if 'car_no' in df_safe.columns:
+        df_safe = df_safe.drop(columns=['car_no'], errors='ignore')
+    
+    if 'real_junkyard' in df_safe.columns:
+        df_safe = df_safe.drop(columns=['real_junkyard'], errors='ignore')
 
+    if role == 'guest' and 'lat' in df_safe.columns:
+        df_safe['lat'] = 0.0
+        df_safe['lon'] = 0.0
+        
     return df_safe
 
 # ---------------------------------------------------------
@@ -218,8 +136,12 @@ def log_search(keywords, s_type):
     try:
         conn = init_db()
         c = conn.cursor()
-        # IP 조회 (간소화)
-        c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city) VALUES (?, ?, ?, ?)", (str(keywords), s_type, 'KR', 'Seoul'))
+        lat, lon, city, country = 37.5, 127.0, 'Seoul', 'KR' 
+        if isinstance(keywords, list):
+            for k in keywords:
+                c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city, lat, lon) VALUES (?, ?, ?, ?, ?, ?)", (str(k), s_type, country, city, lat, lon))
+        else:
+            c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city, lat, lon) VALUES (?, ?, ?, ?, ?, ?)", (str(keywords), s_type, country, city, lat, lon))
         conn.commit()
         conn.close()
     except: pass
@@ -290,8 +212,7 @@ def save_vehicle_file(uploaded_file):
 def load_all_data():
     try:
         conn = init_db()
-        # lat, lon 포함해서 로드 (관리자용 지도 표시 위해) -> mask_dataframe에서 제거함
-        query = "SELECT v.*, j.region, j.lat, j.lon, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name"
+        query = "SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name"
         df = pd.read_sql(query, conn)
         conn.close()
         if not df.empty:
@@ -530,10 +451,6 @@ else:
             if st.session_state.user_role == 'admin' and 'region' in df_display.columns:
                 grp_cols.append('region')
             
-            # 주소없는 행 처리
-            if 'address' in df_display.columns:
-                df_display['address'] = df_display['address'].fillna("Unknown")
-
             stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
             selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
             
@@ -554,10 +471,11 @@ else:
                         c_a, c_b = st.columns(2)
                         with c_a:
                             buyer_name = st.text_input("Name / Company", value=st.session_state.username)
+                            # 🟢 연락처 저장 필드
                             contact = st.text_input("Contact (Email/Phone) *")
                             req_qty = st.number_input("Quantity *", min_value=1, value=1)
                         with c_b:
-                            # 🟢 [핵심] 검색 필터 기반 자동 품목 생성
+                            # 검색 조건에 따른 Item 자동 완성
                             s_maker = st.session_state.get('msel', 'All')
                             s_models = st.session_state.get('mms', [])
                             s_engines = st.session_state.get('es', [])
@@ -574,7 +492,6 @@ else:
                             
                             def_item = " ".join(item_desc)
                             
-                            # 🟢 [수정] 수량 중복 제거 (순수 품목명만)
                             item = st.text_input("Item *", value=def_item)
                             offer = st.text_input("Target Unit Price (USD) *", placeholder="e.g. $500/ea")
                         
@@ -594,9 +511,10 @@ else:
                                             real_name = match['junkyard'].iloc[0]
                                     except: real_name = "Unknown"
 
+                                # 🟢 DB에 contact_info 함께 저장
                                 summary = f"Qty: {req_qty} (Total Stock: {stock_cnt}), Item: {item}, Price: {offer}, Msg: {msg}"
-                                cur.execute("INSERT INTO orders (buyer_id, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?)",
-                                            (buyer_name, target_partner, real_name, summary, 'PENDING'))
+                                cur.execute("INSERT INTO orders (buyer_id, contact_info, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?, ?)",
+                                            (buyer_name, contact, target_partner, real_name, summary, 'PENDING'))
                                 conn.commit()
                                 conn.close()
                                 st.success("✅ Inquiry has been sent to our sales team.")

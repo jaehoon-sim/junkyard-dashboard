@@ -45,10 +45,11 @@ BUYER_CREDENTIALS = {
 DB_NAME = 'junkyard.db'
 
 # ---------------------------------------------------------
-# 🌍 [설정] 주소 영문 변환 매핑
+# 🌍 [설정] 주소 영문 변환 매핑 (변수명 통일 완료)
 # ---------------------------------------------------------
-REGION_EN_MAP = {
-    '경기': 'Gyeonggi', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon',
+# 기존 REGION_EN_MAP -> PROVINCE_MAP 으로 변경
+PROVINCE_MAP = {
+    '경기': 'Gyeonggi-do', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon-do',
     '충북': 'Chungbuk', '충남': 'Chungnam', '대전': 'Daejeon', '세종': 'Sejong',
     '전북': 'Jeonbuk', '전남': 'Jeonnam', '광주': 'Gwangju',
     '경북': 'Gyeongbuk', '경남': 'Gyeongnam', '대구': 'Daegu', '부산': 'Busan', '울산': 'Ulsan',
@@ -144,7 +145,8 @@ def translate_address(addr):
     k_do = parts[0][:2]
     k_city = parts[1]
     
-    en_do = PROVINCE_MAP.get(k_do, k_do)
+    # 여기서 PROVINCE_MAP 사용 (이전 에러 해결)
+    en_do = PROVINCE_MAP.get(k_do, k_do) 
     for k, v in PROVINCE_MAP.items():
         if k in parts[0]: 
             en_do = v
@@ -181,6 +183,7 @@ def mask_dataframe(df, role):
     if 'address' in df_safe.columns:
         if role == 'buyer':
             df_safe['address'] = df_safe['address'].apply(translate_address)
+            # Region도 영문으로 통일 (주소의 첫 번째 부분)
             if 'region' in df_safe.columns:
                 df_safe['region'] = df_safe['address'].apply(lambda x: x.split(',')[0] if ',' in str(x) else x)
         else:
@@ -586,12 +589,11 @@ else:
                         st.markdown(f"### 📨 Request Quote to {target_partner}")
                         c_a, c_b = st.columns(2)
                         with c_a:
-                            # 🟢 Name Disabled (ID 고정)
-                            buyer_name = st.text_input("Name / Company", value=st.session_state.username, disabled=True)
+                            buyer_name = st.text_input("Name / Company", value=st.session_state.username)
                             contact = st.text_input("Contact (Email/Phone) *")
                             req_qty = st.number_input("Quantity *", min_value=1, value=1)
                         with c_b:
-                            # 🟢 자동 품목 생성
+                            # 🟢 [핵심] 검색 필터 기반 자동 품목 생성
                             s_maker = st.session_state.get('msel', 'All')
                             s_models = st.session_state.get('mms', [])
                             s_engines = st.session_state.get('es', [])
@@ -608,6 +610,7 @@ else:
                             
                             def_item = " ".join(item_desc)
                             
+                            # 🟢 [수정] 수량 중복 제거 (순수 품목명만)
                             item = st.text_input("Item *", value=def_item)
                             offer = st.text_input("Target Unit Price (USD) *", placeholder="e.g. $500/ea")
                         
@@ -647,6 +650,7 @@ else:
             
             if not orders.empty:
                 for idx, row in orders.iterrows():
+                    # 🟢 [수정] 주문 관리 패널 (상태 변경 기능 포함)
                     with st.expander(f"[{row['status']}] {row['created_at']} | From: {row['buyer_id']}"):
                         st.write(f"**Contact:** {row['contact_info']}")
                         st.write(f"**Target:** {row['real_junkyard_name']} ({row['target_partner_alias']})")
@@ -686,3 +690,8 @@ else:
                             st.success("💬 Offer Received! Check your email/phone.")
             else:
                 st.info("You haven't requested any quotes yet.")
+
+except Exception as e:
+    st.error("⛔ 앱 실행 중 문제가 발생했습니다.")
+    with st.expander("상세 오류 보기"):
+        st.code(traceback.format_exc())

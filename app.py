@@ -13,7 +13,7 @@ import hashlib
 import numpy as np
 
 # ---------------------------------------------------------
-# 🛠️ [설정] 페이지 설정
+# 🛠️ [설정] 페이지 설정 (무조건 맨 위)
 # ---------------------------------------------------------
 st.set_page_config(page_title="K-Parts Global Hub", layout="wide")
 
@@ -45,9 +45,8 @@ BUYER_CREDENTIALS = {
 DB_NAME = 'junkyard.db'
 
 # ---------------------------------------------------------
-# 🌍 [설정] 주소 영문 변환 매핑 (변수명 통일 완료)
+# 🌍 [설정] 주소 변환 데이터
 # ---------------------------------------------------------
-# 기존 REGION_EN_MAP -> PROVINCE_MAP 으로 변경
 PROVINCE_MAP = {
     '경기': 'Gyeonggi-do', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon-do',
     '충북': 'Chungbuk', '충남': 'Chungnam', '대전': 'Daejeon', '세종': 'Sejong',
@@ -135,7 +134,6 @@ def generate_alias(real_name):
     return f"Partner #{hash_int}"
 
 def translate_address(addr):
-    """한글 주소 -> 영문 주소 변환 (시/군 단위)"""
     if not isinstance(addr, str) or addr == "검색실패" or "조회" in addr:
         return "Unknown Address"
         
@@ -145,8 +143,7 @@ def translate_address(addr):
     k_do = parts[0][:2]
     k_city = parts[1]
     
-    # 여기서 PROVINCE_MAP 사용 (이전 에러 해결)
-    en_do = PROVINCE_MAP.get(k_do, k_do) 
+    en_do = PROVINCE_MAP.get(k_do, k_do)
     for k, v in PROVINCE_MAP.items():
         if k in parts[0]: 
             en_do = v
@@ -168,13 +165,15 @@ def mask_dataframe(df, role):
     if df.empty: return df
     df_safe = df.copy()
     
+    # 1. 관리자: Alias만 추가
     if role == 'admin':
         if 'junkyard' in df_safe.columns:
             df_safe['partner_alias'] = df_safe['junkyard'].apply(generate_alias)
         return df_safe
 
+    # 2. 바이어/게스트: 마스킹
     if 'junkyard' in df_safe.columns:
-        df_safe['real_junkyard'] = df_safe['junkyard']
+        df_safe['real_junkyard'] = df_safe['junkyard'] # 내부 로직용 백업
         if role == 'buyer':
             df_safe['junkyard'] = df_safe['junkyard'].apply(generate_alias)
         else:
@@ -183,7 +182,6 @@ def mask_dataframe(df, role):
     if 'address' in df_safe.columns:
         if role == 'buyer':
             df_safe['address'] = df_safe['address'].apply(translate_address)
-            # Region도 영문으로 통일 (주소의 첫 번째 부분)
             if 'region' in df_safe.columns:
                 df_safe['region'] = df_safe['address'].apply(lambda x: x.split(',')[0] if ',' in str(x) else x)
         else:
@@ -193,13 +191,10 @@ def mask_dataframe(df, role):
     if 'vin' in df_safe.columns:
         df_safe['vin'] = df_safe['vin'].astype(str).apply(lambda x: x[:8] + "****" if len(x) > 8 else "****")
     
+    # 불필요 컬럼 제거 (좌표, 차량번호 등)
     drop_cols = ['car_no', 'lat', 'lon', 'real_junkyard']
     df_safe = df_safe.drop(columns=[c for c in drop_cols if c in df_safe.columns], errors='ignore')
-
-    if role == 'guest' and 'lat' in df_safe.columns:
-        df_safe['lat'] = 0.0
-        df_safe['lon'] = 0.0
-        
+    
     return df_safe
 
 # ---------------------------------------------------------
@@ -318,6 +313,7 @@ def save_address_file(uploaded_file):
 def load_all_data():
     try:
         conn = init_db()
+        # lat, lon 제거
         query = "SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name"
         df = pd.read_sql(query, conn)
         conn.close()
@@ -349,10 +345,8 @@ def load_yard_list_for_filter(role):
         df = pd.read_sql("SELECT name FROM junkyard_info ORDER BY name", conn)
         conn.close()
         real_names = df['name'].tolist()
-        if role == 'admin':
-            return real_names
-        elif role == 'buyer':
-            return sorted(list(set([generate_alias(name) for name in real_names])))
+        if role == 'admin': return real_names
+        elif role == 'buyer': return sorted(list(set([generate_alias(name) for name in real_names])))
         return []
     except: return []
 
@@ -391,7 +385,6 @@ list_engines = load_engine_list()
 with st.sidebar:
     st.title("K-Parts Global Hub")
     
-    # 로그인
     if st.session_state.user_role == 'guest':
         with st.expander("🔐 Login", expanded=True):
             uid = st.text_input("ID")
@@ -573,7 +566,7 @@ else:
             stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
             selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
             
-            # [수정됨] 견적 요청 폼
+            # [견적 요청 폼]
             if len(selection.selection.rows) > 0:
                 sel_idx = selection.selection.rows[0]
                 sel_row = stock_summary.iloc[sel_idx]
@@ -610,7 +603,6 @@ else:
                             
                             def_item = " ".join(item_desc)
                             
-                            # 🟢 [수정] 수량 중복 제거 (순수 품목명만)
                             item = st.text_input("Item *", value=def_item)
                             offer = st.text_input("Target Unit Price (USD) *", placeholder="e.g. $500/ea")
                         
@@ -650,7 +642,6 @@ else:
             
             if not orders.empty:
                 for idx, row in orders.iterrows():
-                    # 🟢 [수정] 주문 관리 패널 (상태 변경 기능 포함)
                     with st.expander(f"[{row['status']}] {row['created_at']} | From: {row['buyer_id']}"):
                         st.write(f"**Contact:** {row['contact_info']}")
                         st.write(f"**Target:** {row['real_junkyard_name']} ({row['target_partner_alias']})")
@@ -674,7 +665,7 @@ else:
                 st.info("No pending orders.")
 
     if st.session_state.user_role == 'buyer':
-        with main_tabs[1]: # 🟢 [신규] My Orders 탭
+        with main_tabs[1]: # My Orders
             st.subheader("🛒 My Quote Requests")
             conn = init_db()
             my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
@@ -690,8 +681,3 @@ else:
                             st.success("💬 Offer Received! Check your email/phone.")
             else:
                 st.info("You haven't requested any quotes yet.")
-
-except Exception as e:
-    st.error("⛔ 앱 실행 중 문제가 발생했습니다.")
-    with st.expander("상세 오류 보기"):
-        st.code(traceback.format_exc())

@@ -26,7 +26,6 @@ def safe_rerun():
 # ---------------------------------------------------------
 # 🔐 [보안] 계정 설정
 # ---------------------------------------------------------
-# 1. 관리자 계정 (Secrets 우선, 없으면 기본값)
 try:
     ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
     NAVER_CLIENT_ID = st.secrets["NAVER_CLIENT_ID"]
@@ -36,12 +35,11 @@ except:
     NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
     NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
 
-# 2. 바이어 계정 (테스트용 고정)
-# 이 부분이 확실하게 선언되어야 로그인이 됩니다.
+# 바이어 계정
 BUYER_CREDENTIALS = {
     "buyer": "1111",
     "global": "2222",
-    "testbuyer": "1234"  # ✅ 테스트 계정 확실하게 추가됨
+    "testbuyer": "1234"
 }
 
 DB_NAME = 'junkyard.db'
@@ -77,6 +75,7 @@ def init_db():
 # 🕵️ [직거래 방지] 데이터 마스킹
 # ---------------------------------------------------------
 def generate_alias(real_name):
+    if not isinstance(real_name, str): return "Unknown"
     hash_object = hashlib.md5(str(real_name).encode())
     hash_int = int(hash_object.hexdigest(), 16) % 900 + 100 
     return f"Partner #{hash_int}"
@@ -85,15 +84,13 @@ def mask_dataframe(df, role):
     if df.empty: return df
     df_safe = df.copy()
     
-    # 관리자는 원본
     if role == 'admin':
         if 'junkyard' in df_safe.columns:
             df_safe['partner_alias'] = df_safe['junkyard'].apply(generate_alias)
         return df_safe
 
-    # 바이어/게스트
     if 'junkyard' in df_safe.columns:
-        df_safe['real_junkyard'] = df_safe['junkyard'] # 내부 백업
+        df_safe['real_junkyard'] = df_safe['junkyard']
         if role == 'buyer':
             df_safe['junkyard'] = df_safe['junkyard'].apply(generate_alias)
         else:
@@ -425,7 +422,7 @@ else:
     if st.session_state.user_role == 'admin':
         main_tabs = st.tabs(["📊 Inventory", "📩 Orders", "🗺️ Real Map"])
     else:
-        main_tabs = st.tabs(["📊 Search Results"])
+        main_tabs = st.tabs(["📊 Search Results", "🛒 My Cart"])
 
     with main_tabs[0]:
         if df_display.empty:
@@ -447,6 +444,7 @@ else:
             stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
             selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
             
+            # [수정] 견적 요청 폼 (수량 추가, 필수값 검증)
             if len(selection.selection.rows) > 0:
                 sel_idx = selection.selection.rows[0]
                 sel_row = stock_summary.iloc[sel_idx]
@@ -457,33 +455,48 @@ else:
                     st.warning("🔒 Login required to request a quote.")
                 else:
                     st.success(f"Selected: **{target_partner}** ({stock_cnt} EA)")
+                    
                     with st.form("order_form"):
                         st.markdown(f"### 📨 Request Quote to {target_partner}")
                         c_a, c_b = st.columns(2)
                         with c_a:
                             buyer_name = st.text_input("Name / Company", value=st.session_state.username)
-                            contact = st.text_input("Contact (Email/Phone)")
+                            # 필수값 표시 (*)
+                            contact = st.text_input("Contact (Email/Phone) *")
+                            # [신규] 수량 입력 필드
+                            req_qty = st.number_input("Quantity *", min_value=1, value=1)
+
                         with c_b:
-                            st.text_input("Item", value=f"Selected {stock_cnt} items", disabled=True)
-                            offer = st.text_input("Offer Price (USD)", placeholder="e.g. $1,500")
-                        msg = st.text_area("Message", height=80)
+                            # 아이템 수정 가능
+                            item = st.text_input("Item *", value=f"Selected {stock_cnt} items from search")
+                            # Unit Price
+                            offer = st.text_input("Target Unit Price (USD) *", placeholder="e.g. $500/ea")
+                        
+                        msg = st.text_area("Message to Admin", height=80, placeholder="Details about condition, shipping, etc.")
                         
                         if st.form_submit_button("🚀 Send Inquiry"):
-                            conn = init_db()
-                            cur = conn.cursor()
-                            real_name = target_partner
-                            if st.session_state.user_role == 'buyer':
-                                try:
-                                    match = df_view[df_view['junkyard'].apply(generate_alias) == target_partner]
-                                    if not match.empty:
-                                        real_name = match['junkyard'].iloc[0]
-                                except: real_name = "Unknown"
+                            # 🚨 필수값 검증 로직
+                            if not contact or not item or not offer:
+                                st.error("⚠️ Please fill in all required fields: Contact, Item, and Price.")
+                            else:
+                                conn = init_db()
+                                cur = conn.cursor()
+                                real_name = target_partner
+                                if st.session_state.user_role == 'buyer':
+                                    try:
+                                        match = df_view[df_view['junkyard'].apply(generate_alias) == target_partner]
+                                        if not match.empty:
+                                            real_name = match['junkyard'].iloc[0]
+                                    except: real_name = "Unknown"
 
-                            cur.execute("INSERT INTO orders (buyer_id, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?)",
-                                        (buyer_name, target_partner, real_name, f"Qty:{stock_cnt}, Offer:{offer}, {msg}", 'PENDING'))
-                            conn.commit()
-                            conn.close()
-                            st.success("✅ Inquiry has been sent to our sales team.")
+                                # items_summary에 수량 포함하여 저장
+                                summary_text = f"Qty: {req_qty} (Total Stock: {stock_cnt}), Item: {item}, Price: {offer}, Msg: {msg}"
+                                
+                                cur.execute("INSERT INTO orders (buyer_id, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?)",
+                                            (buyer_name, target_partner, real_name, summary_text, 'PENDING'))
+                                conn.commit()
+                                conn.close()
+                                st.success("✅ Inquiry has been sent to our sales team.")
 
             st.divider()
             st.subheader("📋 Item List")

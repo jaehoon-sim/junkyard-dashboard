@@ -45,14 +45,55 @@ BUYER_CREDENTIALS = {
 DB_NAME = 'junkyard.db'
 
 # ---------------------------------------------------------
-# 🌍 [설정] 지역명 한글 -> 영문 매핑
+# 🌍 [설정] 주소 영문 변환 매핑 (시/군/구 포함)
 # ---------------------------------------------------------
 REGION_EN_MAP = {
-    '경기': 'Gyeonggi', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon',
+    '경기': 'Gyeonggi-do', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon-do',
     '충북': 'Chungbuk', '충남': 'Chungnam', '대전': 'Daejeon', '세종': 'Sejong',
     '전북': 'Jeonbuk', '전남': 'Jeonnam', '광주': 'Gwangju',
     '경북': 'Gyeongbuk', '경남': 'Gyeongnam', '대구': 'Daegu', '부산': 'Busan', '울산': 'Ulsan',
-    '제주': 'Jeju'
+    '제주': 'Jeju', '경상남도': 'Gyeongnam', '경상북도': 'Gyeongbuk', 
+    '전라남도': 'Jeonnam', '전라북도': 'Jeonbuk', '충청남도': 'Chungnam', '충청북도': 'Chungbuk',
+    '경기도': 'Gyeonggi-do', '강원도': 'Gangwon-do', '제주도': 'Jeju'
+}
+
+CITY_MAP = {
+    '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang',
+    '부천': 'Bucheon', '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon',
+    '안산': 'Ansan', '고양': 'Goyang', '과천': 'Gwacheon', '구리': 'Guri',
+    '남양주': 'Namyangju', '오산': 'Osan', '시흥': 'Siheung', '군포': 'Gunpo',
+    '의왕': 'Uiwang', '하남': 'Hanam', '용인': 'Yongin', '파주': 'Paju',
+    '이천': 'Icheon', '안성': 'Anseong', '김포': 'Gimpo', '화성': 'Hwaseong',
+    '광주': 'Gwangju', '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju',
+    '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong',
+    '천안': 'Cheonan', '공주': 'Gongju', '보령': 'Boryeong', '아산': 'Asan',
+    '서산': 'Seosan', '논산': 'Nonsan', '계룡': 'Gyeryong', '당진': 'Dangjin',
+    '금산': 'Geumsan', '부여': 'Buyeo', '서천': 'Seocheon', '청양': 'Cheongyang',
+    '홍성': 'Hongseong', '예산': 'Yesan', '태안': 'Taean',
+    '청주': 'Cheongju', '충주': 'Chungju', '제천': 'Jecheon', '보은': 'Boeun',
+    '옥천': 'Okcheon', '영동': 'Yeongdong', '증평': 'Jeungpyeong', '진천': 'Jincheon',
+    '괴산': 'Goesan', '음성': 'Eumseong', '단양': 'Danyang',
+    '포항': 'Pohang', '경주': 'Gyeongju', '김천': 'Gimcheon', '안동': 'Andong',
+    '구미': 'Gumi', '영주': 'Yeongju', '영천': 'Yeongcheon', '상주': 'Sangju',
+    '문경': 'Mungyeong', '경산': 'Gyeongsan', '군위': 'Gunwi', '의성': 'Uiseong',
+    '청송': 'Cheongsong', '영양': 'Yeongyang', '영덕': 'Yeongdeok', '청도': 'Cheongdo',
+    '고령': 'Goryeong', '성주': 'Seongju', '칠곡': 'Chilgok', '예천': 'Yecheon',
+    '봉화': 'Bonghwa', '울진': 'Uljin', '울릉': 'Ulleung',
+    '창원': 'Changwon', '진주': 'Jinju', '통영': 'Tongyeong', '사천': 'Sacheon',
+    '김해': 'Gimhae', '밀양': 'Miryang', '거제': 'Geoje', '양산': 'Yangsan',
+    '의령': 'Uiryeong', '함안': 'Haman', '창녕': 'Changnyeong', '고성': 'Goseong',
+    '남해': 'Namhae', '하동': 'Hadong', '산청': 'Sancheong', '함양': 'Hamyang',
+    '거창': 'Geochang', '합천': 'Hapcheon',
+    '전주': 'Jeonju', '군산': 'Gunsan', '익산': 'Iksan', '정읍': 'Jeongeup',
+    '남원': 'Namwon', '김제': 'Gimje', '완주': 'Wanju', '진안': 'Jinan',
+    '무주': 'Muju', '장수': 'Jangsu', '임실': 'Imsil', '순창': 'Sunchang',
+    '고창': 'Gochang', '부안': 'Buan',
+    '목포': 'Mokpo', '여수': 'Yeosu', '순천': 'Suncheon', '나주': 'Naju',
+    '광양': 'Gwangyang', '담양': 'Damyang', '곡성': 'Gokseong', '구례': 'Gurye',
+    '고흥': 'Goheung', '보성': 'Boseong', '화순': 'Hwasun', '장흥': 'Jangheung',
+    '강진': 'Gangjin', '해남': 'Haenam', '영암': 'Yeongam', '무안': 'Muan',
+    '함평': 'Hampyeong', '영광': 'Yeonggwang', '장성': 'Jangseong', '완도': 'Wando',
+    '진도': 'Jindo', '신안': 'Sinan', '제주': 'Jeju', '서귀포': 'Seogwipo'
 }
 
 # ---------------------------------------------------------
@@ -84,27 +125,13 @@ def init_db():
     return conn
 
 # ---------------------------------------------------------
-# 🕵️ [직거래 방지] 데이터 마스킹
+# 🕵️ [직거래 방지] 데이터 마스킹 & 영문 변환 (업데이트됨)
 # ---------------------------------------------------------
 def generate_alias(real_name):
     if not isinstance(real_name, str): return "Unknown"
     hash_object = hashlib.md5(str(real_name).encode())
     hash_int = int(hash_object.hexdigest(), 16) % 900 + 100 
     return f"Partner #{hash_int}"
-
-def translate_address_to_city_level(addr):
-    if not isinstance(addr, str): return "Unknown"
-    parts = addr.split()
-    if len(parts) < 2: return "South Korea"
-    
-    si_do = parts[0][:2]
-    si_gun_gu = parts[1]
-    en_si_do = REGION_EN_MAP.get(si_do, si_do)
-    
-    if en_si_do in ['Seoul', 'Incheon', 'Busan', 'Daegu', 'Daejeon', 'Gwangju', 'Ulsan']:
-        return f"{en_si_do}, Korea"
-    else:
-        return f"{en_si_do}, {si_gun_gu}"
 
 def mask_dataframe(df, role):
     if df.empty: return df
@@ -115,6 +142,7 @@ def mask_dataframe(df, role):
             df_safe['partner_alias'] = df_safe['junkyard'].apply(generate_alias)
         return df_safe
 
+    # 바이어/게스트 처리
     if 'junkyard' in df_safe.columns:
         df_safe['real_junkyard'] = df_safe['junkyard']
         if role == 'buyer':
@@ -122,11 +150,47 @@ def mask_dataframe(df, role):
         else:
             df_safe['junkyard'] = "🔒 Login Required"
 
+    # 🟢 [수정] 주소 완벽 영문화 (도 + 시/군/구)
+    def simplify_address(addr):
+        s = str(addr)
+        if s == 'nan' or '조회' in s or '실패' in s: return "Unknown"
+        
+        # 공백 기준 분리 (예: 경기도 수원시 ...)
+        parts = s.split()
+        if len(parts) < 2: return "South Korea"
+        
+        k_do = parts[0][:2]  # 경기
+        k_city = parts[1]    # 수원시
+        
+        # 1. 도(Province) 변환
+        en_do = k_do
+        for k, v in REGION_EN_MAP.items():
+            if k in parts[0]: 
+                en_do = v
+                break
+        
+        # 2. 시(City) 변환
+        # '시', '군', '구' 제거하고 매핑 테이블 조회
+        city_core = k_city.replace('시','').replace('군','').replace('구','')
+        en_city = CITY_MAP.get(city_core, city_core) # 매핑되면 영문, 안되면 한글(fallback)
+        
+        # 접미사 붙이기 (광역시가 아닌 경우에만)
+        if en_do not in ['Seoul', 'Incheon', 'Busan', 'Daegu', 'Daejeon', 'Gwangju', 'Ulsan']:
+             if '시' in k_city: en_city += '-si'
+             elif '군' in k_city: en_city += '-gun'
+             elif '구' in k_city: en_city += '-gu'
+        else:
+             # 광역시는 구 단위 보통 생략하거나 City, Country로 표기
+             return f"{en_do}, Korea"
+
+        return f"{en_do}, {en_city}"
+    
     if 'address' in df_safe.columns:
         if role == 'buyer':
-            df_safe['address'] = df_safe['address'].apply(translate_address_to_city_level)
+            df_safe['address'] = df_safe['address'].apply(simplify_address)
+            # region 컬럼도 address의 앞부분(Province)으로 통일
             if 'region' in df_safe.columns:
-                df_safe['region'] = df_safe['address'].apply(lambda x: x.split(',')[0])
+                df_safe['region'] = df_safe['address'].apply(lambda x: x.split(',')[0] if ',' in str(x) else x)
         else:
             df_safe['address'] = "🔒 Login Required"
             df_safe['region'] = "🔒"
@@ -134,9 +198,14 @@ def mask_dataframe(df, role):
     if 'vin' in df_safe.columns:
         df_safe['vin'] = df_safe['vin'].astype(str).apply(lambda x: x[:8] + "****" if len(x) > 8 else "****")
     
+    # 불필요 컬럼 제거
     drop_cols = ['car_no', 'lat', 'lon', 'real_junkyard']
     df_safe = df_safe.drop(columns=[c for c in drop_cols if c in df_safe.columns], errors='ignore')
 
+    if role == 'guest' and 'lat' in df_safe.columns:
+        df_safe['lat'] = 0.0
+        df_safe['lon'] = 0.0
+        
     return df_safe
 
 # ---------------------------------------------------------
@@ -219,42 +288,11 @@ def save_vehicle_file(uploaded_file):
         return cnt, 0
     except: return 0, 0
 
-def save_address_file(uploaded_file):
-    try:
-        if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file, dtype=str)
-        else: 
-            try: df = pd.read_excel(uploaded_file, engine='openpyxl', dtype=str)
-            except: df = pd.read_excel(uploaded_file, engine='xlrd', dtype=str)
-        
-        name_col = next((c for c in df.columns if '폐차장' in c or '업체' in c or '회원' in c), None)
-        addr_col = next((c for c in df.columns if '주소' in c or '소재' in c), None)
-        if not name_col or not addr_col: return 0
-
-        conn = init_db()
-        c = conn.cursor()
-        update_cnt = 0
-        
-        for _, row in df.iterrows():
-            yard_name = str(row[name_col]).strip()
-            address = str(row[addr_col]).strip()
-            
-            region = '기타'
-            addr_parts = address.split()
-            if len(addr_parts) >= 1:
-                region = addr_parts[0][:2]
-            
-            c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (yard_name, address, region))
-            update_cnt += 1
-            
-        conn.commit()
-        conn.close()
-        return update_cnt
-    except: return 0
-
 @st.cache_data(ttl=300)
 def load_all_data():
     try:
         conn = init_db()
+        # lat, lon 제거
         query = "SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name"
         df = pd.read_sql(query, conn)
         conn.close()
@@ -286,8 +324,10 @@ def load_yard_list_for_filter(role):
         df = pd.read_sql("SELECT name FROM junkyard_info ORDER BY name", conn)
         conn.close()
         real_names = df['name'].tolist()
-        if role == 'admin': return real_names
-        elif role == 'buyer': return sorted(list(set([generate_alias(name) for name in real_names])))
+        if role == 'admin':
+            return real_names
+        elif role == 'buyer':
+            return sorted(list(set([generate_alias(name) for name in real_names])))
         return []
     except: return []
 
@@ -320,7 +360,6 @@ list_engines = load_engine_list()
 with st.sidebar:
     st.title("K-Parts Global Hub")
     
-    # 로그인
     if st.session_state.user_role == 'guest':
         with st.expander("🔐 Login", expanded=True):
             uid = st.text_input("ID")
@@ -346,33 +385,20 @@ with st.sidebar:
 
     st.divider()
 
-    # 📂 [관리자 전용] 데이터 업로드 (주소 DB 포함)
     if st.session_state.user_role == 'admin':
         with st.expander("📂 Admin Tools"):
-            # 1. 차량 데이터
-            up_files = st.file_uploader("Vehicle Data", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True, key="v_up")
-            if up_files and st.button("Save Vehicle"):
+            up_files = st.file_uploader("Data Upload", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
+            if up_files and st.button("Save"):
                 tot = 0
                 bar = st.progress(0)
                 for i, f in enumerate(up_files):
                     n, _ = save_vehicle_file(f)
                     tot += n
                     bar.progress((i+1)/len(up_files))
-                st.success(f"{tot} records saved.")
+                st.success(f"{tot} records uploaded.")
                 load_all_data.clear()
                 safe_rerun()
             
-            st.divider()
-            
-            # 2. 🟢 [복구됨] 주소 DB 업로드
-            addr_file = st.file_uploader("Address DB", type=['xlsx', 'xls', 'csv'], key="a_up")
-            if addr_file and st.button("Save Address"):
-                cnt = save_address_file(addr_file)
-                st.success(f"{cnt} addresses updated.")
-                load_all_data.clear()
-                safe_rerun()
-
-            st.divider()
             if st.button("🗑️ Reset DB"):
                 conn = init_db()
                 conn.execute("DROP TABLE vehicle_data")
@@ -418,7 +444,7 @@ with st.sidebar:
 
     with search_tabs[1]: 
         if list_engines:
-            sel_engines = st.multiselect("Engine Code", list_engines, key="es")
+            sel_engines = st.multiselect("Engine Code", list_engines)
             if st.button("🔍 Search Engine", type="primary"):
                 log_search(sel_engines, 'engine')
                 res = load_all_data()
@@ -479,6 +505,8 @@ else:
     st.title("🇰🇷 Korea Used Auto Parts Inventory")
     
     df_view = st.session_state['view_data']
+    
+    # 🛡️ 마스킹 적용
     df_display = mask_dataframe(df_view, st.session_state.user_role)
     
     if st.session_state.user_role == 'admin':
@@ -538,8 +566,8 @@ else:
                             else: item_desc.append("Auto Parts")
                             
                             if not s_engines: item_desc.append(f"({s_sy}~{s_ey})")
-                            def_item = " ".join(item_desc)
                             
+                            def_item = " ".join(item_desc)
                             item = st.text_input("Item *", value=def_item)
                             offer = st.text_input("Target Unit Price (USD) *", placeholder="e.g. $500/ea")
                         

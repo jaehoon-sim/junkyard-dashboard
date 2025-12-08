@@ -45,6 +45,17 @@ BUYER_CREDENTIALS = {
 DB_NAME = 'junkyard.db'
 
 # ---------------------------------------------------------
+# 🌍 [설정] 지역명 한글 -> 영문 매핑
+# ---------------------------------------------------------
+REGION_EN_MAP = {
+    '경기': 'Gyeonggi', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon',
+    '충북': 'Chungbuk', '충남': 'Chungnam', '대전': 'Daejeon', '세종': 'Sejong',
+    '전북': 'Jeonbuk', '전남': 'Jeonnam', '광주': 'Gwangju',
+    '경북': 'Gyeongbuk', '경남': 'Gyeongnam', '대구': 'Daegu', '부산': 'Busan', '울산': 'Ulsan',
+    '제주': 'Jeju'
+}
+
+# ---------------------------------------------------------
 # 1. 데이터베이스 초기화
 # ---------------------------------------------------------
 def init_db():
@@ -54,12 +65,10 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (name TEXT PRIMARY KEY, address TEXT, region TEXT, lat REAL, lon REAL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS model_list (manufacturer TEXT, model_name TEXT, PRIMARY KEY (manufacturer, model_name))''')
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    
-    # 🟢 [수정] contact_info 컬럼 추가
     c.execute('''CREATE TABLE IF NOT EXISTS orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         buyer_id TEXT,
-        contact_info TEXT, -- 연락처 컬럼 추가
+        contact_info TEXT,
         target_partner_alias TEXT,
         real_junkyard_name TEXT,
         items_summary TEXT,
@@ -83,6 +92,20 @@ def generate_alias(real_name):
     hash_int = int(hash_object.hexdigest(), 16) % 900 + 100 
     return f"Partner #{hash_int}"
 
+def translate_address_to_city_level(addr):
+    if not isinstance(addr, str): return "Unknown"
+    parts = addr.split()
+    if len(parts) < 2: return "South Korea"
+    
+    si_do = parts[0][:2]
+    si_gun_gu = parts[1]
+    en_si_do = REGION_EN_MAP.get(si_do, si_do)
+    
+    if en_si_do in ['Seoul', 'Incheon', 'Busan', 'Daegu', 'Daejeon', 'Gwangju', 'Ulsan']:
+        return f"{en_si_do}, Korea"
+    else:
+        return f"{en_si_do}, {si_gun_gu}"
+
 def mask_dataframe(df, role):
     if df.empty: return df
     df_safe = df.copy()
@@ -99,33 +122,21 @@ def mask_dataframe(df, role):
         else:
             df_safe['junkyard'] = "🔒 Login Required"
 
-    def simplify_address(addr):
-        s = str(addr)
-        if '경기' in s: return 'Gyeonggi-do, Korea'
-        if '인천' in s: return 'Incheon, Korea'
-        if '서울' in s: return 'Seoul, Korea'
-        if '경남' in s or '부산' in s: return 'Busan/Gyeongnam, Korea'
-        return 'South Korea'
-    
     if 'address' in df_safe.columns:
         if role == 'buyer':
-            df_safe['address'] = df_safe['address'].apply(simplify_address)
+            df_safe['address'] = df_safe['address'].apply(translate_address_to_city_level)
+            if 'region' in df_safe.columns:
+                df_safe['region'] = df_safe['address'].apply(lambda x: x.split(',')[0])
         else:
             df_safe['address'] = "🔒 Login Required"
+            df_safe['region'] = "🔒"
 
     if 'vin' in df_safe.columns:
         df_safe['vin'] = df_safe['vin'].astype(str).apply(lambda x: x[:8] + "****" if len(x) > 8 else "****")
     
-    if 'car_no' in df_safe.columns:
-        df_safe = df_safe.drop(columns=['car_no'], errors='ignore')
-    
-    if 'real_junkyard' in df_safe.columns:
-        df_safe = df_safe.drop(columns=['real_junkyard'], errors='ignore')
+    drop_cols = ['car_no', 'lat', 'lon', 'real_junkyard']
+    df_safe = df_safe.drop(columns=[c for c in drop_cols if c in df_safe.columns], errors='ignore')
 
-    if role == 'guest' and 'lat' in df_safe.columns:
-        df_safe['lat'] = 0.0
-        df_safe['lon'] = 0.0
-        
     return df_safe
 
 # ---------------------------------------------------------
@@ -208,6 +219,38 @@ def save_vehicle_file(uploaded_file):
         return cnt, 0
     except: return 0, 0
 
+def save_address_file(uploaded_file):
+    try:
+        if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file, dtype=str)
+        else: 
+            try: df = pd.read_excel(uploaded_file, engine='openpyxl', dtype=str)
+            except: df = pd.read_excel(uploaded_file, engine='xlrd', dtype=str)
+        
+        name_col = next((c for c in df.columns if '폐차장' in c or '업체' in c or '회원' in c), None)
+        addr_col = next((c for c in df.columns if '주소' in c or '소재' in c), None)
+        if not name_col or not addr_col: return 0
+
+        conn = init_db()
+        c = conn.cursor()
+        update_cnt = 0
+        
+        for _, row in df.iterrows():
+            yard_name = str(row[name_col]).strip()
+            address = str(row[addr_col]).strip()
+            
+            region = '기타'
+            addr_parts = address.split()
+            if len(addr_parts) >= 1:
+                region = addr_parts[0][:2]
+            
+            c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (yard_name, address, region))
+            update_cnt += 1
+            
+        conn.commit()
+        conn.close()
+        return update_cnt
+    except: return 0
+
 @st.cache_data(ttl=300)
 def load_all_data():
     try:
@@ -243,10 +286,8 @@ def load_yard_list_for_filter(role):
         df = pd.read_sql("SELECT name FROM junkyard_info ORDER BY name", conn)
         conn.close()
         real_names = df['name'].tolist()
-        if role == 'admin':
-            return real_names
-        elif role == 'buyer':
-            return sorted(list(set([generate_alias(name) for name in real_names])))
+        if role == 'admin': return real_names
+        elif role == 'buyer': return sorted(list(set([generate_alias(name) for name in real_names])))
         return []
     except: return []
 
@@ -305,20 +346,33 @@ with st.sidebar:
 
     st.divider()
 
+    # 📂 [관리자 전용] 데이터 업로드 (주소 DB 포함)
     if st.session_state.user_role == 'admin':
         with st.expander("📂 Admin Tools"):
-            up_files = st.file_uploader("Data Upload", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
-            if up_files and st.button("Save"):
+            # 1. 차량 데이터
+            up_files = st.file_uploader("Vehicle Data", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True, key="v_up")
+            if up_files and st.button("Save Vehicle"):
                 tot = 0
                 bar = st.progress(0)
                 for i, f in enumerate(up_files):
                     n, _ = save_vehicle_file(f)
                     tot += n
                     bar.progress((i+1)/len(up_files))
-                st.success(f"{tot} records uploaded.")
+                st.success(f"{tot} records saved.")
                 load_all_data.clear()
                 safe_rerun()
             
+            st.divider()
+            
+            # 2. 🟢 [복구됨] 주소 DB 업로드
+            addr_file = st.file_uploader("Address DB", type=['xlsx', 'xls', 'csv'], key="a_up")
+            if addr_file and st.button("Save Address"):
+                cnt = save_address_file(addr_file)
+                st.success(f"{cnt} addresses updated.")
+                load_all_data.clear()
+                safe_rerun()
+
+            st.divider()
             if st.button("🗑️ Reset DB"):
                 conn = init_db()
                 conn.execute("DROP TABLE vehicle_data")
@@ -364,7 +418,7 @@ with st.sidebar:
 
     with search_tabs[1]: 
         if list_engines:
-            sel_engines = st.multiselect("Engine Code", list_engines)
+            sel_engines = st.multiselect("Engine Code", list_engines, key="es")
             if st.button("🔍 Search Engine", type="primary"):
                 log_search(sel_engines, 'engine')
                 res = load_all_data()
@@ -425,8 +479,6 @@ else:
     st.title("🇰🇷 Korea Used Auto Parts Inventory")
     
     df_view = st.session_state['view_data']
-    
-    # 🛡️ 마스킹 적용
     df_display = mask_dataframe(df_view, st.session_state.user_role)
     
     if st.session_state.user_role == 'admin':
@@ -454,7 +506,6 @@ else:
             stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
             selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
             
-            # [수정됨] 견적 요청 폼
             if len(selection.selection.rows) > 0:
                 sel_idx = selection.selection.rows[0]
                 sel_row = stock_summary.iloc[sel_idx]
@@ -471,11 +522,9 @@ else:
                         c_a, c_b = st.columns(2)
                         with c_a:
                             buyer_name = st.text_input("Name / Company", value=st.session_state.username)
-                            # 🟢 연락처 저장 필드
                             contact = st.text_input("Contact (Email/Phone) *")
                             req_qty = st.number_input("Quantity *", min_value=1, value=1)
                         with c_b:
-                            # 검색 조건에 따른 Item 자동 완성
                             s_maker = st.session_state.get('msel', 'All')
                             s_models = st.session_state.get('mms', [])
                             s_engines = st.session_state.get('es', [])
@@ -489,7 +538,6 @@ else:
                             else: item_desc.append("Auto Parts")
                             
                             if not s_engines: item_desc.append(f"({s_sy}~{s_ey})")
-                            
                             def_item = " ".join(item_desc)
                             
                             item = st.text_input("Item *", value=def_item)
@@ -511,7 +559,6 @@ else:
                                             real_name = match['junkyard'].iloc[0]
                                     except: real_name = "Unknown"
 
-                                # 🟢 DB에 contact_info 함께 저장
                                 summary = f"Qty: {req_qty} (Total Stock: {stock_cnt}), Item: {item}, Price: {offer}, Msg: {msg}"
                                 cur.execute("INSERT INTO orders (buyer_id, contact_info, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?, ?)",
                                             (buyer_name, contact, target_partner, real_name, summary, 'PENDING'))

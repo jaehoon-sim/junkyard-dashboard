@@ -45,27 +45,16 @@ BUYER_CREDENTIALS = {
 DB_NAME = 'junkyard.db'
 
 # ---------------------------------------------------------
-# 🚦 [설정] 거래 상태 코드 정의
+# 🌍 [설정] 주소 영문 변환 매핑 (변수명 통일됨)
 # ---------------------------------------------------------
-ORDER_STATUS_OPTIONS = [
-    "PENDING",      # 접수 대기
-    "QUOTED",       # 견적 발송
-    "PAID",         # 결제 완료
-    "PROCESSING",   # 작업/준비 중
-    "SHIPPING",     # 배송/선적 중
-    "DONE",         # 거래 완료
-    "CANCELLED"     # 취소됨
-]
-
-# ---------------------------------------------------------
-# 🌍 [설정] 주소 영문 변환 매핑
-# ---------------------------------------------------------
-REGION_EN_MAP = {
-    '경기': 'Gyeonggi', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon',
+PROVINCE_MAP = {
+    '경기': 'Gyeonggi-do', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon-do',
     '충북': 'Chungbuk', '충남': 'Chungnam', '대전': 'Daejeon', '세종': 'Sejong',
     '전북': 'Jeonbuk', '전남': 'Jeonnam', '광주': 'Gwangju',
     '경북': 'Gyeongbuk', '경남': 'Gyeongnam', '대구': 'Daegu', '부산': 'Busan', '울산': 'Ulsan',
-    '제주': 'Jeju'
+    '제주': 'Jeju', '경상남도': 'Gyeongnam', '경상북도': 'Gyeongbuk', 
+    '전라남도': 'Jeonnam', '전라북도': 'Jeonbuk', '충청남도': 'Chungnam', '충청북도': 'Chungbuk',
+    '경기도': 'Gyeonggi-do', '강원도': 'Gangwon-do', '제주도': 'Jeju'
 }
 
 CITY_MAP = {
@@ -145,24 +134,29 @@ def generate_alias(real_name):
     return f"Partner #{hash_int}"
 
 def translate_address(addr):
+    """한글 주소 -> 영문 주소 변환 (시/군 단위)"""
+    # 1. 예외 처리
     if not isinstance(addr, str) or addr == "검색실패" or "조회" in addr:
         return "Unknown Address"
         
     parts = addr.split()
     if len(parts) < 2: return "South Korea"
     
-    k_do = parts[0][:2]
-    k_city = parts[1]
+    k_do = parts[0][:2]   # 경기, 서울
+    k_city = parts[1]     # 수원시, 강남구
     
-    en_do = PROVINCE_MAP.get(k_do, k_do)
+    # 2. 도/광역시 변환
+    en_do = PROVINCE_MAP.get(k_do, k_do) # 여기서 PROVINCE_MAP 사용
     for k, v in PROVINCE_MAP.items():
         if k in parts[0]: 
             en_do = v
             break
             
+    # 3. 시/군 변환
     city_core = k_city.replace('시','').replace('군','').replace('구','')
     en_city = CITY_MAP.get(city_core, city_core)
     
+    # 4. 접미사 및 포맷팅
     if en_do in ['Seoul', 'Incheon', 'Busan', 'Daegu', 'Daejeon', 'Gwangju', 'Ulsan']:
         return f"{en_do}, Korea"
     else:
@@ -181,8 +175,9 @@ def mask_dataframe(df, role):
             df_safe['partner_alias'] = df_safe['junkyard'].apply(generate_alias)
         return df_safe
 
+    # 바이어/게스트용 마스킹
     if 'junkyard' in df_safe.columns:
-        df_safe['real_junkyard'] = df_safe['junkyard']
+        df_safe['real_junkyard'] = df_safe['junkyard'] # 백업
         if role == 'buyer':
             df_safe['junkyard'] = df_safe['junkyard'].apply(generate_alias)
         else:
@@ -191,6 +186,7 @@ def mask_dataframe(df, role):
     if 'address' in df_safe.columns:
         if role == 'buyer':
             df_safe['address'] = df_safe['address'].apply(translate_address)
+            # Region도 영문으로 통일 (주소의 첫 번째 부분)
             if 'region' in df_safe.columns:
                 df_safe['region'] = df_safe['address'].apply(lambda x: x.split(',')[0] if ',' in str(x) else x)
         else:
@@ -203,6 +199,10 @@ def mask_dataframe(df, role):
     drop_cols = ['car_no', 'lat', 'lon', 'real_junkyard']
     df_safe = df_safe.drop(columns=[c for c in drop_cols if c in df_safe.columns], errors='ignore')
 
+    if role == 'guest' and 'lat' in df_safe.columns:
+        df_safe['lat'] = 0.0
+        df_safe['lon'] = 0.0
+        
     return df_safe
 
 # ---------------------------------------------------------
@@ -357,12 +357,6 @@ def load_yard_list_for_filter(role):
         return []
     except: return []
 
-def update_order_status(order_id, new_status):
-    conn = init_db()
-    conn.execute("UPDATE orders SET status = ? WHERE id = ?", (new_status, order_id))
-    conn.commit()
-    conn.close()
-
 def reset_dashboard():
     st.session_state['view_data'] = load_all_data()
     st.session_state['is_filtered'] = False
@@ -392,6 +386,7 @@ list_engines = load_engine_list()
 with st.sidebar:
     st.title("K-Parts Global Hub")
     
+    # 로그인
     if st.session_state.user_role == 'guest':
         with st.expander("🔐 Login", expanded=True):
             uid = st.text_input("ID")
@@ -460,8 +455,8 @@ with st.sidebar:
             sel_maker = st.selectbox("Manufacturer", makers, key="msel")
             
             c1, c2 = st.columns(2)
-            with c1: sel_sy = st.number_input("From", 1990, 2030, 2000)
-            with c2: sel_ey = st.number_input("To", 1990, 2030, 2025)
+            with c1: sel_sy = st.number_input("From", 1990, 2030, 2000, key="sy")
+            with c2: sel_ey = st.number_input("To", 1990, 2030, 2025, key="ey")
             
             if sel_maker != "All":
                 f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].tolist())
@@ -573,7 +568,7 @@ else:
             stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
             selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
             
-            # [수정됨] 견적 요청 폼
+            # [견적 요청 폼]
             if len(selection.selection.rows) > 0:
                 sel_idx = selection.selection.rows[0]
                 sel_row = stock_summary.iloc[sel_idx]
@@ -593,6 +588,7 @@ else:
                             contact = st.text_input("Contact (Email/Phone) *")
                             req_qty = st.number_input("Quantity *", min_value=1, value=1)
                         with c_b:
+                            # 검색 필터 기반 자동 품목 생성
                             s_maker = st.session_state.get('msel', 'All')
                             s_models = st.session_state.get('mms', [])
                             s_engines = st.session_state.get('es', [])
@@ -641,32 +637,9 @@ else:
 
     if st.session_state.user_role == 'admin':
         with main_tabs[1]:
-            st.subheader("📩 Incoming Quote Requests")
+            st.subheader("📩 Quote Requests")
             conn = init_db()
             orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
             conn.close()
-            
-            if not orders.empty:
-                for idx, row in orders.iterrows():
-                    # 🟢 [수정] 주문 관리 패널 (상태 변경 기능 포함)
-                    with st.expander(f"[{row['status']}] {row['created_at']} | From: {row['buyer_id']}"):
-                        st.write(f"**Contact:** {row['contact_info']}")
-                        st.write(f"**Target:** {row['real_junkyard_name']} ({row['target_partner_alias']})")
-                        st.info(f"**Request:** {row['items_summary']}")
-                        
-                        c1, c2 = st.columns([3, 1])
-                        with c1:
-                            new_status = st.selectbox("Change Status", 
-                                                      ["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"],
-                                                      index=["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"].index(row['status']),
-                                                      key=f"st_{row['id']}")
-                        with c2:
-                            st.write("")
-                            st.write("")
-                            if st.button("Update", key=f"btn_{row['id']}"):
-                                update_order_status(row['id'], new_status)
-                                st.success("Updated!")
-                                time.sleep(0.5)
-                                safe_rerun()
-            else:
-                st.info("No pending orders.")
+            if not orders.empty: st.dataframe(orders)
+            else: st.info("No orders.")

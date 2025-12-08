@@ -13,7 +13,7 @@ import hashlib
 import numpy as np
 
 # ---------------------------------------------------------
-# 🛠️ [설정] 페이지 설정 (무조건 맨 위)
+# 🛠️ [설정] 페이지 설정
 # ---------------------------------------------------------
 st.set_page_config(page_title="K-Parts Global Hub", layout="wide")
 
@@ -45,10 +45,10 @@ BUYER_CREDENTIALS = {
 DB_NAME = 'junkyard.db'
 
 # ---------------------------------------------------------
-# 🌍 [설정] 주소 변환 데이터
+# 🌍 [설정] 주소 영문 변환 매핑
 # ---------------------------------------------------------
-PROVINCE_MAP = {
-    '경기': 'Gyeonggi-do', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon-do',
+REGION_EN_MAP = {
+    '경기': 'Gyeonggi', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon',
     '충북': 'Chungbuk', '충남': 'Chungnam', '대전': 'Daejeon', '세종': 'Sejong',
     '전북': 'Jeonbuk', '전남': 'Jeonnam', '광주': 'Gwangju',
     '경북': 'Gyeongbuk', '경남': 'Gyeongnam', '대구': 'Daegu', '부산': 'Busan', '울산': 'Ulsan',
@@ -165,15 +165,13 @@ def mask_dataframe(df, role):
     if df.empty: return df
     df_safe = df.copy()
     
-    # 1. 관리자: Alias만 추가
     if role == 'admin':
         if 'junkyard' in df_safe.columns:
             df_safe['partner_alias'] = df_safe['junkyard'].apply(generate_alias)
         return df_safe
 
-    # 2. 바이어/게스트: 마스킹
     if 'junkyard' in df_safe.columns:
-        df_safe['real_junkyard'] = df_safe['junkyard'] # 내부 로직용 백업
+        df_safe['real_junkyard'] = df_safe['junkyard']
         if role == 'buyer':
             df_safe['junkyard'] = df_safe['junkyard'].apply(generate_alias)
         else:
@@ -191,10 +189,9 @@ def mask_dataframe(df, role):
     if 'vin' in df_safe.columns:
         df_safe['vin'] = df_safe['vin'].astype(str).apply(lambda x: x[:8] + "****" if len(x) > 8 else "****")
     
-    # 불필요 컬럼 제거 (좌표, 차량번호 등)
     drop_cols = ['car_no', 'lat', 'lon', 'real_junkyard']
     df_safe = df_safe.drop(columns=[c for c in drop_cols if c in df_safe.columns], errors='ignore')
-    
+
     return df_safe
 
 # ---------------------------------------------------------
@@ -313,7 +310,6 @@ def save_address_file(uploaded_file):
 def load_all_data():
     try:
         conn = init_db()
-        # lat, lon 제거
         query = "SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name"
         df = pd.read_sql(query, conn)
         conn.close()
@@ -345,8 +341,10 @@ def load_yard_list_for_filter(role):
         df = pd.read_sql("SELECT name FROM junkyard_info ORDER BY name", conn)
         conn.close()
         real_names = df['name'].tolist()
-        if role == 'admin': return real_names
-        elif role == 'buyer': return sorted(list(set([generate_alias(name) for name in real_names])))
+        if role == 'admin':
+            return real_names
+        elif role == 'buyer':
+            return sorted(list(set([generate_alias(name) for name in real_names])))
         return []
     except: return []
 
@@ -453,8 +451,8 @@ with st.sidebar:
             sel_maker = st.selectbox("Manufacturer", makers, key="msel")
             
             c1, c2 = st.columns(2)
-            with c1: sel_sy = st.number_input("From", 1990, 2030, 2000)
-            with c2: sel_ey = st.number_input("To", 1990, 2030, 2025)
+            with c1: sel_sy = st.number_input("From", 1990, 2030, 2000, key="sy")
+            with c2: sel_ey = st.number_input("To", 1990, 2030, 2025, key="ey")
             
             if sel_maker != "All":
                 f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].tolist())
@@ -476,7 +474,7 @@ with st.sidebar:
 
     with search_tabs[1]: 
         if list_engines:
-            sel_engines = st.multiselect("Engine Code", list_engines)
+            sel_engines = st.multiselect("Engine Code", list_engines, key="es")
             if st.button("🔍 Search Engine", type="primary"):
                 log_search(sel_engines, 'engine')
                 res = load_all_data()
@@ -586,7 +584,7 @@ else:
                             contact = st.text_input("Contact (Email/Phone) *")
                             req_qty = st.number_input("Quantity *", min_value=1, value=1)
                         with c_b:
-                            # 🟢 [핵심] 검색 필터 기반 자동 품목 생성
+                            # 🟢 [핵심] 검색 필터 기반 자동 품목 생성 (키 복구)
                             s_maker = st.session_state.get('msel', 'All')
                             s_models = st.session_state.get('mms', [])
                             s_engines = st.session_state.get('es', [])
@@ -603,6 +601,7 @@ else:
                             
                             def_item = " ".join(item_desc)
                             
+                            # 🟢 [수정] 수량 중복 제거 (순수 품목명만)
                             item = st.text_input("Item *", value=def_item)
                             offer = st.text_input("Target Unit Price (USD) *", placeholder="e.g. $500/ea")
                         
@@ -665,7 +664,7 @@ else:
                 st.info("No pending orders.")
 
     if st.session_state.user_role == 'buyer':
-        with main_tabs[1]: # My Orders
+        with main_tabs[1]: # 🟢 [신규] My Orders 탭
             st.subheader("🛒 My Quote Requests")
             conn = init_db()
             my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
@@ -681,3 +680,8 @@ else:
                             st.success("💬 Offer Received! Check your email/phone.")
             else:
                 st.info("You haven't requested any quotes yet.")
+
+except Exception as e:
+    st.error("⛔ 앱 실행 중 문제가 발생했습니다.")
+    with st.expander("상세 오류 보기"):
+        st.code(traceback.format_exc())

@@ -45,7 +45,7 @@ BUYER_CREDENTIALS = {
 DB_NAME = 'junkyard.db'
 
 # ---------------------------------------------------------
-# 🌍 [설정] 주소 영문 변환 매핑 (시/군/구 포함)
+# 🌍 [설정] 주소 영문 변환 매핑
 # ---------------------------------------------------------
 REGION_EN_MAP = {
     '경기': 'Gyeonggi-do', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon-do',
@@ -125,13 +125,42 @@ def init_db():
     return conn
 
 # ---------------------------------------------------------
-# 🕵️ [직거래 방지] 데이터 마스킹 & 영문 변환 (업데이트됨)
+# 🕵️ [직거래 방지] 데이터 마스킹 & 영문 변환
 # ---------------------------------------------------------
 def generate_alias(real_name):
     if not isinstance(real_name, str): return "Unknown"
     hash_object = hashlib.md5(str(real_name).encode())
     hash_int = int(hash_object.hexdigest(), 16) % 900 + 100 
     return f"Partner #{hash_int}"
+
+def translate_address(addr):
+    """한글 주소 -> 영문 주소 변환 (시/군 단위)"""
+    if not isinstance(addr, str) or addr == "검색실패" or "조회" in addr:
+        return "Unknown Address"
+        
+    parts = addr.split()
+    if len(parts) < 2: return "South Korea"
+    
+    k_do = parts[0][:2]
+    k_city = parts[1]
+    
+    en_do = PROVINCE_MAP.get(k_do, k_do)
+    for k, v in PROVINCE_MAP.items():
+        if k in parts[0]: 
+            en_do = v
+            break
+            
+    city_core = k_city.replace('시','').replace('군','').replace('구','')
+    en_city = CITY_MAP.get(city_core, city_core)
+    
+    if en_do in ['Seoul', 'Incheon', 'Busan', 'Daegu', 'Daejeon', 'Gwangju', 'Ulsan']:
+        return f"{en_do}, Korea"
+    else:
+        suffix = "-si" if "시" in k_city else ("-gun" if "군" in k_city else "")
+        if en_city != city_core: 
+             return f"{en_do}, {en_city}{suffix}"
+        else:
+             return f"{en_do}, Korea"
 
 def mask_dataframe(df, role):
     if df.empty: return df
@@ -142,7 +171,6 @@ def mask_dataframe(df, role):
             df_safe['partner_alias'] = df_safe['junkyard'].apply(generate_alias)
         return df_safe
 
-    # 바이어/게스트 처리
     if 'junkyard' in df_safe.columns:
         df_safe['real_junkyard'] = df_safe['junkyard']
         if role == 'buyer':
@@ -150,45 +178,9 @@ def mask_dataframe(df, role):
         else:
             df_safe['junkyard'] = "🔒 Login Required"
 
-    # 🟢 [수정] 주소 완벽 영문화 (도 + 시/군/구)
-    def simplify_address(addr):
-        s = str(addr)
-        if s == 'nan' or '조회' in s or '실패' in s: return "Unknown"
-        
-        # 공백 기준 분리 (예: 경기도 수원시 ...)
-        parts = s.split()
-        if len(parts) < 2: return "South Korea"
-        
-        k_do = parts[0][:2]  # 경기
-        k_city = parts[1]    # 수원시
-        
-        # 1. 도(Province) 변환
-        en_do = k_do
-        for k, v in REGION_EN_MAP.items():
-            if k in parts[0]: 
-                en_do = v
-                break
-        
-        # 2. 시(City) 변환
-        # '시', '군', '구' 제거하고 매핑 테이블 조회
-        city_core = k_city.replace('시','').replace('군','').replace('구','')
-        en_city = CITY_MAP.get(city_core, city_core) # 매핑되면 영문, 안되면 한글(fallback)
-        
-        # 접미사 붙이기 (광역시가 아닌 경우에만)
-        if en_do not in ['Seoul', 'Incheon', 'Busan', 'Daegu', 'Daejeon', 'Gwangju', 'Ulsan']:
-             if '시' in k_city: en_city += '-si'
-             elif '군' in k_city: en_city += '-gun'
-             elif '구' in k_city: en_city += '-gu'
-        else:
-             # 광역시는 구 단위 보통 생략하거나 City, Country로 표기
-             return f"{en_do}, Korea"
-
-        return f"{en_do}, {en_city}"
-    
     if 'address' in df_safe.columns:
         if role == 'buyer':
-            df_safe['address'] = df_safe['address'].apply(simplify_address)
-            # region 컬럼도 address의 앞부분(Province)으로 통일
+            df_safe['address'] = df_safe['address'].apply(translate_address)
             if 'region' in df_safe.columns:
                 df_safe['region'] = df_safe['address'].apply(lambda x: x.split(',')[0] if ',' in str(x) else x)
         else:
@@ -198,14 +190,9 @@ def mask_dataframe(df, role):
     if 'vin' in df_safe.columns:
         df_safe['vin'] = df_safe['vin'].astype(str).apply(lambda x: x[:8] + "****" if len(x) > 8 else "****")
     
-    # 불필요 컬럼 제거
     drop_cols = ['car_no', 'lat', 'lon', 'real_junkyard']
     df_safe = df_safe.drop(columns=[c for c in drop_cols if c in df_safe.columns], errors='ignore')
 
-    if role == 'guest' and 'lat' in df_safe.columns:
-        df_safe['lat'] = 0.0
-        df_safe['lon'] = 0.0
-        
     return df_safe
 
 # ---------------------------------------------------------
@@ -288,11 +275,42 @@ def save_vehicle_file(uploaded_file):
         return cnt, 0
     except: return 0, 0
 
+def save_address_file(uploaded_file):
+    try:
+        if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file, dtype=str)
+        else: 
+            try: df = pd.read_excel(uploaded_file, engine='openpyxl', dtype=str)
+            except: df = pd.read_excel(uploaded_file, engine='xlrd', dtype=str)
+        
+        name_col = next((c for c in df.columns if '폐차장' in c or '업체' in c or '회원' in c), None)
+        addr_col = next((c for c in df.columns if '주소' in c or '소재' in c), None)
+        if not name_col or not addr_col: return 0
+
+        conn = init_db()
+        c = conn.cursor()
+        update_cnt = 0
+        
+        for _, row in df.iterrows():
+            yard_name = str(row[name_col]).strip()
+            address = str(row[addr_col]).strip()
+            
+            region = '기타'
+            addr_parts = address.split()
+            if len(addr_parts) >= 1:
+                region = addr_parts[0][:2]
+            
+            c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (yard_name, address, region))
+            update_cnt += 1
+            
+        conn.commit()
+        conn.close()
+        return update_cnt
+    except: return 0
+
 @st.cache_data(ttl=300)
 def load_all_data():
     try:
         conn = init_db()
-        # lat, lon 제거
         query = "SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name"
         df = pd.read_sql(query, conn)
         conn.close()
@@ -324,10 +342,8 @@ def load_yard_list_for_filter(role):
         df = pd.read_sql("SELECT name FROM junkyard_info ORDER BY name", conn)
         conn.close()
         real_names = df['name'].tolist()
-        if role == 'admin':
-            return real_names
-        elif role == 'buyer':
-            return sorted(list(set([generate_alias(name) for name in real_names])))
+        if role == 'admin': return real_names
+        elif role == 'buyer': return sorted(list(set([generate_alias(name) for name in real_names])))
         return []
     except: return []
 
@@ -360,6 +376,7 @@ list_engines = load_engine_list()
 with st.sidebar:
     st.title("K-Parts Global Hub")
     
+    # 로그인
     if st.session_state.user_role == 'guest':
         with st.expander("🔐 Login", expanded=True):
             uid = st.text_input("ID")
@@ -387,8 +404,9 @@ with st.sidebar:
 
     if st.session_state.user_role == 'admin':
         with st.expander("📂 Admin Tools"):
-            up_files = st.file_uploader("Data Upload", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
-            if up_files and st.button("Save"):
+            # 차량 데이터 업로드
+            up_files = st.file_uploader("Vehicle Data", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
+            if up_files and st.button("Save Data"):
                 tot = 0
                 bar = st.progress(0)
                 for i, f in enumerate(up_files):
@@ -399,6 +417,17 @@ with st.sidebar:
                 load_all_data.clear()
                 safe_rerun()
             
+            st.divider()
+            
+            # 🟢 [복구] 주소 DB 업로드
+            addr_file = st.file_uploader("Address DB", type=['xlsx', 'xls', 'csv'], key="admin_addr")
+            if addr_file and st.button("Save Address"):
+                cnt = save_address_file(addr_file)
+                st.success(f"{cnt} addresses updated.")
+                load_all_data.clear()
+                safe_rerun()
+
+            st.divider()
             if st.button("🗑️ Reset DB"):
                 conn = init_db()
                 conn.execute("DROP TABLE vehicle_data")
@@ -421,8 +450,8 @@ with st.sidebar:
             sel_maker = st.selectbox("Manufacturer", makers, key="msel")
             
             c1, c2 = st.columns(2)
-            with c1: sel_sy = st.number_input("From", 1990, 2030, 2000, key="sy")
-            with c2: sel_ey = st.number_input("To", 1990, 2030, 2025, key="ey")
+            with c1: sel_sy = st.number_input("From", 1990, 2030, 2000)
+            with c2: sel_ey = st.number_input("To", 1990, 2030, 2025)
             
             if sel_maker != "All":
                 f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].tolist())
@@ -534,6 +563,7 @@ else:
             stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
             selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
             
+            # [수정됨] 견적 요청 폼
             if len(selection.selection.rows) > 0:
                 sel_idx = selection.selection.rows[0]
                 sel_row = stock_summary.iloc[sel_idx]

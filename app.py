@@ -51,7 +51,7 @@ CITY_COORDS = {
     '충북 청주': [36.6424, 127.4890], '충북 충주': [36.9915, 127.9260], '충북 제천': [37.1326, 128.1910],
     '충북 음성': [36.9403, 127.6903], '충북 진천': [36.8553, 127.4355], '충북 괴산': [36.8153, 127.7867],
     '충남 천안': [36.8151, 127.1139], '충남 공주': [36.4465, 127.1190], '충남 보령': [36.3333, 126.6129],
-    '충남 아산': [36.7898, 127.0018], '충남 서산': [36.7848, 126.4503], '충남 논산': [36.2021, 127.0850],
+    '충남 아산': [36.7898, 127.0018], '충남 아산': [36.7898, 127.0018], '충남 서산': [36.7848, 126.4503], '충남 논산': [36.2021, 127.0850],
     '충남 당진': [36.8906, 126.6290], '충남 금산': [36.1087, 127.4883], '충남 예산': [36.6816, 126.8437],
     '충남 홍성': [36.6015, 126.6607], '충남 부여': [36.2755, 126.9097], '세종': [36.4800, 127.2890],
     '경북 포항': [36.0190, 129.3435], '경북 경주': [35.8562, 129.2247], '경북 김천': [36.1398, 128.1136],
@@ -80,41 +80,12 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (name TEXT PRIMARY KEY, address TEXT, region TEXT, lat REAL, lon REAL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS model_list (manufacturer TEXT, model_name TEXT, PRIMARY KEY (manufacturer, model_name))''')
     
-    # 🟢 [신규] 검색 로그 테이블 (수요 분석용)
-    c.execute('''CREATE TABLE IF NOT EXISTS search_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        keyword TEXT,
-        search_type TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )''')
-    
-    # 인덱스 최적화
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data(model_name)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_engine ON vehicle_data(engine_code)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_yard ON vehicle_data(junkyard)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_log_type ON search_logs(search_type)")
     conn.commit()
     return conn
-
-# ---------------------------------------------------------
-# [기능] 검색 로그 저장 함수
-# ---------------------------------------------------------
-def log_search(keywords, s_type):
-    """사용자의 검색 행위를 DB에 기록합니다."""
-    if not keywords: return
-    conn = init_db()
-    c = conn.cursor()
-    
-    # 리스트면 반복 저장
-    if isinstance(keywords, list):
-        for k in keywords:
-            c.execute("INSERT INTO search_logs (keyword, search_type) VALUES (?, ?)", (str(k), s_type))
-    else:
-        c.execute("INSERT INTO search_logs (keyword, search_type) VALUES (?, ?)", (str(keywords), s_type))
-        
-    conn.commit()
-    conn.close()
 
 # ---------------------------------------------------------
 # [메모리 최적화] 데이터프레임 경량화 함수
@@ -133,7 +104,6 @@ def clean_junkyard_name(name):
     return cleaned.strip()
 
 def search_place_naver(query):
-    # API 검색 로직
     cleaned_name = clean_junkyard_name(query)
     search_queries = [query]
     if '폐차' not in cleaned_name and len(cleaned_name) < 5: search_queries.append(f"{cleaned_name} 폐차장")
@@ -262,7 +232,6 @@ def save_address_file(uploaded_file):
         
         name_col = next((c for c in df.columns if '폐차장' in c or '업체' in c or '회원' in c), None)
         addr_col = next((c for c in df.columns if '주소' in c or '소재' in c), None)
-        
         if not name_col or not addr_col: return 0
 
         conn = init_db()
@@ -344,34 +313,40 @@ def load_yard_list():
     except: return []
 
 # ---------------------------------------------------------
-# [신규] 수요 예측용 검색어 분석 함수
+# 🛠️ [기능] 필터 및 대시보드 완전 초기화 함수 (Callback)
 # ---------------------------------------------------------
-def get_search_trends():
-    """DB에 저장된 검색 로그를 분석하여 인기 검색어(수요)를 반환"""
-    try:
-        conn = init_db()
-        # 최근 검색된 엔진코드 TOP 10
-        engine_trends = pd.read_sql("SELECT keyword, COUNT(*) as count FROM search_logs WHERE search_type='engine' GROUP BY keyword ORDER BY count DESC LIMIT 10", conn)
-        # 최근 검색된 모델명 TOP 10
-        model_trends = pd.read_sql("SELECT keyword, COUNT(*) as count FROM search_logs WHERE search_type='model' GROUP BY keyword ORDER BY count DESC LIMIT 10", conn)
-        conn.close()
-        return engine_trends, model_trends
-    except:
-        return pd.DataFrame(), pd.DataFrame()
+def reset_dashboard():
+    """모든 세션 상태(데이터 + 필터 위젯)를 초기화하고 리로드"""
+    
+    # 1. 데이터 리셋 (캐시된 전체 데이터 로드)
+    st.session_state['view_data'] = load_all_data()
+    st.session_state['is_filtered'] = False
+    
+    # 2. 각 필터 위젯의 키(Key) 값을 기본값으로 강제 변경
+    # (이 함수가 버튼의 on_click 콜백으로 실행되므로 즉시 적용됨)
+    st.session_state['maker_sel'] = "전체"
+    st.session_state['sy'] = 2000
+    st.session_state['ey'] = datetime.datetime.now().year
+    st.session_state['ms'] = []   # 멀티셀렉트 초기화
+    st.session_state['es'] = []   # 엔진코드 초기화
+    st.session_state['ys'] = []   # 폐차장 초기화
 
 # ---------------------------------------------------------
 # 메인 로직
 # ---------------------------------------------------------
 try:
     if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+    
+    # ⚡ 처음 시작 시 데이터를 로드하지 않음 (대시보드 속도 향상)
     if 'view_data' not in st.session_state: 
-        st.session_state['view_data'] = load_all_data()
+        st.session_state['view_data'] = pd.DataFrame()
         st.session_state['is_filtered'] = False
 
+    df_all_source = load_all_data()
     df_models = load_model_list()
     list_engines = load_engine_list()
     list_yards = load_yard_list()
-    
+
     with st.sidebar:
         st.title("🛠️ 컨트롤 패널")
         
@@ -394,7 +369,7 @@ try:
         st.divider()
 
         with st.expander("📂 차량 데이터 업로드"):
-            up_files = st.file_uploader("파일 선택 (다중 가능)", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True, key="v_up")
+            up_files = st.file_uploader("파일 선택", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True, key="v_up")
             if up_files and st.button("DB 저장"):
                 if st.session_state.logged_in:
                     total_n = 0
@@ -421,13 +396,14 @@ try:
 
         st.divider()
         
-        search_tabs = st.tabs(["🚙 차량", "🔧 엔진", "🏭 폐차장", "📈 수요"])
+        # 검색 탭
+        search_tabs = st.tabs(["🚙 차량", "🔧 엔진", "🏭 폐차장"])
         
         with search_tabs[0]:
             if not df_models.empty:
                 makers = sorted(df_models['manufacturer'].unique().tolist())
                 makers.insert(0, "전체")
-                sel_maker = st.selectbox("제조사", makers, key="msel")
+                sel_maker = st.selectbox("제조사", makers, key="maker_sel")
                 
                 current_year = datetime.datetime.now().year
                 year_opts = list(range(1990, current_year + 2))
@@ -440,19 +416,14 @@ try:
                 else:
                     f_models = sorted(df_models['model_name'].unique().tolist())
                 
-                sel_models = st.multiselect(f"모델 ({len(f_models)}개)", f_models, key="mms")
+                sel_models = st.multiselect(f"모델 ({len(f_models)}개)", f_models, key="ms")
                 
                 st.markdown("")
                 if st.button("✅ 차량 검색 적용", type="primary", use_container_width=True):
-                    # 🟢 [로그 기록] 차량 모델 검색어 저장
-                    if sel_models:
-                        log_search(sel_models, 'model')
-                    
                     full_df = load_all_data()
                     if sel_maker != "전체": full_df = full_df[full_df['manufacturer'] == sel_maker]
                     full_df = full_df[(full_df['model_year'] >= sel_sy) & (full_df['model_year'] <= sel_ey)]
                     if sel_models: full_df = full_df[full_df['model_name'].isin(sel_models)]
-                    
                     st.session_state['view_data'] = full_df.reset_index(drop=True)
                     st.session_state['is_filtered'] = True
                     safe_rerun()
@@ -462,10 +433,6 @@ try:
                 sel_engines = st.multiselect("엔진코드", list_engines, key="es")
                 st.markdown("")
                 if st.button("🔧 엔진 검색 적용", type="primary", use_container_width=True):
-                    # 🟢 [로그 기록] 엔진 검색어 저장
-                    if sel_engines:
-                        log_search(sel_engines, 'engine')
-
                     full_df = load_all_data()
                     if sel_engines: full_df = full_df[full_df['engine_code'].isin(sel_engines)]
                     st.session_state['view_data'] = full_df.reset_index(drop=True)
@@ -483,17 +450,8 @@ try:
                     st.session_state['is_filtered'] = True
                     safe_rerun()
         
-        with search_tabs[3]: # [신규] 실시간 수요 분석 탭
-            st.info("💡 바이어들이 많이 찾은(검색한) 키워드 순위입니다.")
-            if st.button("📊 실시간 수요 분석", type="primary"):
-                st.session_state['show_trends'] = True
-                safe_rerun()
-
-        if st.button("🔄 전체 목록 보기", use_container_width=True):
-            st.session_state['view_data'] = load_all_data()
-            st.session_state['is_filtered'] = False
-            st.session_state['show_trends'] = False
-            safe_rerun()
+        # 🟢 [핵심] 콜백을 이용한 초기화 버튼
+        st.button("🔄 전체 목록 보기 (필터 초기화)", use_container_width=True, on_click=reset_dashboard)
 
         if st.session_state.logged_in:
             st.divider()
@@ -504,7 +462,6 @@ try:
                     c.execute("DROP TABLE vehicle_data")
                     c.execute("DROP TABLE junkyard_info")
                     c.execute("DROP TABLE model_list")
-                    c.execute("DROP TABLE search_logs") # 로그도 삭제
                     conn.commit()
                     conn.close()
                     load_all_data.clear()
@@ -513,39 +470,18 @@ try:
                     safe_rerun()
                 except: pass
 
-    # ------------------- 메인 화면 (분기 처리) -------------------
+    # 메인 화면
+    st.title("🚗 전국 폐차장 실시간 재고 현황")
     
-    # 1. [신규] 수요 분석 화면
-    if st.session_state.get('show_trends'):
-        st.title("📈 실시간 바이어 수요(검색) 트렌드")
-        st.caption("사용자들의 검색 기록을 기반으로 한 실제 수요 데이터입니다.")
-        
-        eng_trend, mod_trend = get_search_trends()
-        
-        c1, c2 = st.columns(2)
-        with c1:
-            st.subheader("🔥 가장 많이 찾는 엔진 TOP 10")
-            if not eng_trend.empty:
-                fig = px.bar(eng_trend, x='count', y='keyword', orientation='h', text='count', title="엔진 검색 순위")
-                fig.update_layout(yaxis={'categoryorder':'total ascending'})
-                st.plotly_chart(fig, use_container_width=True)
-            else: st.info("아직 검색 데이터가 충분하지 않습니다.")
-            
-        with c2:
-            st.subheader("🚙 가장 많이 찾는 차종 TOP 10")
-            if not mod_trend.empty:
-                fig = px.bar(mod_trend, x='count', y='keyword', orientation='h', text='count', title="차종 검색 순위")
-                fig.update_layout(yaxis={'categoryorder':'total ascending'})
-                st.plotly_chart(fig, use_container_width=True)
-            else: st.info("아직 검색 데이터가 충분하지 않습니다.")
+    df_view = st.session_state['view_data']
+    is_filtered = st.session_state['is_filtered']
 
-    # 2. 일반 재고 조회 화면
+    if df_view.empty:
+        st.info("👈 좌측 패널에서 검색 조건을 선택하고 **[적용]** 버튼을 눌러주세요.")
+    
     else:
-        st.title("🚗 전국 폐차장 실시간 재고 현황")
-        df_view = st.session_state['view_data']
-        is_filtered = st.session_state['is_filtered']
-
-        if not st.session_state.logged_in and not df_view.empty:
+        # 마스킹
+        if not st.session_state.logged_in:
             df_view = df_view.copy()
             df_view['junkyard'] = "🔒 회원전용"
             df_view['address'] = "🔒 비공개"
@@ -554,139 +490,138 @@ try:
             df_view['lat'] = 0.0
             df_view['lon'] = 0.0
 
-        if not df_view.empty:
-            mode = "🔍 검색 결과" if is_filtered else "📊 전체 현황"
-            st.caption(f"모드: {mode} | 데이터: {len(df_view):,}건")
-            
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("조회된 재고", f"{len(df_view):,}대")
-            
-            conn = init_db()
-            today = datetime.datetime.now().strftime("%Y-%m-%d")
-            try: today_cnt = pd.read_sql(f"SELECT COUNT(*) as cnt FROM vehicle_data WHERE reg_date LIKE '{today}%'", conn)['cnt'][0]
-            except: today_cnt = 0
-            conn.close()
-            
-            c2.metric("오늘 전체 입고", f"{today_cnt}대")
-            c3.metric("관련 업체", "🔒" if not st.session_state.logged_in else f"{df_view['junkyard'].nunique()}곳")
-            
-            if st.session_state.logged_in and 'region' in df_view.columns and not df_view['region'].empty:
-                c4.metric("최다 지역", df_view['region'].mode()[0])
-            else: c4.metric("최다 지역", "🔒")
+        mode = "🔍 검색 결과" if is_filtered else "📊 전체 현황"
+        st.caption(f"모드: {mode} | 데이터: {len(df_view):,}건")
+        
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("조회된 재고", f"{len(df_view):,}대")
+        
+        # 오늘 입고
+        conn = init_db()
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        try: today_cnt = pd.read_sql(f"SELECT COUNT(*) as cnt FROM vehicle_data WHERE reg_date LIKE '{today}%'", conn)['cnt'][0]
+        except: today_cnt = 0
+        conn.close()
+        
+        c2.metric("오늘 전체 입고", f"{today_cnt}대")
+        c3.metric("관련 업체", "🔒" if not st.session_state.logged_in else f"{df_view['junkyard'].nunique()}곳")
+        
+        if st.session_state.logged_in and 'region' in df_view.columns and not df_view['region'].empty:
+            c4.metric("최다 지역", df_view['region'].mode()[0])
+        else: c4.metric("최다 지역", "🔒")
 
-            st.divider()
-            
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                st.subheader("📍 위치 분포")
-                if st.session_state.logged_in:
-                    map_df = df_view[(df_view['lat'] != 0.0) & (df_view['lat'].notnull())]
-                    if not map_df.empty:
-                        try:
-                            map_agg = map_df.groupby(['junkyard', 'region', 'lat', 'lon'], observed=True).size().reset_index(name='count')
-                            fig = px.scatter_mapbox(
-                                map_agg, lat="lat", lon="lon", size="count", color="count",
-                                hover_name="junkyard", zoom=6.5, center={"lat": 36.5, "lon": 127.8},
-                                mapbox_style="carto-positron", color_continuous_scale="Reds", size_max=50
-                            )
-                            fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
-                            st.plotly_chart(fig, use_container_width=True)
-                        except Exception as e: st.error("지도 생성 중 오류")
-                    else: st.warning("위치 데이터 없음")
-                else:
-                    st.warning("🔒 지도는 관리자(회원) 전용입니다.")
-
-            with col2:
-                st.subheader("🏭 보유량 TOP")
-                if 'junkyard' in df_view.columns:
-                    top_yards = df_view.groupby(['junkyard'], observed=True).size().reset_index(name='수량').sort_values('수량', ascending=False).head(15)
-                    st.dataframe(top_yards, width=None, use_container_width=True, hide_index=True, height=400)
-
-            st.divider()
-
-            if 'reg_date' in df_view.columns:
-                st.subheader("📈 월별 입고 추이")
-                monthly_data = df_view.dropna(subset=['reg_date']).copy()
-                if not monthly_data.empty:
-                    monthly_data['month_str'] = monthly_data['reg_date'].dt.month.astype(str) + '월'
-                    monthly_data['sort_key'] = monthly_data['reg_date'].dt.strftime('%Y-%m')
-                    monthly_counts = monthly_data.groupby(['sort_key', 'month_str']).size().reset_index(name='입고량').sort_values('sort_key')
-                    fig_bar = px.bar(monthly_counts, x='month_str', y='입고량', text='입고량', color='입고량')
-                    fig_bar.update_layout(xaxis_title=None, coloraxis_showscale=False)
-                    st.plotly_chart(fig_bar, use_container_width=True)
-            
-            st.divider()
-            
-            if is_filtered:
-                st.subheader("📑 견적 요청 & 주소 관리")
-                
-                view_copy = df_view.copy()
-                if st.session_state.logged_in:
-                    if isinstance(view_copy['address'].dtype, pd.CategoricalDtype):
-                        view_copy['address'] = view_copy['address'].astype(str)
-                    view_copy['address'] = view_copy['address'].fillna('🔍 조회 필요').replace('검색실패', '🔍 조회 필요')
-                
-                yard_summary = view_copy.groupby(['junkyard', 'region', 'address'], observed=True).size().reset_index(name='보유수량').sort_values('보유수량', ascending=False)
-                
-                selection = st.dataframe(
-                    yard_summary,
-                    width=None, use_container_width=True, hide_index=True, 
-                    selection_mode="single-row", on_select="rerun"
-                )
-                
-                if len(selection.selection.rows) > 0:
-                    sel_idx = selection.selection.rows[0]
-                    sel_row = yard_summary.iloc[sel_idx]
-                    target_yard = sel_row['junkyard']
-                    current_addr = sel_row['address']
-                    
-                    if st.session_state.logged_in and "조회 필요" in str(current_addr):
-                        if st.button(f"🔄 '{target_yard}' 주소 검색 실행"):
-                            conn = init_db()
-                            with st.spinner("주소 찾는 중..."):
-                                success, new_addr = update_single_junkyard(conn, target_yard)
-                            conn.close()
-                            if success:
-                                st.success(f"성공! ({new_addr})")
-                                load_all_data.clear()
-                                time.sleep(1)
-                                safe_rerun()
-                            else: st.error("실패")
-
-                    st.info(f"📩 **{target_yard}**에 견적 요청")
-                    with st.form("quote"):
-                        c_a, c_b = st.columns(2)
-                        with c_a: 
-                            st.text_input("수신", value=target_yard, disabled=True)
-                            st.text_input("연락처", placeholder="010-0000-0000")
-                        with c_b:
-                            st.text_input("품목", value=f"검색 결과 {len(df_view)}건 관련")
-                            st.text_input("희망가", placeholder="금액 입력")
-                        st.text_area("내용", value=f"{target_yard} 사장님, 보유하신 {sel_row['보유수량']}대에 대한 견적 문의드립니다.", height=100)
-                        if st.form_submit_button("전송"): st.toast("완료!", icon="📨")
-
-                st.subheader("📋 차량 목록")
-                cols = ['reg_date', 'manufacturer', 'model_name', 'model_year', 'engine_code', 'junkyard', 'address', 'vin']
-                valid_cols = [c for c in cols if c in df_view.columns]
-                st.dataframe(df_view[valid_cols].sort_values('reg_date', ascending=False), width=None, use_container_width=True)
+        st.divider()
+        
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.subheader("📍 위치 분포")
+            if st.session_state.logged_in:
+                map_df = df_view[(df_view['lat'] != 0.0) & (df_view['lat'].notnull())]
+                if not map_df.empty:
+                    try:
+                        map_agg = map_df.groupby(['junkyard', 'region', 'lat', 'lon'], observed=True).size().reset_index(name='count')
+                        fig = px.scatter_mapbox(
+                            map_agg, lat="lat", lon="lon", size="count", color="count",
+                            hover_name="junkyard", zoom=6.5, center={"lat": 36.5, "lon": 127.8},
+                            mapbox_style="carto-positron", color_continuous_scale="Reds", size_max=50
+                        )
+                        fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
+                        st.plotly_chart(fig, use_container_width=True)
+                    except Exception as e: st.error("지도 생성 중 오류")
+                else: st.warning("위치 데이터 없음 (주소 DB를 업로드해주세요)")
             else:
-                c_a, c_b = st.columns(2)
-                with c_a:
-                    st.subheader("🔥 엔진 TOP 10")
-                    eng_d = df_view['engine_code'].value_counts().head(10).reset_index()
-                    eng_d.columns = ['코드', '수량']
-                    f_eng = px.bar(eng_d, x='코드', y='수량', text='수량', color='수량')
-                    f_eng.update_layout(xaxis_tickangle=0, coloraxis_showscale=False)
-                    st.plotly_chart(f_eng, use_container_width=True)
-                with c_b:
-                    st.subheader("🚙 모델 TOP 10")
-                    mod_d = df_view['model_name'].value_counts().head(10).reset_index()
-                    mod_d.columns = ['모델', '수량']
-                    f_mod = px.bar(mod_d, x='모델', y='수량', text='수량', color='수량')
-                    f_mod.update_layout(xaxis_tickangle=0, coloraxis_showscale=False)
-                    st.plotly_chart(f_mod, use_container_width=True)
+                st.warning("🔒 지도는 관리자(회원) 전용입니다.")
+
+        with col2:
+            st.subheader("🏭 보유량 TOP")
+            if 'junkyard' in df_view.columns:
+                top_yards = df_view.groupby(['junkyard'], observed=True).size().reset_index(name='수량').sort_values('수량', ascending=False).head(15)
+                st.dataframe(top_yards, width=None, use_container_width=True, hide_index=True, height=400)
+
+        st.divider()
+
+        # 월별 그래프
+        if 'reg_date' in df_view.columns:
+            st.subheader("📈 월별 입고 추이")
+            monthly_data = df_view.dropna(subset=['reg_date']).copy()
+            if not monthly_data.empty:
+                monthly_data['month_str'] = monthly_data['reg_date'].dt.month.astype(str) + '월'
+                monthly_data['sort_key'] = monthly_data['reg_date'].dt.strftime('%Y-%m')
+                monthly_counts = monthly_data.groupby(['sort_key', 'month_str']).size().reset_index(name='입고량').sort_values('sort_key')
+                fig_bar = px.bar(monthly_counts, x='month_str', y='입고량', text='입고량', color='입고량')
+                fig_bar.update_layout(xaxis_title=None, coloraxis_showscale=False)
+                st.plotly_chart(fig_bar, use_container_width=True)
+        
+        st.divider()
+        
+        if is_filtered:
+            st.subheader("📑 견적 요청 & 주소 관리")
+            
+            view_copy = df_view.copy()
+            if st.session_state.logged_in:
+                if isinstance(view_copy['address'].dtype, pd.CategoricalDtype):
+                    view_copy['address'] = view_copy['address'].astype(str)
+                view_copy['address'] = view_copy['address'].fillna('🔍 조회 필요').replace('검색실패', '🔍 조회 필요')
+            
+            yard_summary = view_copy.groupby(['junkyard', 'region', 'address'], observed=True).size().reset_index(name='보유수량').sort_values('보유수량', ascending=False)
+            
+            selection = st.dataframe(
+                yard_summary,
+                width=None, use_container_width=True, hide_index=True, 
+                selection_mode="single-row", on_select="rerun"
+            )
+            
+            if len(selection.selection.rows) > 0:
+                sel_idx = selection.selection.rows[0]
+                sel_row = yard_summary.iloc[sel_idx]
+                target_yard = sel_row['junkyard']
+                current_addr = sel_row['address']
+                
+                if st.session_state.logged_in and "조회 필요" in str(current_addr):
+                     if st.button(f"🔄 '{target_yard}' 주소 검색 실행"):
+                        conn = init_db()
+                        with st.spinner("주소 찾는 중..."):
+                            success, new_addr = update_single_junkyard(conn, target_yard)
+                        conn.close()
+                        if success:
+                            st.success(f"성공! ({new_addr})")
+                            load_all_data.clear()
+                            time.sleep(1)
+                            safe_rerun()
+                        else: st.error("실패")
+
+                st.info(f"📩 **{target_yard}**에 견적 요청")
+                with st.form("quote"):
+                    c_a, c_b = st.columns(2)
+                    with c_a: 
+                        st.text_input("수신", value=target_yard, disabled=True)
+                        st.text_input("연락처", placeholder="010-0000-0000")
+                    with c_b:
+                        st.text_input("품목", value=f"검색 결과 {len(df_view)}건 관련")
+                        st.text_input("희망가", placeholder="금액 입력")
+                    st.text_area("내용", value=f"{target_yard} 사장님, 보유하신 {sel_row['보유수량']}대에 대한 견적 문의드립니다.", height=100)
+                    if st.form_submit_button("전송"): st.toast("완료!", icon="📨")
+
+            st.subheader("📋 차량 목록")
+            cols = ['reg_date', 'manufacturer', 'model_name', 'model_year', 'engine_code', 'junkyard', 'address', 'vin']
+            valid_cols = [c for c in cols if c in df_view.columns]
+            st.dataframe(df_view[valid_cols].sort_values('reg_date', ascending=False), width=None, use_container_width=True)
         else:
-            st.info("데이터가 없습니다.")
+            c_a, c_b = st.columns(2)
+            with c_a:
+                st.subheader("🔥 엔진 TOP 10")
+                eng_d = df_view['engine_code'].value_counts().head(10).reset_index()
+                eng_d.columns = ['코드', '수량']
+                f_eng = px.bar(eng_d, x='코드', y='수량', text='수량', color='수량')
+                f_eng.update_layout(xaxis_tickangle=0, coloraxis_showscale=False)
+                st.plotly_chart(f_eng, use_container_width=True)
+            with c_b:
+                st.subheader("🚙 모델 TOP 10")
+                mod_d = df_view['model_name'].value_counts().head(10).reset_index()
+                mod_d.columns = ['모델', '수량']
+                f_mod = px.bar(mod_d, x='모델', y='수량', text='수량', color='수량')
+                f_mod.update_layout(xaxis_tickangle=0, coloraxis_showscale=False)
+                st.plotly_chart(f_mod, use_container_width=True)
 
 except Exception as e:
     st.error("⛔ 앱 실행 중 문제가 발생했습니다.")

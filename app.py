@@ -79,18 +79,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS vehicle_data (vin TEXT PRIMARY KEY, reg_date TEXT, car_no TEXT, manufacturer TEXT, model_name TEXT, model_year REAL, junkyard TEXT, engine_code TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (name TEXT PRIMARY KEY, address TEXT, region TEXT, lat REAL, lon REAL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS model_list (manufacturer TEXT, model_name TEXT, PRIMARY KEY (manufacturer, model_name))''')
-    
-    # 🟢 [업그레이드] 검색 로그 테이블 (위치 정보 포함)
-    c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        keyword TEXT,
-        search_type TEXT,
-        country TEXT,
-        city TEXT,
-        lat REAL,
-        lon REAL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
     # 인덱스
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
@@ -101,61 +90,30 @@ def init_db():
     return conn
 
 # ---------------------------------------------------------
-# 🌍 [기능] 사용자 위치 추적 및 로그 저장
+# [기능] 검색 로그 저장
 # ---------------------------------------------------------
-def get_user_location():
-    """사용자의 IP를 기반으로 대략적인 위치(국가, 도시)를 파악합니다."""
-    try:
-        # 무료 GeoIP API 사용 (상용 서비스에서는 유료 API 권장)
-        response = requests.get('http://ip-api.com/json/', timeout=2)
-        if response.status_code == 200:
-            data = response.json()
-            if data['status'] == 'success':
-                return {
-                    'country': data.get('country', 'Unknown'),
-                    'city': data.get('city', 'Unknown'),
-                    'lat': data.get('lat', 0.0),
-                    'lon': data.get('lon', 0.0)
-                }
-    except: pass
-    return {'country': 'Unknown', 'city': 'Unknown', 'lat': 0.0, 'lon': 0.0}
-
 def log_search(keywords, s_type):
-    """검색어와 사용자 위치를 함께 저장"""
     if not keywords: return
-    
-    # 위치 정보 가져오기 (약간의 지연이 발생할 수 있음)
-    loc = get_user_location()
-    
     try:
         conn = init_db()
         c = conn.cursor()
         if isinstance(keywords, list):
             for k in keywords:
-                c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city, lat, lon) VALUES (?, ?, ?, ?, ?, ?)", 
-                          (str(k), s_type, loc['country'], loc['city'], loc['lat'], loc['lon']))
+                c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city, lat, lon) VALUES (?, ?, ?, ?, ?, ?)", (str(k), s_type, 'KR', 'Seoul', 37.5, 127.0))
         else:
-            c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city, lat, lon) VALUES (?, ?, ?, ?, ?, ?)", 
-                      (str(keywords), s_type, loc['country'], loc['city'], loc['lat'], loc['lon']))
+            c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city, lat, lon) VALUES (?, ?, ?, ?, ?, ?)", (str(keywords), s_type, 'KR', 'Seoul', 37.5, 127.0))
         conn.commit()
         conn.close()
-    except Exception as e: 
-        print(f"Log Error: {e}")
+    except: pass
 
-def get_real_demand_trends():
-    """실제 검색 로그 분석"""
+def get_search_trends():
     try:
         conn = init_db()
-        # 인기 검색어
         eng_trend = pd.read_sql("SELECT keyword, COUNT(*) as count FROM search_logs_v2 WHERE search_type='engine' GROUP BY keyword ORDER BY count DESC LIMIT 10", conn)
         mod_trend = pd.read_sql("SELECT keyword, COUNT(*) as count FROM search_logs_v2 WHERE search_type='model' GROUP BY keyword ORDER BY count DESC LIMIT 10", conn)
-        
-        # 국가별 검색 분포 (지도용)
-        geo_trend = pd.read_sql("SELECT country, city, lat, lon, COUNT(*) as demand_qty FROM search_logs_v2 WHERE lat != 0.0 GROUP BY country, city, lat, lon", conn)
-        
         conn.close()
-        return eng_trend, mod_trend, geo_trend
-    except: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return eng_trend, mod_trend
+    except: return pd.DataFrame(), pd.DataFrame()
 
 # ---------------------------------------------------------
 # [메모리 최적화] 데이터프레임 경량화 함수
@@ -174,7 +132,6 @@ def clean_junkyard_name(name):
     return cleaned.strip()
 
 def search_place_naver(query):
-    # API 검색 로직
     cleaned_name = clean_junkyard_name(query)
     search_queries = [query]
     if '폐차' not in cleaned_name and len(cleaned_name) < 5: search_queries.append(f"{cleaned_name} 폐차장")
@@ -226,6 +183,42 @@ def update_single_junkyard(conn, yard_name):
         c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region, lat, lon) VALUES (?, ?, ?, ?, ?)", (yard_name, '검색실패', '기타', 0.0, 0.0))
         conn.commit()
         return False, "검색실패"
+
+# [기능] 주소 없는 폐차장 일괄 업데이트 (Bulk Address Update)
+def update_missing_addresses_bulk():
+    conn = init_db()
+    # 주소가 '검색실패' 이거나, 좌표가 0인 곳, 또는 아예 junkyard_info에 없는 곳 조회
+    # 여기서는 vehicle_data에는 있는데 junkyard_info에 '조회 필요' 상태인 것들 (view_data 기준)
+    
+    # 1. 대상 추출: DB에서 주소가 없는 애들
+    query = """
+        SELECT DISTINCT v.junkyard 
+        FROM vehicle_data v
+        LEFT JOIN junkyard_info j ON v.junkyard = j.name
+        WHERE j.address IS NULL OR j.address = '검색실패' OR j.lat = 0.0
+    """
+    targets = pd.read_sql(query, conn)['junkyard'].tolist()
+    
+    if not targets:
+        conn.close()
+        return 0
+
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    success_cnt = 0
+    
+    for i, yard in enumerate(targets):
+        status_text.text(f"🔍 주소 조회 중 ({i+1}/{len(targets)}): {yard}")
+        success, _ = update_single_junkyard(conn, yard)
+        if success: success_cnt += 1
+        progress_bar.progress((i + 1) / len(targets))
+        time.sleep(0.1) # API 차단 방지
+
+    conn.close()
+    progress_bar.empty()
+    status_text.empty()
+    return success_cnt
+
 
 def save_vehicle_file(uploaded_file):
     try:
@@ -383,9 +376,6 @@ def load_yard_list():
         return df['name'].tolist()
     except: return []
 
-# ---------------------------------------------------------
-# [기능] 필터 및 대시보드 초기화 (Callback)
-# ---------------------------------------------------------
 def reset_dashboard():
     st.session_state['view_data'] = load_all_data()
     st.session_state['is_filtered'] = False
@@ -484,14 +474,11 @@ try:
                 
                 st.markdown("")
                 if st.button("✅ 차량 검색 적용", type="primary", use_container_width=True):
-                    # 🟢 로그 기록
                     log_search(sel_models, 'model')
-
                     full_df = load_all_data()
                     if sel_maker != "전체": full_df = full_df[full_df['manufacturer'] == sel_maker]
                     full_df = full_df[(full_df['model_year'] >= sel_sy) & (full_df['model_year'] <= sel_ey)]
                     if sel_models: full_df = full_df[full_df['model_name'].isin(sel_models)]
-                    
                     st.session_state['view_data'] = full_df.reset_index(drop=True)
                     st.session_state['is_filtered'] = True
                     st.session_state.mode_demand = False
@@ -502,9 +489,7 @@ try:
                 sel_engines = st.multiselect("엔진코드", list_engines, key="es")
                 st.markdown("")
                 if st.button("🔧 엔진 검색 적용", type="primary", use_container_width=True):
-                    # 🟢 로그 기록
                     log_search(sel_engines, 'engine')
-
                     full_df = load_all_data()
                     if sel_engines: full_df = full_df[full_df['engine_code'].isin(sel_engines)]
                     st.session_state['view_data'] = full_df.reset_index(drop=True)
@@ -550,54 +535,30 @@ try:
                     safe_rerun()
                 except: pass
 
-    # ------------------- 메인 화면 -------------------
+    # 메인 화면
     
     # 1. 수요 분석 모드
     if st.session_state.mode_demand:
         st.title("📈 글로벌 리얼타임 수요 분석")
-        st.caption("※ 실제 바이어들의 검색 로그와 접속 위치를 분석한 데이터입니다.")
         
-        eng_trend, mod_trend, geo_trend = get_real_demand_trends()
+        eng_trend, mod_trend = get_search_trends()
         
-        m1, m2 = st.columns(2)
-        m1.metric("총 검색 쿼리 수", f"{eng_trend['count'].sum() + mod_trend['count'].sum()}건")
-        m2.metric("접속 국가 수", f"{len(geo_trend['country'].unique())}개국")
-
-        st.divider()
-
-        # 글로벌 수요 지도 (실제 데이터)
-        st.subheader("🌍 국가별/도시별 수요 히트맵")
-        if not geo_trend.empty:
-            fig_map = px.scatter_geo(
-                geo_trend, lat="lat", lon="lon", size="demand_qty", color="demand_qty",
-                hover_name="city", hover_data=["country"],
-                projection="natural earth", size_max=50,
-                color_continuous_scale="Viridis",
-                title="어느 지역에서 검색이 많이 발생했나요?"
-            )
-            st.plotly_chart(fig_map, use_container_width=True)
-        else:
-            st.info("아직 수집된 위치 데이터가 없습니다. 검색이 발생하면 지도에 표시됩니다.")
-
-        st.divider()
-        
-        # 검색 순위 차트
         c1, c2 = st.columns(2)
         with c1:
-            st.subheader("🔥 엔진 검색 순위 TOP 10")
+            st.subheader("🔥 인기 검색 엔진 TOP 10")
             if not eng_trend.empty:
                 fig = px.bar(eng_trend, x='count', y='keyword', orientation='h', text='count')
                 fig.update_layout(yaxis={'categoryorder':'total ascending'})
                 st.plotly_chart(fig, use_container_width=True)
-            else: st.info("데이터 없음")
+            else: st.info("아직 검색 데이터가 없습니다.")
 
         with c2:
-            st.subheader("🚙 차종 검색 순위 TOP 10")
+            st.subheader("🚙 인기 검색 차종 TOP 10")
             if not mod_trend.empty:
                 fig = px.bar(mod_trend, x='count', y='keyword', orientation='h', text='count')
                 fig.update_layout(yaxis={'categoryorder':'total ascending'})
                 st.plotly_chart(fig, use_container_width=True)
-            else: st.info("데이터 없음")
+            else: st.info("아직 검색 데이터가 없습니다.")
 
     # 2. 일반 재고 모드
     else:
@@ -703,17 +664,28 @@ try:
                     current_addr = sel_row['address']
                     
                     if st.session_state.logged_in and "조회 필요" in str(current_addr):
-                        if st.button(f"🔄 '{target_yard}' 주소 검색 실행"):
+                        # 🟢 [신규] 전체 일괄 조회 버튼 추가
+                        if st.button(f"🔄 '{target_yard}' 주소 조회"):
                             conn = init_db()
-                            with st.spinner("주소 찾는 중..."):
+                            with st.spinner("조회 중..."):
                                 success, new_addr = update_single_junkyard(conn, target_yard)
                             conn.close()
                             if success:
-                                st.success(f"성공! ({new_addr})")
+                                st.success(f"주소 찾음: {new_addr}")
                                 load_all_data.clear()
                                 time.sleep(1)
                                 safe_rerun()
-                            else: st.error("실패")
+                            else: st.error("주소 찾기 실패")
+                    
+                    # 🟢 [신규] 일괄 업데이트 (매우 유용)
+                    if st.session_state.logged_in:
+                         missing_cnt = len(view_copy[view_copy['address'].str.contains('조회 필요')])
+                         if missing_cnt > 0:
+                             if st.button(f"⚡ 현재 목록의 주소 없는 {missing_cnt}곳 일괄 조회"):
+                                 cnt = update_missing_addresses_bulk()
+                                 st.success(f"{cnt}곳 업데이트 완료")
+                                 load_all_data.clear()
+                                 safe_rerun()
 
                     st.info(f"📩 **{target_yard}**에 견적 요청")
                     with st.form("quote"):

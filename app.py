@@ -265,26 +265,27 @@ def init_db():
     conn.commit()
     conn.close()
 
-    if not os.path.exists(TRANS_DB):
-        conn_t = sqlite3.connect(TRANS_DB)
-        c_t = conn_t.cursor()
-        c_t.execute('''CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
-        
-        raw_data = _get_raw_translations()
-        keys = raw_data["English"].keys()
-        data_to_insert = []
-        for k in keys:
-            row = (
-                k,
-                raw_data.get("English", {}).get(k, k),
-                raw_data.get("Korean", {}).get(k, k),
-                raw_data.get("Russian", {}).get(k, k),
-                raw_data.get("Arabic", {}).get(k, k)
-            )
-            data_to_insert.append(row)
-        c_t.executemany("INSERT OR REPLACE INTO translations VALUES (?, ?, ?, ?, ?)", data_to_insert)
-        conn_t.commit()
-        conn_t.close()
+    # 🟢 [수정] 번역 DB는 무조건 갱신 (항상 최신 코드 반영)
+    conn_t = sqlite3.connect(TRANS_DB)
+    c_t = conn_t.cursor()
+    c_t.execute('''CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
+    
+    raw_data = _get_raw_translations()
+    keys = raw_data["English"].keys()
+    data_to_insert = []
+    for k in keys:
+        row = (
+            k,
+            raw_data.get("English", {}).get(k, k),
+            raw_data.get("Korean", {}).get(k, k),
+            raw_data.get("Russian", {}).get(k, k),
+            raw_data.get("Arabic", {}).get(k, k)
+        )
+        data_to_insert.append(row)
+    # INSERT OR REPLACE로 덮어쓰기
+    c_t.executemany("INSERT OR REPLACE INTO translations VALUES (?, ?, ?, ?, ?)", data_to_insert)
+    conn_t.commit()
+    conn_t.close()
 
 # ---------------------------------------------------------
 # 👥 [회원가입] 함수
@@ -566,7 +567,8 @@ def search_data_from_db(maker, models, engines, sy, ey, yards):
             params.extend(yards)
             
         count_q = f"SELECT COUNT(*) FROM vehicle_data v WHERE {base_cond}"
-        total_count = conn.execute(count_q, params).fetchone()[0]
+        cursor = conn.cursor()
+        total_count = cursor.execute(count_q, params).fetchone()[0]
         
         data_q = f"""
             SELECT v.*, j.region, j.address 
@@ -591,8 +593,10 @@ def load_metadata_and_init_data():
     df_m = pd.read_sql("SELECT DISTINCT manufacturer, model_name FROM model_list", conn)
     df_e = pd.read_sql("SELECT DISTINCT engine_code FROM vehicle_data", conn)
     df_y = pd.read_sql("SELECT name FROM junkyard_info", conn)
+    
     total_cnt = conn.execute("SELECT COUNT(*) FROM vehicle_data").fetchone()[0]
     df_init = pd.read_sql("SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name ORDER BY v.reg_date DESC LIMIT 5000", conn)
+    
     conn.close()
     
     if not df_init.empty:
@@ -613,12 +617,13 @@ def reset_dashboard():
     st.session_state['total_count'] = total
     st.session_state['is_filtered'] = False
     st.session_state['mode_demand'] = False
-    st.session_state['msel'] = "All"
-    st.session_state['sy'] = 2000
-    st.session_state['ey'] = datetime.datetime.now().year
-    st.session_state['mms'] = []
-    st.session_state['es'] = []
-    st.session_state['ys'] = []
+    
+    if 'msel' in st.session_state: st.session_state['msel'] = "All"
+    if 'sy' in st.session_state: st.session_state['sy'] = 2000
+    if 'ey' in st.session_state: st.session_state['ey'] = datetime.datetime.now().year
+    if 'mms' in st.session_state: st.session_state['mms'] = []
+    if 'es' in st.session_state: st.session_state['es'] = []
+    if 'ys' in st.session_state: st.session_state['ys'] = []
 
 # ---------------------------------------------------------
 # 🚀 메인 어플리케이션
@@ -628,7 +633,7 @@ try:
     if 'username' not in st.session_state: st.session_state.username = 'Guest'
     if 'language' not in st.session_state: st.session_state.language = 'English'
 
-    # DB 초기화 및 샘플 데이터 로드 확인
+    # DB 및 데이터 초기화
     init_db()
 
     if 'view_data' not in st.session_state or 'metadata_loaded' not in st.session_state:
@@ -664,8 +669,8 @@ try:
             log_tab, sign_tab = st.tabs([t('login_title'), t('sign_up')])
             
             with log_tab:
-                uid = st.text_input(t('id'), key="l_id")
-                upw = st.text_input(t('pw'), type="password", key="l_pw")
+                uid = st.text_input(f"👤 {t('id')}", key="l_id")
+                upw = st.text_input(f"🔒 {t('pw')}", type="password", key="l_pw")
                 if st.button(t('sign_in'), use_container_width=True):
                     role, name = login_user(uid, upw)
                     if role:
@@ -676,14 +681,14 @@ try:
                         st.error(t('invalid_cred'))
                         
             with sign_tab:
-                # 🟢 회원가입 폼 (필수값 검증)
-                new_id = st.text_input(t('id'), key="s_id")
-                new_pw = st.text_input(t('pw'), type="password", key="s_pw")
-                new_name = st.text_input(t('user_name'), key="s_name")
-                new_comp = st.text_input(t('company_name'), key="s_comp")
-                new_country = st.selectbox(t('country'), COUNTRY_LIST, key="s_country")
-                new_email = st.text_input(t('email'), key="s_email")
-                new_phone = st.text_input(t('phone'), key="s_phone") # Optional
+                # 🟢 회원가입 폼 (아이콘 및 필수값 검증)
+                new_id = st.text_input(f"👤 {t('id')}", key="s_id")
+                new_pw = st.text_input(f"🔒 {t('pw')}", type="password", key="s_pw")
+                new_name = st.text_input(f"📛 {t('user_name')}", key="s_name")
+                new_comp = st.text_input(f"🏢 {t('company_name')}", key="s_comp")
+                new_country = st.selectbox(f"🌍 {t('country')}", COUNTRY_LIST, key="s_country")
+                new_email = st.text_input(f"📧 {t('email')}", key="s_email")
+                new_phone = st.text_input(f"📞 {t('phone')}", key="s_phone") # Optional
                 
                 if st.button(t('sign_up'), use_container_width=True):
                     # Phone 제외 나머지 필수 검증

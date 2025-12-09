@@ -13,7 +13,7 @@ import hashlib
 import numpy as np
 
 # ---------------------------------------------------------
-# 🛠️ [설정] 페이지 설정 (변경됨)
+# 🛠️ [설정] 페이지 설정
 # ---------------------------------------------------------
 st.set_page_config(page_title="K-Used Car Global Hub", layout="wide")
 
@@ -43,6 +43,7 @@ BUYER_CREDENTIALS = {
 }
 
 DB_NAME = 'junkyard.db'
+TRANS_DB = 'translations.db'
 
 # ---------------------------------------------------------
 # 🌍 [설정] 주소 변환 데이터
@@ -119,10 +120,42 @@ def init_db():
     
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data(model_name)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_year ON vehicle_data(model_year)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_engine ON vehicle_data(engine_code)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_yard ON vehicle_data(junkyard)")
     conn.commit()
     return conn
+
+# ---------------------------------------------------------
+# 🌐 [i18n] 번역 로딩 및 함수
+# ---------------------------------------------------------
+@st.cache_data
+def load_translations():
+    # 번역 DB가 없으면 빈 딕셔너리 반환 (또는 에러 방지)
+    if not os.path.exists(TRANS_DB):
+        return {}
+    
+    conn = sqlite3.connect(TRANS_DB)
+    df = pd.read_sql("SELECT * FROM translations", conn)
+    conn.close()
+    
+    # DataFrame -> Nested Dictionary 변환: {'English': {key:val}, ...}
+    trans_dict = {}
+    if not df.empty:
+        for lang in ['English', 'Korean', 'Russian', 'Arabic']:
+            if lang in df.columns:
+                trans_dict[lang] = dict(zip(df['key'], df[lang]))
+    return trans_dict
+
+def t(key):
+    translations = load_translations()
+    lang = st.session_state.get('language', 'English')
+    
+    # 1. 언어 딕셔너리가 없거나 해당 언어가 없으면 영어(기본) 시도
+    lang_dict = translations.get(lang, translations.get('English', {}))
+    
+    # 2. 키에 해당하는 값이 있으면 반환, 없으면 키 자체 반환 (Fallback)
+    return lang_dict.get(key, key)
 
 # ---------------------------------------------------------
 # 🕵️ [직거래 방지] 데이터 마스킹 & 영문 변환
@@ -134,21 +167,15 @@ def generate_alias(real_name):
     return f"Partner #{hash_int}"
 
 def translate_address(addr):
-    """한글 주소 -> 영문 주소 변환 (시/군 단위)"""
     if not isinstance(addr, str) or addr == "검색실패" or "조회" in addr:
         return "Unknown Address"
-        
     parts = addr.split()
     if len(parts) < 2: return "South Korea"
-    
-    k_do = parts[0][:2]
-    k_city = parts[1]
+    k_do, k_city = parts[0][:2], parts[1]
     
     en_do = PROVINCE_MAP.get(k_do, k_do)
     for k, v in PROVINCE_MAP.items():
-        if k in parts[0]: 
-            en_do = v
-            break
+        if k in parts[0]: en_do = v; break
             
     city_core = k_city.replace('시','').replace('군','').replace('구','')
     en_city = CITY_MAP.get(city_core, city_core)
@@ -157,10 +184,8 @@ def translate_address(addr):
         return f"{en_do}, Korea"
     else:
         suffix = "-si" if "시" in k_city else ("-gun" if "군" in k_city else "")
-        if en_city != city_core: 
-             return f"{en_do}, {en_city}{suffix}"
-        else:
-             return f"{en_do}, Korea"
+        if en_city != city_core: return f"{en_do}, {en_city}{suffix}"
+        else: return f"{en_do}, Korea"
 
 def mask_dataframe(df, role):
     if df.empty: return df
@@ -171,9 +196,8 @@ def mask_dataframe(df, role):
             df_safe['partner_alias'] = df_safe['junkyard'].apply(generate_alias)
         return df_safe
 
-    # 바이어/게스트용 마스킹
     if 'junkyard' in df_safe.columns:
-        df_safe['real_junkyard'] = df_safe['junkyard'] # 내부 로직용 백업
+        df_safe['real_junkyard'] = df_safe['junkyard']
         if role == 'buyer':
             df_safe['junkyard'] = df_safe['junkyard'].apply(generate_alias)
         else:
@@ -417,6 +441,7 @@ def reset_dashboard():
 try:
     if 'user_role' not in st.session_state: st.session_state.user_role = 'guest'
     if 'username' not in st.session_state: st.session_state.username = 'Guest'
+    if 'language' not in st.session_state: st.session_state.language = 'English'
 
     if 'view_data' not in st.session_state or 'metadata_loaded' not in st.session_state:
         m_df, m_eng, m_yards, init_df, init_total = load_metadata_and_init_data()
@@ -437,14 +462,20 @@ try:
 
     # 1. 사이드바
     with st.sidebar:
-        st.title("K-Used Car Global Hub")
+        st.title(t('app_title'))
         
-        # 로그인
+        lang_choice = st.selectbox("Language / Язык / اللغة", ["English", "Korean", "Russian", "Arabic"], key='lang_selector')
+        if lang_choice != st.session_state.language:
+            st.session_state.language = lang_choice
+            safe_rerun()
+
+        st.divider()
+        
         if st.session_state.user_role == 'guest':
-            with st.expander("🔐 Login", expanded=True):
-                uid = st.text_input("ID")
-                upw = st.text_input("Password", type="password")
-                if st.button("Sign In"):
+            with st.expander(f"🔐 {t('login_title')}", expanded=True):
+                uid = st.text_input(t('id'))
+                upw = st.text_input(t('pw'), type="password")
+                if st.button(t('sign_in')):
                     if uid in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[uid] == upw:
                         st.session_state.user_role = 'admin'
                         st.session_state.username = uid
@@ -454,11 +485,11 @@ try:
                         st.session_state.username = uid
                         safe_rerun()
                     else:
-                        st.error("Invalid Credentials")
+                        st.error(t('invalid_cred'))
         else:
-            role_text = "Manager" if st.session_state.user_role == 'admin' else "Global Buyer"
-            st.success(f"Welcome, {st.session_state.username} ({role_text})!")
-            if st.button("Logout"):
+            role_text = "Manager" if st.session_state.user_role == 'admin' else "Buyer"
+            st.success(t('welcome').format(st.session_state.username))
+            if st.button(t('logout')):
                 st.session_state.user_role = 'guest'
                 st.session_state.username = 'Guest'
                 del st.session_state['metadata_loaded']
@@ -467,27 +498,27 @@ try:
         st.divider()
 
         if st.session_state.user_role == 'admin':
-            with st.expander("📂 Admin Tools"):
-                up_files = st.file_uploader("Data Upload", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
-                if up_files and st.button("Save Data"):
+            with st.expander(f"📂 {t('admin_tools')}"):
+                up_files = st.file_uploader(t('data_upload'), type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
+                if up_files and st.button(t('save_data')):
                     tot = 0
                     bar = st.progress(0)
                     for i, f in enumerate(up_files):
                         n, _ = save_vehicle_file(f)
                         tot += n
                         bar.progress((i+1)/len(up_files))
-                    st.success(f"{tot} records uploaded.")
+                    st.success(t('records_saved').format(tot))
                     load_metadata_and_init_data.clear()
                     safe_rerun()
                 
-                addr_file = st.file_uploader("Address DB", type=['xlsx', 'xls', 'csv'], key="a_up")
-                if addr_file and st.button("Save Address"):
+                addr_file = st.file_uploader(t('addr_db'), type=['xlsx', 'xls', 'csv'], key="a_up")
+                if addr_file and st.button(t('save_addr')):
                     cnt = save_address_file(addr_file)
-                    st.success(f"{cnt} addresses updated.")
+                    st.success(t('addr_updated').format(cnt))
                     load_metadata_and_init_data.clear()
                     safe_rerun()
 
-                if st.button("🗑️ Reset DB"):
+                if st.button(f"🗑️ {t('reset_db')}"):
                     conn = init_db()
                     conn.execute("DROP TABLE vehicle_data")
                     conn.execute("DROP TABLE junkyard_info")
@@ -496,35 +527,35 @@ try:
                     conn.execute("DROP TABLE orders")
                     conn.commit()
                     conn.close()
-                    st.success("Reset Done")
+                    st.success(t('reset_done'))
                     load_metadata_and_init_data.clear()
                     safe_rerun()
             
             st.divider()
-            st.subheader("👑 Admin Menu")
-            if st.button("🔮 Global Demand Analysis", use_container_width=True):
+            st.subheader(f"👑 {t('admin_menu')}")
+            if st.button(f"🔮 {t('demand_analysis')}", use_container_width=True):
                 st.session_state['mode_demand'] = True
                 safe_rerun()
 
-        st.subheader("🔍 Search Filter")
-        search_tabs = st.tabs(["🚙 Vehicle", "🔧 Engine", "🏭 Yard"])
+        st.subheader(f"🔍 {t('search_filter')}")
+        search_tabs = st.tabs([f"🚙 {t('tab_vehicle')}", f"🔧 {t('tab_engine')}", f"🏭 {t('tab_yard')}"])
         
         with search_tabs[0]: 
             makers = sorted(df_models['manufacturer'].unique().tolist())
             makers.insert(0, "All")
-            sel_maker = st.selectbox("Manufacturer", makers, key="msel")
+            sel_maker = st.selectbox(t('manufacturer'), makers, key="msel")
             
             c1, c2 = st.columns(2)
-            with c1: sel_sy = st.number_input("From", 1990, 2030, 2000, key="sy")
-            with c2: sel_ey = st.number_input("To", 1990, 2030, 2025, key="ey")
+            with c1: sel_sy = st.number_input(t('from_year'), 1990, 2030, 2000, key="sy")
+            with c2: sel_ey = st.number_input(t('to_year'), 1990, 2030, 2025, key="ey")
             
             if sel_maker != "All":
                 f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].unique().tolist())
             else:
                 f_models = sorted(df_models['model_name'].unique().tolist())
-            sel_models = st.multiselect("Model", f_models, key="mms")
+            sel_models = st.multiselect(t('model'), f_models, key="mms")
             
-            if st.button("🔍 Search Vehicle", type="primary"):
+            if st.button(f"🔍 {t('search_btn_veh')}", type="primary"):
                 log_search(sel_models, 'model')
                 res, tot = search_data_from_db(sel_maker, sel_models, [], sel_sy, sel_ey, [])
                 st.session_state['view_data'] = res
@@ -534,8 +565,8 @@ try:
                 safe_rerun()
 
         with search_tabs[1]: 
-            sel_engines = st.multiselect("Engine Code", sorted(list_engines), key="es")
-            if st.button("🔍 Search Engine", type="primary"):
+            sel_engines = st.multiselect(t('engine_code'), sorted(list_engines), key="es")
+            if st.button(f"🔍 {t('search_btn_eng')}", type="primary"):
                 log_search(sel_engines, 'engine')
                 res, tot = search_data_from_db(None, [], sel_engines, 1990, 2030, [])
                 st.session_state['view_data'] = res
@@ -551,9 +582,9 @@ try:
             else:
                 yard_opts = sorted(list_yards)
                 
-            sel_yards = st.multiselect("Partner Name", yard_opts, key="ys")
+            sel_yards = st.multiselect(t('partner_name'), yard_opts, key="ys")
             
-            if st.button("🔍 Search Partner", type="primary"):
+            if st.button(f"🔍 {t('search_btn_partners')}", type="primary"):
                 real_yard_names = []
                 if st.session_state.user_role == 'buyer':
                     for y in list_yards:
@@ -569,28 +600,28 @@ try:
                 st.session_state['mode_demand'] = False
                 safe_rerun()
 
-        if st.button("🔄 Reset Filters", use_container_width=True, on_click=reset_dashboard):
+        if st.button(f"🔄 {t('reset_filters')}", use_container_width=True, on_click=reset_dashboard):
             pass
 
     # 2. 메인 화면
     if st.session_state.mode_demand and st.session_state.user_role == 'admin':
-        st.title("📈 Global Demand Trends (Real-time)")
+        st.title(f"📈 {t('analysis_title')}")
         eng_trend, mod_trend = get_search_trends()
         c1, c2 = st.columns(2)
         with c1:
-            st.subheader("🔥 Top Searched Engines")
+            st.subheader(f"🔥 {t('top_engines')}")
             if not eng_trend.empty:
                 fig = px.bar(eng_trend, x='count', y='keyword', orientation='h', text='count')
                 st.plotly_chart(fig, use_container_width=True)
-            else: st.info("No data yet.")
+            else: st.info(t('no_results'))
         with c2:
-            st.subheader("🚙 Top Searched Models")
+            st.subheader(f"🚙 {t('top_models')}")
             if not mod_trend.empty:
                 fig = px.bar(mod_trend, x='count', y='keyword', orientation='h', text='count')
                 st.plotly_chart(fig, use_container_width=True)
-            else: st.info("No data yet.")
+            else: st.info(t('no_results'))
     else:
-        st.title("K-Used Car/Engine Inventory")
+        st.title(t('main_title'))
         
         df_view = st.session_state['view_data']
         total_cnt = st.session_state['total_count']
@@ -598,28 +629,28 @@ try:
         df_display = mask_dataframe(df_view, st.session_state.user_role)
         
         if st.session_state.user_role == 'admin':
-            main_tabs = st.tabs(["📊 Inventory", "📩 Orders"])
+            main_tabs = st.tabs([f"📊 {t('tab_inventory')}", f"📩 {t('tab_orders')}"])
         else:
-            main_tabs = st.tabs(["📊 Search Results", "🛒 My Orders"])
+            main_tabs = st.tabs([f"📊 {t('tab_results')}", f"🛒 {t('tab_my_orders')}"])
 
         with main_tabs[0]:
             if df_display.empty:
                 if st.session_state['is_filtered']:
-                    st.warning("No results found.")
+                    st.warning(t('no_results'))
                 else:
-                    st.info("Please select filters from the sidebar to search.")
+                    st.info(t('plz_select'))
             else:
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Total Vehicles", f"{total_cnt:,} EA")
-                c2.metric("Matched Engines", f"{df_display['engine_code'].nunique()} Types")
-                sup_label = "Real Junkyards" if st.session_state.user_role == 'admin' else "Partners"
+                c1.metric(t('total_veh'), f"{total_cnt:,} EA")
+                c2.metric(t('matched_eng'), f"{df_display['engine_code'].nunique()} Types")
+                sup_label = t('real_yards') if st.session_state.user_role == 'admin' else t('partners_cnt')
                 c3.metric(sup_label, f"{df_display['junkyard'].nunique()} EA")
                 
                 if total_cnt > 5000:
-                    st.warning(f"⚠️ Showing top 5,000 results out of {total_cnt:,}. Please refine your filters.")
+                    st.warning(t('limit_warning').format(total_cnt))
                 
                 st.divider()
-                st.subheader("📦 Stock by Partner")
+                st.subheader(f"📦 {t('stock_by_partner')}")
                 
                 grp_cols = ['junkyard', 'address']
                 if st.session_state.user_role == 'admin' and 'region' in df_display.columns:
@@ -639,19 +670,18 @@ try:
                     stock_cnt = sel_row['qty']
                     
                     if st.session_state.user_role == 'guest':
-                        st.warning("🔒 Login required to request a quote.")
+                        st.warning(t('login_req_warn'))
                     else:
-                        st.success(f"Selected: **{target_partner}** ({stock_cnt} EA)")
+                        st.success(t('selected_msg').format(target_partner, stock_cnt))
                         
                         with st.form("order_form"):
-                            st.markdown(f"### 📨 Request Quote to {target_partner}")
+                            st.markdown(f"### {t('req_quote_title').format(target_partner)}")
                             c_a, c_b = st.columns(2)
                             with c_a:
-                                buyer_name = st.text_input("Name / Company", value=st.session_state.username)
-                                contact = st.text_input("Contact (Email/Phone) *")
-                                req_qty = st.number_input("Quantity *", min_value=1, value=1)
+                                buyer_name = st.text_input(t('name_company'), value=st.session_state.username)
+                                contact = st.text_input(t('contact'))
+                                req_qty = st.number_input(t('qty'), min_value=1, value=1)
                             with c_b:
-                                # 자동 품목 완성
                                 s_maker = st.session_state.get('msel', 'All')
                                 s_models = st.session_state.get('mms', [])
                                 s_engines = st.session_state.get('es', [])
@@ -668,14 +698,14 @@ try:
                                 
                                 def_item = " ".join(item_desc)
                                 
-                                item = st.text_input("Item *", value=def_item)
-                                offer = st.text_input("Target Unit Price (USD) *", placeholder="e.g. $500/ea")
+                                item = st.text_input(t('item'), value=def_item)
+                                offer = st.text_input(t('unit_price'), placeholder="e.g. $500/ea")
                             
-                            msg = st.text_area("Message to Admin", height=80, placeholder="Details...")
+                            msg = st.text_area(t('message'), height=80)
                             
-                            if st.form_submit_button("🚀 Send Inquiry"):
+                            if st.form_submit_button(t('send_btn')):
                                 if not contact or not item or not offer:
-                                    st.error("⚠️ Please fill in all required fields: Contact, Item, and Price.")
+                                    st.error(t('fill_error'))
                                 else:
                                     conn = init_db()
                                     cur = conn.cursor()
@@ -694,15 +724,15 @@ try:
                                                 (buyer_name, contact, target_partner, real_name, summary, 'PENDING'))
                                     conn.commit()
                                     conn.close()
-                                    st.success("✅ Inquiry has been sent to our sales team.")
+                                    st.success(t('inquiry_sent'))
 
                 st.divider()
-                st.subheader("📋 Item List")
+                st.subheader(f"📋 {t('item_list')}")
                 st.dataframe(df_display, use_container_width=True)
 
         if st.session_state.user_role == 'admin':
             with main_tabs[1]:
-                st.subheader("📩 Incoming Quote Requests")
+                st.subheader(f"{t('incoming_quotes')}")
                 conn = init_db()
                 orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
                 conn.close()
@@ -716,24 +746,24 @@ try:
                             
                             c1, c2 = st.columns([3, 1])
                             with c1:
-                                new_status = st.selectbox("Change Status", 
+                                new_status = st.selectbox(t('status_change'), 
                                                           ["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"],
                                                           index=["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"].index(row['status']),
                                                           key=f"st_{row['id']}")
                             with c2:
                                 st.write("")
                                 st.write("")
-                                if st.button("Update", key=f"btn_{row['id']}"):
+                                if st.button(t('update_btn'), key=f"btn_{row['id']}"):
                                     update_order_status(row['id'], new_status)
-                                    st.success("Updated!")
+                                    st.success(t('updated_msg'))
                                     time.sleep(0.5)
                                     safe_rerun()
                 else:
-                    st.info("No pending orders.")
+                    st.info(t('no_orders_admin'))
 
         if st.session_state.user_role == 'buyer':
-            with main_tabs[1]: # My Orders
-                st.subheader("🛒 My Quote Requests")
+            with main_tabs[1]: 
+                st.subheader(f"{t('my_quote_req')}")
                 conn = init_db()
                 my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
                 conn.close()
@@ -745,9 +775,9 @@ try:
                             st.caption(f"Status: :{status_color}[{row['status']}]")
                             st.write(f"**Request Details:** {row['items_summary']}")
                             if row['status'] == 'QUOTED':
-                                st.success("💬 Offer Received! Check your email/phone.")
+                                st.success(t('offer_received'))
                 else:
-                    st.info("You haven't requested any quotes yet.")
+                    st.info(t('no_orders_buyer'))
 
 except Exception as e:
     st.error("⛔ 앱 실행 중 문제가 발생했습니다.")

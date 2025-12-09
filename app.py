@@ -34,12 +34,22 @@ def safe_rerun():
 # ---------------------------------------------------------
 try:
     ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
+    NAVER_CLIENT_ID = st.secrets["NAVER_CLIENT_ID"]
+    NAVER_CLIENT_SECRET = st.secrets["NAVER_CLIENT_SECRET"]
 except:
     ADMIN_CREDENTIALS = {"admin": "1234"}
+    NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
+    NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
+
+BUYER_CREDENTIALS = {
+    "buyer": "1111",
+    "global": "2222",
+    "testbuyer": "1234"
+}
 
 # 🟢 [설정] 데이터베이스 파일 분리
 INVENTORY_DB = 'inventory.db'  # 재고, 폐차장, 모델 (대용량)
-SYSTEM_DB = 'system.db'        # 유저, 주문, 로그, 번역 (소용량/빈번한 변경)
+SYSTEM_DB = 'system.db'        # 유저, 주문, 로그, 번역 (소용량)
 
 # ---------------------------------------------------------
 # 📧 [기능] 이메일 발송 함수
@@ -525,6 +535,21 @@ def update_order_status(order_id, new_status, notify_user=True):
     conn.commit()
     conn.close()
 
+# 🟢 reset_dashboard 함수를 위쪽으로 이동
+def reset_dashboard():
+    _, _, _, df_init, total = load_metadata_and_init_data()
+    st.session_state['view_data'] = df_init
+    st.session_state['total_count'] = total
+    st.session_state['is_filtered'] = False
+    st.session_state['mode_demand'] = False
+    
+    if 'msel' in st.session_state: st.session_state['msel'] = "All"
+    if 'sy' in st.session_state: st.session_state['sy'] = 2000
+    if 'ey' in st.session_state: st.session_state['ey'] = datetime.datetime.now().year
+    if 'mms' in st.session_state: st.session_state['mms'] = []
+    if 'es' in st.session_state: st.session_state['es'] = []
+    if 'ys' in st.session_state: st.session_state['ys'] = []
+
 # ---------------------------------------------------------
 # 🚀 메인 어플리케이션
 # ---------------------------------------------------------
@@ -629,7 +654,6 @@ try:
                     load_metadata_and_init_data.clear()
                     safe_rerun()
 
-                # DB Reset Buttons 분리
                 if st.button(f"🗑️ {t('reset_inv')}"):
                     conn = sqlite3.connect(INVENTORY_DB)
                     conn.execute("DROP TABLE vehicle_data")

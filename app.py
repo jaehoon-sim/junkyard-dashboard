@@ -14,6 +14,7 @@ import numpy as np
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
 
 # ---------------------------------------------------------
 # 🛠️ [설정] 페이지 설정
@@ -48,21 +49,19 @@ DB_NAME = 'junkyard.db'
 TRANS_DB = 'translations.db'
 
 # ---------------------------------------------------------
-# 📧 [기능] 이메일 발송 함수
+# 📧 [기능] 이메일 발송 함수 (첨부파일 지원)
 # ---------------------------------------------------------
-def send_email(to_email, subject, content):
+def send_email(to_email, subject, content, attachment_file=None, attachment_name=None):
     """
     SMTP를 사용하여 이메일을 발송합니다.
-    secrets.toml에 EMAIL 설정이 되어 있어야 합니다.
+    attachment_file: Streamlit UploadedFile 객체 또는 bytes
+    attachment_name: 파일명
     """
-    # 이메일 형식이 아니면 발송 스킵 (@ 없으면 패스)
     if "@" not in to_email:
         return False
 
     try:
-        # st.secrets에서 설정 로드
         if "EMAIL" not in st.secrets:
-            # 설정이 없으면 조용히 리턴 (에러 방지)
             return False
 
         smtp_server = st.secrets["EMAIL"]["smtp_server"]
@@ -70,23 +69,32 @@ def send_email(to_email, subject, content):
         sender_email = st.secrets["EMAIL"]["sender_email"]
         sender_password = st.secrets["EMAIL"]["sender_password"]
 
-        # 메일 객체 생성
         msg = MIMEMultipart()
         msg['From'] = sender_email
         msg['To'] = to_email
         msg['Subject'] = subject
         msg.attach(MIMEText(content, 'plain'))
 
-        # SMTP 서버 연결 및 발송
+        # 파일 첨부 로직
+        if attachment_file is not None and attachment_name is not None:
+            # UploadedFile 객체인 경우 bytes로 읽음
+            if hasattr(attachment_file, "getvalue"):
+                file_data = attachment_file.getvalue()
+            else:
+                file_data = attachment_file
+
+            part = MIMEApplication(file_data, Name=attachment_name)
+            part['Content-Disposition'] = f'attachment; filename="{attachment_name}"'
+            msg.attach(part)
+
         with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()  # 보안 연결
+            server.starttls()
             server.login(sender_email, sender_password)
             server.send_message(msg)
         
         return True
     except Exception as e:
-        # 디버깅용: 실제 운영시에는 로그만 남기거나 주석 처리
-        # st.error(f"Email sending failed: {e}")
+        # st.error(f"Email Error: {e}")
         return False
 
 # ---------------------------------------------------------
@@ -103,42 +111,12 @@ PROVINCE_MAP = {
 }
 
 CITY_MAP = {
-    '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang',
-    '부천': 'Bucheon', '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon',
-    '안산': 'Ansan', '고양': 'Goyang', '과천': 'Gwacheon', '구리': 'Guri',
-    '남양주': 'Namyangju', '오산': 'Osan', '시흥': 'Siheung', '군포': 'Gunpo',
-    '의왕': 'Uiwang', '하남': 'Hanam', '용인': 'Yongin', '파주': 'Paju',
-    '이천': 'Icheon', '안성': 'Anseong', '김포': 'Gimpo', '화성': 'Hwaseong',
-    '광주': 'Gwangju', '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju',
-    '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong',
-    '천안': 'Cheonan', '공주': 'Gongju', '보령': 'Boryeong', '아산': 'Asan',
-    '서산': 'Seosan', '논산': 'Nonsan', '계룡': 'Gyeryong', '당진': 'Dangjin',
-    '금산': 'Geumsan', '부여': 'Buyeo', '서천': 'Seocheon', '청양': 'Cheongyang',
-    '홍성': 'Hongseong', '예산': 'Yesan', '태안': 'Taean',
-    '청주': 'Cheongju', '충주': 'Chungju', '제천': 'Jecheon', '보은': 'Boeun',
-    '옥천': 'Okcheon', '영동': 'Yeongdong', '증평': 'Jeungpyeong', '진천': 'Jincheon',
-    '괴산': 'Goesan', '음성': 'Eumseong', '단양': 'Danyang',
-    '포항': 'Pohang', '경주': 'Gyeongju', '김천': 'Gimcheon', '안동': 'Andong',
-    '구미': 'Gumi', '영주': 'Yeongju', '영천': 'Yeongcheon', '상주': 'Sangju',
-    '문경': 'Mungyeong', '경산': 'Gyeongsan', '군위': 'Gunwi', '의성': 'Uiseong',
-    '청송': 'Cheongsong', '영양': 'Yeongyang', '영덕': 'Yeongdeok', '청도': 'Cheongdo',
-    '고령': 'Goryeong', '성주': 'Seongju', '칠곡': 'Chilgok', '예천': 'Yecheon',
-    '봉화': 'Bonghwa', '울진': 'Uljin', '울릉': 'Ulleung',
-    '창원': 'Changwon', '진주': 'Jinju', '통영': 'Tongyeong', '사천': 'Sacheon',
-    '김해': 'Gimhae', '밀양': 'Miryang', '거제': 'Geoje', '양산': 'Yangsan',
-    '의령': 'Uiryeong', '함안': 'Haman', '창녕': 'Changnyeong', '고성': 'Goseong',
-    '남해': 'Namhae', '하동': 'Hadong', '산청': 'Sancheong', '함양': 'Hamyang',
-    '거창': 'Geochang', '합천': 'Hapcheon',
-    '전주': 'Jeonju', '군산': 'Gunsan', '익산': 'Iksan', '정읍': 'Jeongeup',
-    '남원': 'Namwon', '김제': 'Gimje', '완주': 'Wanju', '진안': 'Jinan',
-    '무주': 'Muju', '장수': 'Jangsu', '임실': 'Imsil', '순창': 'Sunchang',
-    '고창': 'Gochang', '부안': 'Buan',
-    '목포': 'Mokpo', '여수': 'Yeosu', '순천': 'Suncheon', '나주': 'Naju',
-    '광양': 'Gwangyang', '담양': 'Damyang', '곡성': 'Gokseong', '구례': 'Gurye',
-    '고흥': 'Goheung', '보성': 'Boseong', '화순': 'Hwasun', '장흥': 'Jangheung',
-    '강진': 'Gangjin', '해남': 'Haenam', '영암': 'Yeongam', '무안': 'Muan',
-    '함평': 'Hampyeong', '영광': 'Yeonggwang', '장성': 'Jangseong', '완도': 'Wando',
-    '진도': 'Jindo', '신안': 'Sinan', '제주': 'Jeju', '서귀포': 'Seogwipo'
+    '수원': 'Suwon', '성남': 'Seongnam', '용인': 'Yongin', '고양': 'Goyang', '부천': 'Bucheon',
+    '안산': 'Ansan', '화성': 'Hwaseong', '남양주': 'Namyangju', '안양': 'Anyang', '평택': 'Pyeongtaek',
+    '파주': 'Paju', '의정부': 'Uijeongbu', '시흥': 'Siheung', '김포': 'Gimpo', '광명': 'Gwangmyeong',
+    '광주': 'Gwangju', '군포': 'Gunpo', '오산': 'Osan', '이천': 'Icheon', '안성': 'Anseong', '포천': 'Pocheon',
+    '의왕': 'Uiwang', '하남': 'Hanam', '여주': 'Yeoju', '양평': 'Yangpyeong', '동두천': 'Dongducheon', 
+    '과천': 'Gwacheon', '가평': 'Gapyeong', '연천': 'Yeoncheon'
 }
 
 COUNTRY_LIST = [
@@ -147,7 +125,7 @@ COUNTRY_LIST = [
     "Cambodia", "Uzbekistan", "Tajikistan", "USA", "Canada", "Other"
 ]
 
-# 비밀번호 해싱 함수
+# 비밀번호 해싱
 def make_hashes(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
@@ -276,7 +254,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, buyer_id TEXT, contact_info TEXT, target_partner_alias TEXT, real_junkyard_name TEXT, items_summary TEXT, status TEXT DEFAULT 'PENDING', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
-    # 사용자 테이블 생성
+    # 사용자 테이블
     c.execute('''CREATE TABLE IF NOT EXISTS users (
         user_id TEXT PRIMARY KEY,
         password TEXT,
@@ -637,17 +615,24 @@ def load_metadata_and_init_data():
         
     return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), df_init, total_cnt
 
-def update_order_status(order_id, new_status):
+# ---------------------------------------------------------
+# 📧 [기능] 주문 상태 변경 (이메일 없음) 및 어드민 메일 발송
+# ---------------------------------------------------------
+# 기존 update_order_status에 notify_user 파라미터를 추가하여 제어
+def update_order_status(order_id, new_status, notify_user=True):
     conn = sqlite3.connect(DB_NAME)
     conn.execute("UPDATE orders SET status = ? WHERE id = ?", (new_status, order_id))
-    # 이메일 발송 로직 추가
-    cursor = conn.cursor()
-    cursor.execute("SELECT contact_info, status FROM orders WHERE id = ?", (order_id,))
-    data = cursor.fetchone()
-    if data:
-        contact_email, _ = data
-        send_email(contact_email, f"[K-Used Car] Order Status Update: {new_status}", 
-                   f"Your order status has been updated to: {new_status}.\nPlease check your dashboard for details.")
+    
+    # notify_user가 True일 때만 기존 알림 발송 (단순 상태 변경 등)
+    if notify_user:
+        cursor = conn.cursor()
+        cursor.execute("SELECT contact_info FROM orders WHERE id = ?", (order_id,))
+        data = cursor.fetchone()
+        if data:
+            contact_email = data[0]
+            send_email(contact_email, f"[K-Used Car] Order Status Update: {new_status}", 
+                       f"Your order status has been updated to: {new_status}.\nPlease check your dashboard for details.")
+    
     conn.commit()
     conn.close()
 
@@ -1005,6 +990,41 @@ try:
                             st.write(f"**Target:** {row['real_junkyard_name']} ({row['target_partner_alias']})")
                             st.info(f"**Request:** {row['items_summary']}")
                             
+                            # 🟢 [신규] 어드민 답장 & 견적 UI
+                            st.markdown("### ✍️ Reply & Quote")
+                            with st.form(f"reply_form_{row['id']}"):
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    reply_price = st.text_input("Final Quote Price (USD)", placeholder="$000")
+                                with c2:
+                                    reply_file = st.file_uploader("Attach Image", type=['png', 'jpg', 'jpeg'])
+                                
+                                reply_msg = st.text_area("Message to Buyer", value=f"Dear {row['buyer_id']},\n\nThank you for your inquiry. We are pleased to offer:\n\n", height=150)
+                                
+                                if st.form_submit_button("Send Reply & Set to QUOTED"):
+                                    # 메일 내용 구성
+                                    email_content = f"{reply_msg}\n\n[Quote Price]: {reply_price}"
+                                    
+                                    # 파일 처리
+                                    f_data = None
+                                    f_name = None
+                                    if reply_file:
+                                        f_data = reply_file
+                                        f_name = reply_file.name
+
+                                    # 메일 발송
+                                    sent = send_email(row['contact_info'], f"[K-Used Car] Quote for your request #{row['id']}", email_content, f_data, f_name)
+                                    
+                                    if sent:
+                                        update_order_status(row['id'], 'QUOTED', notify_user=False) # 자동 알림 끄고, 지금 보낸 메일로 대체
+                                        st.success("Reply sent and status updated to QUOTED!")
+                                        time.sleep(1)
+                                        safe_rerun()
+                                    else:
+                                        st.error("Failed to send email. Check SMTP settings.")
+
+                            st.divider()
+                            # 기존 상태 변경 (단순 업데이트용)
                             c1, c2 = st.columns([3, 1])
                             with c1:
                                 new_status = st.selectbox(t('status_change'), 
@@ -1015,7 +1035,7 @@ try:
                                 st.write("")
                                 st.write("")
                                 if st.button(t('update_btn'), key=f"btn_{row['id']}"):
-                                    update_order_status(row['id'], new_status)
+                                    update_order_status(row['id'], new_status) # 기본: notify_user=True
                                     st.success(t('updated_msg'))
                                     time.sleep(0.5)
                                     safe_rerun()

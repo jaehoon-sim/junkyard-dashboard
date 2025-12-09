@@ -35,6 +35,7 @@ except:
     NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
     NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
 
+# 바이어 계정
 BUYER_CREDENTIALS = {
     "buyer": "1111",
     "global": "2222",
@@ -118,7 +119,6 @@ def init_db():
     
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data(model_name)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_year ON vehicle_data(model_year)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_engine ON vehicle_data(engine_code)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_yard ON vehicle_data(junkyard)")
     conn.commit()
@@ -185,29 +185,73 @@ def mask_dataframe(df, role):
     drop_cols = ['car_no', 'lat', 'lon', 'real_junkyard']
     df_safe = df_safe.drop(columns=[c for c in drop_cols if c in df_safe.columns], errors='ignore')
 
+    if role == 'guest' and 'lat' in df_safe.columns:
+        df_safe['lat'] = 0.0
+        df_safe['lon'] = 0.0
+        
     return df_safe
 
 # ---------------------------------------------------------
 # 기능 함수들
 # ---------------------------------------------------------
 def log_search(keywords, s_type):
+    """검색어 저장 (리스트도 개별 저장)"""
     if not keywords: return
     try:
         conn = init_db()
         c = conn.cursor()
-        c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city) VALUES (?, ?, ?, ?)", (str(keywords), s_type, 'KR', 'Seoul'))
+        # IP 조회 (간소화)
+        city, country = 'Seoul', 'KR'
+        
+        if isinstance(keywords, list):
+            for k in keywords:
+                # 🟢 [중요] 리스트 요소 하나하나를 개별 행으로 저장
+                c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city) VALUES (?, ?, ?, ?)", (str(k), s_type, country, city))
+        else:
+            c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city) VALUES (?, ?, ?, ?)", (str(keywords), s_type, country, city))
         conn.commit()
         conn.close()
     except: pass
 
 def get_search_trends():
+    """
+    검색 트렌드 분석 (문자열로 뭉쳐진 데이터도 쪼개서 카운팅)
+    """
     try:
         conn = init_db()
-        eng = pd.read_sql("SELECT keyword, COUNT(*) as count FROM search_logs_v2 WHERE search_type='engine' GROUP BY keyword ORDER BY count DESC LIMIT 10", conn)
-        mod = pd.read_sql("SELECT keyword, COUNT(*) as count FROM search_logs_v2 WHERE search_type='model' GROUP BY keyword ORDER BY count DESC LIMIT 10", conn)
+        # 최근 5000건만 분석 (속도)
+        df = pd.read_sql("SELECT keyword, search_type FROM search_logs_v2 ORDER BY created_at DESC LIMIT 5000", conn)
         conn.close()
-        return eng, mod
-    except: return pd.DataFrame(), pd.DataFrame()
+        
+        if df.empty: return pd.DataFrame(), pd.DataFrame()
+
+        def process_counts(sub_df):
+            # 🟢 [핵심] 문자열 정제 및 분리 로직 (Explode)
+            # 예: "['K5', 'Sonata']" -> ['K5', 'Sonata'] -> Row 분리
+            
+            # 1. 문자열 정리 (리스트 형태 텍스트 제거)
+            sub_df['clean_keyword'] = sub_df['keyword'].astype(str).apply(
+                lambda x: x.replace('[', '').replace(']', '').replace("'", "").replace('"', '')
+            )
+            
+            # 2. 콤마로 분리하여 리스트화
+            sub_df['split_keyword'] = sub_df['clean_keyword'].apply(lambda x: [i.strip() for i in x.split(',') if i.strip()])
+            
+            # 3. 행 분리 (Explode)
+            exploded = sub_df.explode('split_keyword')
+            
+            # 4. 카운팅
+            counts = exploded['split_keyword'].value_counts().reset_index()
+            counts.columns = ['keyword', 'count']
+            return counts.head(10)
+
+        eng_counts = process_counts(df[df['search_type'] == 'engine'])
+        mod_counts = process_counts(df[df['search_type'] == 'model'])
+        
+        return eng_counts, mod_counts
+    except Exception as e: 
+        # st.error(e) 
+        return pd.DataFrame(), pd.DataFrame()
 
 def save_vehicle_file(uploaded_file):
     try:
@@ -289,15 +333,8 @@ def save_address_file(uploaded_file):
         return update_cnt
     except: return 0
 
-# ---------------------------------------------------------
-# ⚡ [핵심] SQL 기반 고속 검색 + 카운팅 분리
-# ---------------------------------------------------------
 @st.cache_data(ttl=60)
 def search_data_from_db(maker, models, engines, sy, ey, yards):
-    """
-    1. 전체 매칭 개수를 먼저 셉니다 (Count Query).
-    2. 데이터는 상위 5,000개만 가져옵니다 (Limit Query).
-    """
     try:
         conn = init_db()
         
@@ -327,17 +364,12 @@ def search_data_from_db(maker, models, engines, sy, ey, yards):
             base_cond += f" AND v.junkyard IN ({placeholders})"
             params.extend(yards)
             
-        # 1. Total Count Query
-        count_q = f"""
-            SELECT COUNT(*) 
-            FROM vehicle_data v 
-            LEFT JOIN junkyard_info j ON v.junkyard = j.name
-            WHERE {base_cond}
-        """
+        # 1. Total Count
+        count_q = f"SELECT COUNT(*) FROM vehicle_data v WHERE {base_cond}"
         cursor = conn.cursor()
         total_count = cursor.execute(count_q, params).fetchone()[0]
         
-        # 2. Data Limit Query
+        # 2. Data Limit
         data_q = f"""
             SELECT v.*, j.region, j.address 
             FROM vehicle_data v 
@@ -353,20 +385,17 @@ def search_data_from_db(maker, models, engines, sy, ey, yards):
             df['reg_date'] = pd.to_datetime(df['reg_date'], errors='coerce')
             
         return df, total_count
-        
-    except Exception as e:
-        return pd.DataFrame(), 0
+    except Exception as e: return pd.DataFrame(), 0
 
-# 메타데이터 및 초기 로드 (Init Load)
+# 메타데이터 및 초기 로드
 @st.cache_data(ttl=300)
 def load_metadata_and_init_data():
     conn = init_db()
-    # 1. 메타데이터
     df_m = pd.read_sql("SELECT DISTINCT manufacturer, model_name FROM model_list", conn)
     df_e = pd.read_sql("SELECT DISTINCT engine_code FROM vehicle_data", conn)
     df_y = pd.read_sql("SELECT name FROM junkyard_info", conn)
     
-    # 2. 초기 데이터 (전체 카운트 + 상위 5000개)
+    # 초기 로드 (5000개)
     total_cnt = conn.execute("SELECT COUNT(*) FROM vehicle_data").fetchone()[0]
     df_init = pd.read_sql("SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name ORDER BY v.reg_date DESC LIMIT 5000", conn)
     
@@ -385,7 +414,7 @@ def update_order_status(order_id, new_status):
     conn.close()
 
 def reset_dashboard():
-    # 리셋 시 초기 데이터 로드
+    # 리셋 시 초기 데이터 복구
     _, _, _, df_init, total = load_metadata_and_init_data()
     st.session_state['view_data'] = df_init
     st.session_state['total_count'] = total
@@ -405,7 +434,7 @@ def reset_dashboard():
 if 'user_role' not in st.session_state: st.session_state.user_role = 'guest'
 if 'username' not in st.session_state: st.session_state.username = 'Guest'
 
-# 초기 로딩 (한번만)
+# 초기 로딩
 if 'view_data' not in st.session_state or 'metadata_loaded' not in st.session_state:
     m_df, m_eng, m_yards, init_df, init_total = load_metadata_and_init_data()
     st.session_state['view_data'] = init_df
@@ -449,8 +478,7 @@ with st.sidebar:
         if st.button("Logout"):
             st.session_state.user_role = 'guest'
             st.session_state.username = 'Guest'
-            # 초기화 재로딩을 위해 키 삭제
-            del st.session_state['metadata_loaded']
+            del st.session_state['metadata_loaded'] # 재로딩 유도
             safe_rerun()
 
     st.divider()
@@ -466,7 +494,7 @@ with st.sidebar:
                     tot += n
                     bar.progress((i+1)/len(up_files))
                 st.success(f"{tot} records uploaded.")
-                load_metadata_and_init_data.clear() # 캐시 초기화
+                load_metadata_and_init_data.clear()
                 safe_rerun()
             
             addr_file = st.file_uploader("Address DB", type=['xlsx', 'xls', 'csv'], key="a_up")
@@ -493,36 +521,33 @@ with st.sidebar:
     search_tabs = st.tabs(["🚙 Vehicle", "🔧 Engine", "🏭 Yard", "🔮 Forecast"])
     
     with search_tabs[0]: 
-        if not df_models.empty:
-            makers = sorted(df_models['manufacturer'].unique().tolist())
-            makers.insert(0, "All")
-            sel_maker = st.selectbox("Manufacturer", makers, key="msel")
-            
-            c1, c2 = st.columns(2)
-            with c1: sel_sy = st.number_input("From", 1990, 2030, 2000, key="sy")
-            with c2: sel_ey = st.number_input("To", 1990, 2030, 2025, key="ey")
-            
-            if sel_maker != "All":
-                f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].unique().tolist())
-            else:
-                f_models = sorted(df_models['model_name'].unique().tolist())
-            sel_models = st.multiselect("Model", f_models, key="mms")
-            
-            if st.button("🔍 Search Vehicle", type="primary"):
-                log_search(sel_models, 'model')
-                # ⚡ SQL 필터링 호출
-                res, tot = search_data_from_db(sel_maker, sel_models, [], sel_sy, sel_ey, [])
-                st.session_state['view_data'] = res
-                st.session_state['total_count'] = tot
-                st.session_state['is_filtered'] = True
-                st.session_state['mode_demand'] = False
-                safe_rerun()
+        makers = sorted(df_models['manufacturer'].unique().tolist())
+        makers.insert(0, "All")
+        sel_maker = st.selectbox("Manufacturer", makers, key="msel")
+        
+        c1, c2 = st.columns(2)
+        with c1: sel_sy = st.number_input("From", 1990, 2030, 2000, key="sy")
+        with c2: sel_ey = st.number_input("To", 1990, 2030, 2025, key="ey")
+        
+        if sel_maker != "All":
+            f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].unique().tolist())
+        else:
+            f_models = sorted(df_models['model_name'].unique().tolist())
+        sel_models = st.multiselect("Model", f_models, key="mms")
+        
+        if st.button("🔍 Search Vehicle", type="primary"):
+            log_search(sel_models, 'model')
+            res, tot = search_data_from_db(sel_maker, sel_models, [], sel_sy, sel_ey, [])
+            st.session_state['view_data'] = res
+            st.session_state['total_count'] = tot
+            st.session_state['is_filtered'] = True
+            st.session_state['mode_demand'] = False
+            safe_rerun()
 
     with search_tabs[1]: 
         sel_engines = st.multiselect("Engine Code", sorted(list_engines), key="es")
         if st.button("🔍 Search Engine", type="primary"):
             log_search(sel_engines, 'engine')
-            # ⚡ SQL 필터링 호출
             res, tot = search_data_from_db(None, [], sel_engines, 1990, 2030, [])
             st.session_state['view_data'] = res
             st.session_state['total_count'] = tot
@@ -531,7 +556,6 @@ with st.sidebar:
             safe_rerun()
 
     with search_tabs[2]: 
-        # 폐차장 목록 필터링 (바이어는 Alias, 관리자는 실명)
         yard_opts = list_yards
         if st.session_state.user_role == 'buyer':
             yard_opts = sorted(list(set([generate_alias(name) for name in list_yards])))
@@ -541,17 +565,14 @@ with st.sidebar:
         sel_yards = st.multiselect("Partner Name", yard_opts, key="ys")
         
         if st.button("🔍 Search Partner", type="primary"):
-            # 바이어가 선택한 Alias를 실명 리스트로 변환 (역추적)
             real_yard_names = []
             if st.session_state.user_role == 'buyer':
-                # 단순 매칭 (전체 목록 순회)
                 for y in list_yards:
                     if generate_alias(y) in sel_yards:
                         real_yard_names.append(y)
             else:
                 real_yard_names = sel_yards
                 
-            # ⚡ SQL 필터링 호출
             res, tot = search_data_from_db(None, [], [], 1990, 2030, real_yard_names)
             st.session_state['view_data'] = res
             st.session_state['total_count'] = tot
@@ -576,12 +597,14 @@ if st.session_state.mode_demand:
     with c1:
         st.subheader("🔥 Top Searched Engines")
         if not eng_trend.empty:
+            # 🟢 [수정] 쪼개진 키워드 기반 차트
             fig = px.bar(eng_trend, x='count', y='keyword', orientation='h', text='count')
             st.plotly_chart(fig, use_container_width=True)
         else: st.info("No data yet.")
     with c2:
         st.subheader("🚙 Top Searched Models")
         if not mod_trend.empty:
+            # 🟢 [수정] 쪼개진 키워드 기반 차트
             fig = px.bar(mod_trend, x='count', y='keyword', orientation='h', text='count')
             st.plotly_chart(fig, use_container_width=True)
         else: st.info("No data yet.")
@@ -591,7 +614,6 @@ else:
     df_view = st.session_state['view_data']
     total_cnt = st.session_state['total_count']
     
-    # 🛡️ 마스킹 적용
     df_display = mask_dataframe(df_view, st.session_state.user_role)
     
     if st.session_state.user_role == 'admin':
@@ -604,16 +626,14 @@ else:
             if st.session_state['is_filtered']:
                 st.warning("No results found.")
             else:
-                st.info("Loading data...")
+                st.info("Please select filters to search.")
         else:
             c1, c2, c3 = st.columns(3)
-            # 🟢 [수정] 전체 카운트 표시
             c1.metric("Total Vehicles", f"{total_cnt:,} EA")
             c2.metric("Matched Engines", f"{df_display['engine_code'].nunique()} Types")
             sup_label = "Real Junkyards" if st.session_state.user_role == 'admin' else "Partners"
             c3.metric(sup_label, f"{df_display['junkyard'].nunique()} EA")
             
-            # 🟢 [알림] 리밋 경고
             if total_cnt > 5000:
                 st.warning(f"⚠️ Showing top 5,000 results out of {total_cnt:,}. Please refine your filters.")
             
@@ -624,14 +644,12 @@ else:
             if st.session_state.user_role == 'admin' and 'region' in df_display.columns:
                 grp_cols.append('region')
             
-            # 주소 없는 경우 처리
             if 'address' in df_display.columns:
                 df_display['address'] = df_display['address'].fillna("Unknown")
 
             stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
             selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
             
-            # 견적 요청 폼
             if len(selection.selection.rows) > 0:
                 sel_idx = selection.selection.rows[0]
                 sel_row = stock_summary.iloc[sel_idx]
@@ -651,7 +669,6 @@ else:
                             contact = st.text_input("Contact (Email/Phone) *")
                             req_qty = st.number_input("Quantity *", min_value=1, value=1)
                         with c_b:
-                            # 검색 조건에 따른 Item 자동 완성
                             s_maker = st.session_state.get('msel', 'All')
                             s_models = st.session_state.get('mms', [])
                             s_engines = st.session_state.get('es', [])
@@ -665,7 +682,6 @@ else:
                             else: item_desc.append("Auto Parts")
                             
                             if not s_engines: item_desc.append(f"({s_sy}~{s_ey})")
-                            
                             def_item = " ".join(item_desc)
                             
                             item = st.text_input("Item *", value=def_item)
@@ -675,15 +691,13 @@ else:
                         
                         if st.form_submit_button("🚀 Send Inquiry"):
                             if not contact or not item or not offer:
-                                st.error("⚠️ Please fill in all required fields: Contact, Item, and Price.")
+                                st.error("⚠️ Please fill in all required fields.")
                             else:
                                 conn = init_db()
                                 cur = conn.cursor()
                                 real_name = target_partner
                                 if st.session_state.user_role == 'buyer':
                                     try:
-                                        # Alias 매칭 (주의: df_view는 원본데이터임)
-                                        # df_view['junkyard']는 실명이므로 generate_alias 적용 후 비교
                                         temp_df = df_view.copy()
                                         temp_df['alias'] = temp_df['junkyard'].apply(generate_alias)
                                         match = temp_df[temp_df['alias'] == target_partner]
@@ -704,49 +718,9 @@ else:
 
     if st.session_state.user_role == 'admin':
         with main_tabs[1]:
-            st.subheader("📩 Incoming Quote Requests")
+            st.subheader("📩 Quote Requests")
             conn = init_db()
             orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
             conn.close()
-            
-            if not orders.empty:
-                for idx, row in orders.iterrows():
-                    with st.expander(f"[{row['status']}] {row['created_at']} | From: {row['buyer_id']}"):
-                        st.write(f"**Contact:** {row['contact_info']}")
-                        st.write(f"**Target:** {row['real_junkyard_name']} ({row['target_partner_alias']})")
-                        st.info(f"**Request:** {row['items_summary']}")
-                        
-                        c1, c2 = st.columns([3, 1])
-                        with c1:
-                            new_status = st.selectbox("Change Status", 
-                                                      ["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"],
-                                                      index=["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"].index(row['status']),
-                                                      key=f"st_{row['id']}")
-                        with c2:
-                            st.write("")
-                            st.write("")
-                            if st.button("Update", key=f"btn_{row['id']}"):
-                                update_order_status(row['id'], new_status)
-                                st.success("Updated!")
-                                time.sleep(0.5)
-                                safe_rerun()
-            else:
-                st.info("No pending orders.")
-
-    if st.session_state.user_role == 'buyer':
-        with main_tabs[1]: # My Orders
-            st.subheader("🛒 My Quote Requests")
-            conn = init_db()
-            my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
-            conn.close()
-
-            if not my_orders.empty:
-                for idx, row in my_orders.iterrows():
-                    status_color = "green" if row['status'] == 'DONE' else "orange" if row['status'] == 'PENDING' else "blue"
-                    with st.expander(f"[{row['created_at']}] {row['target_partner_alias']} ({row['status']})"):
-                        st.caption(f"Status: :{status_color}[{row['status']}]")
-                        st.write(f"**Request Details:** {row['items_summary']}")
-                        if row['status'] == 'QUOTED':
-                            st.success("💬 Offer Received! Check your email/phone.")
-            else:
-                st.info("You haven't requested any quotes yet.")
+            if not orders.empty: st.dataframe(orders)
+            else: st.info("No orders.")

@@ -11,7 +11,7 @@ import time
 import gc
 import hashlib
 import numpy as np
-import random
+# random 모듈 제거 (더미 데이터 생성용)
 
 # ---------------------------------------------------------
 # 🛠️ [설정] 페이지 설정
@@ -197,39 +197,7 @@ def _get_raw_translations():
         }
     }
 
-def insert_dummy_data(conn):
-    """DB가 비어있을 때 테스트용 샘플 데이터를 넣는 함수"""
-    c = conn.cursor()
-    
-    yards = [
-        ("GoodByeCar", "경기도 양주시 광적면 현석로 398", "경기 양주"),
-        ("Dongjin", "인천광역시 남동구 논현고잔로 135", "인천 남동"),
-        ("SeoulParts", "서울 장안동 123", "서울 동대문"),
-        ("BusanMotors", "부산 강서구 456", "부산 강서")
-    ]
-    c.executemany("INSERT OR IGNORE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", yards)
-    
-    models = [
-        ("Hyundai", "Sonata"), ("Hyundai", "Grandeur"), ("Hyundai", "Avante"), ("Hyundai", "SantaFe"), ("Hyundai", "Porter"),
-        ("Kia", "K5"), ("Kia", "K7"), ("Kia", "Sorrento"), ("Kia", "Sportage"), ("Kia", "Bongo"),
-        ("Genesis", "G80"), ("Genesis", "GV80")
-    ]
-    c.executemany("INSERT OR IGNORE INTO model_list (manufacturer, model_name) VALUES (?, ?)", models)
-    
-    vehicles = []
-    engines = ["D4CB", "G4KJ", "J3", "D4HB", "G4NA"]
-    
-    for i in range(50):
-        maker, model = random.choice(models)
-        vin = f"K{random.randint(10000000, 99999999)}"
-        reg_date = f"202{random.randint(0, 4)}-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}"
-        year = random.randint(2010, 2024)
-        engine = random.choice(engines)
-        yard = random.choice(yards)[0]
-        vehicles.append((vin, reg_date, "12가3456", maker, model, year, yard, engine))
-        
-    c.executemany("INSERT OR IGNORE INTO vehicle_data (vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", vehicles)
-    conn.commit()
+# 🔴 [수정] 더미 데이터 생성 로직 제거됨
 
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -259,14 +227,12 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_engine ON vehicle_data(engine_code)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_yard ON vehicle_data(junkyard)")
     
-    count = c.execute("SELECT COUNT(*) FROM vehicle_data").fetchone()[0]
-    if count == 0:
-        insert_dummy_data(conn)
-        
+    # 🔴 [수정] 더미 데이터 생성 부분 제거됨
+    
     conn.commit()
     conn.close()
 
-    # 🟢 번역 DB 무조건 갱신
+    # 🟢 [수정] 번역 DB는 무조건 갱신 (항상 최신 코드 반영)
     conn_t = sqlite3.connect(TRANS_DB)
     c_t = conn_t.cursor()
     c_t.execute('''CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
@@ -594,6 +560,7 @@ def load_metadata_and_init_data():
     
     total_cnt = conn.execute("SELECT COUNT(*) FROM vehicle_data").fetchone()[0]
     df_init = pd.read_sql("SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name ORDER BY v.reg_date DESC LIMIT 5000", conn)
+    
     conn.close()
     
     if not df_init.empty:

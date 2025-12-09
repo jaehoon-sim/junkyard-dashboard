@@ -212,12 +212,62 @@ def _get_raw_translations():
             "status_change": "상태 변경", "update_btn": "업데이트", "updated_msg": "업데이트 완료!", "offer_received": "💬 견적 도착! 이메일/전화를 확인하세요.",
             "company_name": "회사명 *", "country": "국가 *", "email": "이메일 *", "phone": "전화번호",
             "user_name": "담당자 성함 *", "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요."
+        },
+        "Russian": {
+            "app_title": "K-Used Car Глобальный Хаб", "login_title": "Вход", "id": "ID *", "pw": "Пароль *",
+            "sign_in": "Войти", "sign_up": "Регистрация", "logout": "Выйти", "welcome": "Добро пожаловать, {}!", 
+            "invalid_cred": "Неверные учетные данные", "user_exists": "ID уже существует.", "signup_success": "Аккаунт создан! Войдите.",
+            "admin_tools": "Инструменты админа", "data_upload": "Загрузка данных", "save_data": "Сохранить данные", "addr_db": "БД Адресов",
+            "save_addr": "Сохранить адрес", "reset_db": "Сброс БД", "reset_done": "Сброс выполнен", "records_saved": "{} записей загружено.",
+            "addr_updated": "{} адресов обновлено.", "admin_menu": "Меню админа", "demand_analysis": "Анализ спроса",
+            "search_filter": "Фильтр поиска", "tab_vehicle": "Автомобиль", "tab_engine": "Двигатель", "tab_yard": "Склад",
+            "manufacturer": "Производитель", "from_year": "С года", "to_year": "По год", "model": "Модель",
+            "engine_code": "Код двигателя", "partner_name": "Партнер", "search_btn_veh": "Поиск авто", "search_btn_eng": "Поиск двигателя",
+            "search_btn_partners": "Поиск партнера", "reset_filters": "Сброс фильтров", "check_trends": "Глобальные тренды поиска",
+            "show_trends": "Показать тренды", "analysis_title": "Анализ спроса в реальном времени", "top_engines": "Топ двигателей",
+            "top_models": "Топ моделей", "main_title": "Инвентарь K-Used Car/Engine", "tab_inventory": "Инвентарь",
+            "tab_orders": "Заказы", "tab_results": "Результаты", "tab_my_orders": "Мои заказы", "no_results": "Результатов не найдено.",
+            "plz_select": "Выберите фильтры для поиска.", "total_veh": "Всего авто", "matched_eng": "Двигатели",
+            "partners_cnt": "Партнеры", "real_yards": "Склады", "limit_warning": "⚠️ Показано топ 5,000 из {:,}. Уточните фильтры.",
+            "stock_by_partner": "Наличие по партнерам", "login_req_warn": "🔒 Требуется вход для запроса цены.", "selected_msg": "Выбрано: **{}** ({} шт.)",
+            "req_quote_title": "📨 Запрос цены у {}", "name_company": "Имя / Компания", "contact": "Контакт (Email/Тел) *",
+            "qty": "Количество *", "item": "Товар *", "unit_price": "Целевая цена (USD) *", "message": "Сообщение админу",
+            "send_btn": "🚀 Отправить запрос", "fill_error": "⚠️ Заполните обязательные поля: Контакт, Товар, Цена.",
+            "inquiry_sent": "✅ Запрос отправлен в отдел продаж.", "item_list": "Список товаров", "incoming_quotes": "📩 Входящие запросы",
+            "my_quote_req": "🛒 Мои запросы", "no_orders_admin": "Нет ожидающих заказов.", "no_orders_buyer": "Вы еще не делали запросов.",
+            "status_change": "Изменить статус", "update_btn": "Обновить", "updated_msg": "Обновлено!", "offer_received": "💬 Предложение получено! Проверьте почту.",
+            "company_name": "Название компании *", "country": "Страна *", "email": "Эл. почта *", "phone": "Телефон",
+            "user_name": "Имя *", "signup_missing_fields": "⚠️ Заполните все обязательные поля (*)."
+        },
+        "Arabic": {
+            "app_title": "K-Used Car Global Hub", "login_title": "تسجيل الدخول", "id": "المعرف *", "pw": "كلمة المرور *",
+            "sign_in": "دخول", "sign_up": "اشتراك", "logout": "خروج", "welcome": "مرحباً، {}!", 
+            "invalid_cred": "بيانات الاعتماد غير صالحة", "user_exists": "معرف المستخدم موجود بالفعل.", "signup_success": "تم إنشاء الحساب! الرجاء تسجيل الدخول.",
+            "admin_tools": "أدوات المسؤول", "data_upload": "تحميل البيانات", "save_data": "حفظ البيانات", "addr_db": "قاعدة بيانات العناوين",
+            "save_addr": "حفظ العنوان", "reset_db": "إعادة تعيين قاعدة البيانات", "reset_done": "تمت إعادة التعيين", "records_saved": "تم تحميل {} سجل.",
+            "addr_updated": "تم تحديث {} عنوان.", "admin_menu": "قائمة المسؤول", "demand_analysis": "تحليل الطلب العالمي",
+            "search_filter": "عامل تصفية البحث", "tab_vehicle": "مركبة", "tab_engine": "محرك", "tab_yard": "ساحة",
+            "manufacturer": "الصانع", "from_year": "من سنة", "to_year": "إلى سنة", "model": "الموديل",
+            "engine_code": "رمز المحرك", "partner_name": "اسم الشريك", "search_btn_veh": "بحث عن مركبة", "search_btn_eng": "بحث عن محرك",
+            "search_btn_partners": "بحث عن شريك", "reset_filters": "إعادة تعيين المرشحات", "check_trends": "تحقق من اتجاهات البحث العالمية.",
+            "show_trends": "عرض الاتجاهات", "analysis_title": "اتجاهات الطلب العالمي (مباشر)", "top_engines": "أفضل المحركات بحثًا",
+            "top_models": "أفضل الموديلات بحثًا", "main_title": "مخزون السيارات/المحركات المستعملة الكورية", "tab_inventory": "المخزون",
+            "tab_orders": "الطلبات", "tab_results": "نتائج البحث", "tab_my_orders": "طلباتي", "no_results": "لم يتم العثور على نتائج.",
+            "plz_select": "يرجى تحديد مرشحات للبحث.", "total_veh": "إجمالي المركبات", "matched_eng": "المحركات المطابقة",
+            "partners_cnt": "الشركاء", "real_yards": "ساحات الخردة الحقيقية", "limit_warning": "⚠️ يتم عرض أعلى 5000 نتيجة من {:,}. يرجى تحسين المرشحات.",
+            "stock_by_partner": "المخزون حسب الشريك", "login_req_warn": "🔒 تسجيل الدخول مطلوب لطلب عرض أسعار.", "selected_msg": "محدد: **{}** ({} قطعة)",
+            "req_quote_title": "📨 طلب عرض أسعار لـ {}", "name_company": "الاسم / الشركة", "contact": "الاتصال (بريد إلكتروني/هاتف) *",
+            "qty": "الكمية *", "item": "العنصر *", "unit_price": "السعر المستهدف (دولار) *", "message": "رسالة للمسؤول",
+            "send_btn": "🚀 إرسال الطلب", "fill_error": "⚠️ يرجى ملء الحقول المطلوبة: جهة الاتصال، العنصر، والسعر.",
+            "inquiry_sent": "✅ تم إرسال الطلب إلى فريق المبيعات لدينا.", "item_list": "قائمة العناصر", "incoming_quotes": "📩 طلبات الأسعار الواردة", "my_quote_req": "🛒 طلبات الأسعار الخاصة بي", "no_orders_admin": "لا توجد طلبات معلقة.", "no_orders_buyer": "لم تقم بطلب أي عروض أسعار بعد.",
+            "status_change": "تغيير الحالة", "update_btn": "تحديث", "updated_msg": "تم التحديث!", "offer_received": "💬 تم استلام العرض! تحقق من بريدك الإلكتروني/هاتفك.",
+            "company_name": "اسم الشركة *", "country": "بلد *", "email": "بريد إلكتروني *", "phone": "رقم الهاتف",
+            "user_name": "الاسم *", "signup_missing_fields": "⚠️ يرجى ملء جميع الحقول المطلوبة (*)."
         }
     }
-    # (다른 언어는 생략, 자동 생성 시 영어 기반으로 채워짐)
 
 def init_inventory_db():
-    """재고 DB (차량, 주소, 모델) 초기화 - 대용량"""
+    """재고 DB (차량, 주소, 모델) 초기화"""
     conn = sqlite3.connect(INVENTORY_DB)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS vehicle_data (vin TEXT PRIMARY KEY, reg_date TEXT, car_no TEXT, manufacturer TEXT, model_name TEXT, model_year REAL, junkyard TEXT, engine_code TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
@@ -232,20 +282,15 @@ def init_inventory_db():
     conn.close()
 
 def init_system_db():
-    """시스템 DB (유저, 주문, 로그, 번역) 초기화 - 소용량"""
+    """시스템 DB (유저, 주문, 로그, 번역) 초기화"""
     conn = sqlite3.connect(SYSTEM_DB)
     c = conn.cursor()
-    
-    # 유저
     c.execute('''CREATE TABLE IF NOT EXISTS users (user_id TEXT PRIMARY KEY, password TEXT, name TEXT, company TEXT, country TEXT, email TEXT, phone TEXT, role TEXT DEFAULT 'buyer', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    # 주문 (답장 컬럼 포함)
     c.execute('''CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, buyer_id TEXT, contact_info TEXT, target_partner_alias TEXT, real_junkyard_name TEXT, items_summary TEXT, status TEXT DEFAULT 'PENDING', reply_text TEXT, reply_images TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    # 로그
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    # 번역
     c.execute('''CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
 
-    # 번역 데이터 갱신 (항상 최신 코드 반영)
+    # 번역 데이터 갱신
     raw_data = _get_raw_translations()
     keys = raw_data["English"].keys()
     data_to_insert = []
@@ -299,13 +344,14 @@ def login_user(user_id, password):
 # ---------------------------------------------------------
 # 🌐 [i18n] 번역 로딩 (SYSTEM_DB)
 # ---------------------------------------------------------
-# 🔴 [중요] 캐시 제거: 항상 최신 번역 데이터를 DB에서 읽어오도록 수정
+# 🟢 [핵심] 캐싱 적용 (성능 및 DB Lock 방지)
+@st.cache_data
 def load_translations():
     conn = sqlite3.connect(SYSTEM_DB)
     try:
         df = pd.read_sql("SELECT * FROM translations", conn)
     except:
-        return {} # DB 생성 전일 경우 예외 처리
+        return {} # DB 생성 전 예외 처리
     conn.close()
     
     trans_dict = {}
@@ -561,8 +607,23 @@ def load_metadata_and_init_data():
         
     return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), df_init, total_cnt
 
-# 🟢 reset_dashboard 함수를 위쪽으로 이동
+def update_order_status(order_id, new_status, notify_user=True):
+    conn = sqlite3.connect(SYSTEM_DB)
+    conn.execute("UPDATE orders SET status = ? WHERE id = ?", (new_status, order_id))
+    
+    if notify_user:
+        cursor = conn.cursor()
+        cursor.execute("SELECT contact_info FROM orders WHERE id = ?", (order_id,))
+        data = cursor.fetchone()
+        if data:
+            contact_email = data[0]
+            send_email(contact_email, f"[K-Used Car] Order Status Update: {new_status}", 
+                       f"Your order status has been updated to: {new_status}.\nPlease check your dashboard for details.")
+    conn.commit()
+    conn.close()
+
 def reset_dashboard():
+    # 🟢 [복구] reset_dashboard 함수 본문 복구
     _, _, _, df_init, total = load_metadata_and_init_data()
     st.session_state['view_data'] = df_init
     st.session_state['total_count'] = total
@@ -701,6 +762,8 @@ try:
                     conn.commit()
                     conn.close()
                     init_system_db() # 즉시 복구
+                    # 🟢 [수정] 번역 캐시 초기화
+                    load_translations.clear()
                     st.success(t('reset_done'))
                     safe_rerun()
             
@@ -835,6 +898,7 @@ try:
                 stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
                 selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
                 
+                # 견적 요청 폼
                 if len(selection.selection.rows) > 0:
                     sel_idx = selection.selection.rows[0]
                     sel_row = stock_summary.iloc[sel_idx]
@@ -854,6 +918,7 @@ try:
                                 contact = st.text_input(t('contact'))
                                 req_qty = st.number_input(t('qty'), min_value=1, value=1)
                             with c_b:
+                                # 자동 품목 완성
                                 s_maker = st.session_state.get('msel', 'All')
                                 s_models = st.session_state.get('mms', [])
                                 s_engines = st.session_state.get('es', [])
@@ -867,6 +932,7 @@ try:
                                 else: item_desc.append("Auto Parts")
                                 
                                 if not s_engines: item_desc.append(f"({s_sy}~{s_ey})")
+                                
                                 def_item = " ".join(item_desc)
                                 
                                 item = st.text_input(t('item'), value=def_item)
@@ -889,11 +955,6 @@ try:
                                             if not match.empty:
                                                 real_name = match['junkyard'].iloc[0]
                                         except: real_name = "Unknown"
-                                    
-                                    if "EMAIL" in st.secrets:
-                                        admin_email = st.secrets["EMAIL"]["admin_email"]
-                                        send_email(admin_email, f"[K-Used Car] New Quote Request from {buyer_name}",
-                                                   f"Buyer: {buyer_name}\nContact: {contact}\nItem: {item}\nQty: {req_qty}\nPrice: {offer}\nMessage: {msg}")
 
                                     summary = f"Qty: {req_qty} (Total Stock: {stock_cnt}), Item: {item}, Price: {offer}, Msg: {msg}"
                                     cur.execute("INSERT INTO orders (buyer_id, contact_info, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?, ?)",
@@ -920,40 +981,6 @@ try:
                             st.write(f"**Target:** {row['real_junkyard_name']} ({row['target_partner_alias']})")
                             st.info(f"**Request:** {row['items_summary']}")
                             
-                            st.markdown("### ✍️ Reply & Quote")
-                            with st.form(f"reply_form_{row['id']}"):
-                                c1, c2 = st.columns(2)
-                                with c1:
-                                    reply_price = st.text_input("Final Quote Price (USD)", placeholder="$000")
-                                with c2:
-                                    reply_files = st.file_uploader("Attach Images (Max 5)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
-                                
-                                reply_msg = st.text_area("Message to Buyer", value=f"Dear {row['buyer_id']},\n\nThank you for your inquiry. We are pleased to offer:\n\n", height=150)
-                                
-                                if st.form_submit_button("Send Reply & Set to QUOTED"):
-                                    email_content = f"{reply_msg}\n\n[Quote Price]: {reply_price}"
-                                    sent = send_email(row['contact_info'], f"[K-Used Car] Quote for your request #{row['id']}", email_content, reply_files)
-                                    
-                                    if sent:
-                                        img_list = []
-                                        if reply_files:
-                                            for f in reply_files:
-                                                f.seek(0)
-                                                b64_str = base64.b64encode(f.read()).decode('utf-8')
-                                                img_list.append(b64_str)
-                                        
-                                        conn_up = sqlite3.connect(SYSTEM_DB)
-                                        conn_up.execute("UPDATE orders SET status = 'QUOTED', reply_text = ?, reply_images = ? WHERE id = ?", 
-                                                        (f"Price: {reply_price}\n\n{reply_msg}", json.dumps(img_list), row['id']))
-                                        conn_up.commit()
-                                        conn_up.close()
-                                        st.success("Reply sent and status updated to QUOTED!")
-                                        time.sleep(1)
-                                        safe_rerun()
-                                    else:
-                                        st.error("Failed to send email. Check SMTP settings.")
-
-                            st.divider()
                             c1, c2 = st.columns([3, 1])
                             with c1:
                                 new_status = st.selectbox(t('status_change'), 
@@ -975,10 +1002,7 @@ try:
             with main_tabs[1]: 
                 st.subheader(f"{t('my_quote_req')}")
                 conn = sqlite3.connect(SYSTEM_DB)
-                try:
-                    my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
-                except:
-                    my_orders = pd.DataFrame()
+                my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
                 conn.close()
 
                 if not my_orders.empty:
@@ -987,24 +1011,6 @@ try:
                         with st.expander(f"[{row['created_at']}] {row['target_partner_alias']} ({row['status']})"):
                             st.caption(f"Status: :{status_color}[{row['status']}]")
                             st.write(f"**Request Details:** {row['items_summary']}")
-                            
-                            if row['status'] == 'QUOTED' or row.get('reply_text'):
-                                st.divider()
-                                st.info("📬 Admin Reply:")
-                                if row.get('reply_text'):
-                                    st.text(row['reply_text'])
-                                
-                                if row.get('reply_images'):
-                                    try:
-                                        img_data = json.loads(row['reply_images'])
-                                        if img_data:
-                                            st.write("**Attached Images:**")
-                                            cols = st.columns(len(img_data))
-                                            for i, b64_img in enumerate(img_data):
-                                                with cols[i]:
-                                                    st.image(base64.b64decode(b64_img), use_container_width=True)
-                                    except: pass
-                            
                             if row['status'] == 'QUOTED':
                                 st.success(t('offer_received'))
                 else:

@@ -11,6 +11,7 @@ import time
 import gc
 import hashlib
 import numpy as np
+import random
 
 # ---------------------------------------------------------
 # 🛠️ [설정] 페이지 설정
@@ -26,8 +27,23 @@ def safe_rerun():
 # ---------------------------------------------------------
 # 🔐 [보안] 계정 및 암호화 설정
 # ---------------------------------------------------------
-# 관리자용 백도어 계정 (DB 문제시 비상용)
-ADMIN_CREDENTIALS = {"admin": "1234"}
+try:
+    ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
+    NAVER_CLIENT_ID = st.secrets["NAVER_CLIENT_ID"]
+    NAVER_CLIENT_SECRET = st.secrets["NAVER_CLIENT_SECRET"]
+except:
+    ADMIN_CREDENTIALS = {"admin": "1234"}
+    NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
+    NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
+
+BUYER_CREDENTIALS = {
+    "buyer": "1111",
+    "global": "2222",
+    "testbuyer": "1234"
+}
+
+DB_NAME = 'junkyard.db'
+TRANS_DB = 'translations.db'
 
 # 비밀번호 해싱 함수
 def make_hashes(password):
@@ -38,20 +54,17 @@ def check_hashes(password, hashed_text):
         return True
     return False
 
-DB_NAME = 'junkyard.db'
-TRANS_DB = 'translations.db'
-
 # ---------------------------------------------------------
 # 🌍 [설정] 국가 목록 (회원가입용)
 # ---------------------------------------------------------
 COUNTRY_LIST = [
-    "Russia", "Jordan", "Saudi Arabia", "UAE", "Egypt", "Kazakhstan", "Kyrgyzstan", 
+    "Select Country", "Russia", "Jordan", "Saudi Arabia", "UAE", "Egypt", "Kazakhstan", "Kyrgyzstan", 
     "Mongolia", "Vietnam", "Philippines", "Chile", "Dominican Rep.", "Ghana", "Nigeria", 
     "Cambodia", "Uzbekistan", "Tajikistan", "USA", "Canada", "Other"
 ]
 
 # ---------------------------------------------------------
-# 🌍 [설정] 주소 변환 데이터 (기존 유지)
+# 🌍 [설정] 주소 변환 데이터
 # ---------------------------------------------------------
 PROVINCE_MAP = {
     '경기': 'Gyeonggi-do', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon-do',
@@ -64,51 +77,21 @@ PROVINCE_MAP = {
 }
 
 CITY_MAP = {
-    '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang',
-    '부천': 'Bucheon', '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon',
-    '안산': 'Ansan', '고양': 'Goyang', '과천': 'Gwacheon', '구리': 'Guri',
-    '남양주': 'Namyangju', '오산': 'Osan', '시흥': 'Siheung', '군포': 'Gunpo',
-    '의왕': 'Uiwang', '하남': 'Hanam', '용인': 'Yongin', '파주': 'Paju',
-    '이천': 'Icheon', '안성': 'Anseong', '김포': 'Gimpo', '화성': 'Hwaseong',
-    '광주': 'Gwangju', '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju',
-    '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong',
-    '천안': 'Cheonan', '공주': 'Gongju', '보령': 'Boryeong', '아산': 'Asan',
-    '서산': 'Seosan', '논산': 'Nonsan', '계룡': 'Gyeryong', '당진': 'Dangjin',
-    '금산': 'Geumsan', '부여': 'Buyeo', '서천': 'Seocheon', '청양': 'Cheongyang',
-    '홍성': 'Hongseong', '예산': 'Yesan', '태안': 'Taean',
-    '청주': 'Cheongju', '충주': 'Chungju', '제천': 'Jecheon', '보은': 'Boeun',
-    '옥천': 'Okcheon', '영동': 'Yeongdong', '증평': 'Jeungpyeong', '진천': 'Jincheon',
-    '괴산': 'Goesan', '음성': 'Eumseong', '단양': 'Danyang',
-    '포항': 'Pohang', '경주': 'Gyeongju', '김천': 'Gimcheon', '안동': 'Andong',
-    '구미': 'Gumi', '영주': 'Yeongju', '영천': 'Yeongcheon', '상주': 'Sangju',
-    '문경': 'Mungyeong', '경산': 'Gyeongsan', '군위': 'Gunwi', '의성': 'Uiseong',
-    '청송': 'Cheongsong', '영양': 'Yeongyang', '영덕': 'Yeongdeok', '청도': 'Cheongdo',
-    '고령': 'Goryeong', '성주': 'Seongju', '칠곡': 'Chilgok', '예천': 'Yecheon',
-    '봉화': 'Bonghwa', '울진': 'Uljin', '울릉': 'Ulleung',
-    '창원': 'Changwon', '진주': 'Jinju', '통영': 'Tongyeong', '사천': 'Sacheon',
-    '김해': 'Gimhae', '밀양': 'Miryang', '거제': 'Geoje', '양산': 'Yangsan',
-    '의령': 'Uiryeong', '함안': 'Haman', '창녕': 'Changnyeong', '고성': 'Goseong',
-    '남해': 'Namhae', '하동': 'Hadong', '산청': 'Sancheong', '함양': 'Hamyang',
-    '거창': 'Geochang', '합천': 'Hapcheon',
-    '전주': 'Jeonju', '군산': 'Gunsan', '익산': 'Iksan', '정읍': 'Jeongeup',
-    '남원': 'Namwon', '김제': 'Gimje', '완주': 'Wanju', '진안': 'Jinan',
-    '무주': 'Muju', '장수': 'Jangsu', '임실': 'Imsil', '순창': 'Sunchang',
-    '고창': 'Gochang', '부안': 'Buan',
-    '목포': 'Mokpo', '여수': 'Yeosu', '순천': 'Suncheon', '나주': 'Naju',
-    '광양': 'Gwangyang', '담양': 'Damyang', '곡성': 'Gokseong', '구례': 'Gurye',
-    '고흥': 'Goheung', '보성': 'Boseong', '화순': 'Hwasun', '장흥': 'Jangheung',
-    '강진': 'Gangjin', '해남': 'Haenam', '영암': 'Yeongam', '무안': 'Muan',
-    '함평': 'Hampyeong', '영광': 'Yeonggwang', '장성': 'Jangseong', '완도': 'Wando',
-    '진도': 'Jindo', '신안': 'Sinan', '제주': 'Jeju', '서귀포': 'Seogwipo'
+    '수원': 'Suwon', '성남': 'Seongnam', '용인': 'Yongin', '고양': 'Goyang', '부천': 'Bucheon',
+    '안산': 'Ansan', '화성': 'Hwaseong', '남양주': 'Namyangju', '안양': 'Anyang', '평택': 'Pyeongtaek',
+    '파주': 'Paju', '의정부': 'Uijeongbu', '시흥': 'Siheung', '김포': 'Gimpo', '광명': 'Gwangmyeong',
+    '광주': 'Gwangju', '군포': 'Gunpo', '오산': 'Osan', '이천': 'Icheon', '양주': 'Yangju',
+    '구리': 'Guri', '안성': 'Anseong', '포천': 'Pocheon', '의왕': 'Uiwang', '하남': 'Hanam',
+    '여주': 'Yeoju', '양평': 'Yangpyeong', '동두천': 'Dongducheon', '과천': 'Gwacheon', '가평': 'Gapyeong', '연천': 'Yeoncheon'
 }
 
 # ---------------------------------------------------------
-# 1. 데이터베이스 초기화 (테이블 생성 전용)
+# 1. 데이터베이스 초기화 및 샘플 데이터
 # ---------------------------------------------------------
 def _get_raw_translations():
     return {
         "English": {
-            "app_title": "K-Used Car Global Hub", "login_title": "Login / Sign Up", "id": "ID", "pw": "Password",
+            "app_title": "K-Used Car Global Hub", "login_title": "Login", "id": "ID *", "pw": "Password *",
             "sign_in": "Sign In", "sign_up": "Sign Up", "logout": "Logout", "welcome": "Welcome, {}!", 
             "invalid_cred": "Invalid Credentials", "user_exists": "User ID already exists.", "signup_success": "Account created! Please login.",
             "admin_tools": "Admin Tools", "data_upload": "Data Upload", "save_data": "Save Data", "addr_db": "Address DB",
@@ -131,10 +114,11 @@ def _get_raw_translations():
             "inquiry_sent": "✅ Inquiry has been sent to our sales team.", "item_list": "Item List", "incoming_quotes": "📩 Incoming Quote Requests",
             "my_quote_req": "🛒 My Quote Requests", "no_orders_admin": "No pending orders.", "no_orders_buyer": "You haven't requested any quotes yet.",
             "status_change": "Change Status", "update_btn": "Update", "updated_msg": "Updated!", "offer_received": "💬 Offer Received! Check your email/phone.",
-            "company_name": "Company Name", "country": "Country", "email": "Email", "phone": "Phone Number"
+            "company_name": "Company Name *", "country": "Country *", "email": "Email *", "phone": "Phone Number",
+            "user_name": "Name (Person) *", "signup_missing_fields": "⚠️ Please fill in all required fields (marked with *)."
         },
         "Korean": {
-            "app_title": "K-Used Car 글로벌 허브", "login_title": "로그인 / 회원가입", "id": "아이디", "pw": "비밀번호",
+            "app_title": "K-Used Car 글로벌 허브", "login_title": "로그인", "id": "아이디 *", "pw": "비밀번호 *",
             "sign_in": "로그인", "sign_up": "회원가입", "logout": "로그아웃", "welcome": "환영합니다, {}님!", 
             "invalid_cred": "로그인 정보가 올바르지 않습니다.", "user_exists": "이미 존재하는 아이디입니다.", "signup_success": "가입 완료! 로그인해주세요.",
             "admin_tools": "관리자 도구", "data_upload": "데이터 업로드", "save_data": "데이터 저장", "addr_db": "주소 DB",
@@ -156,10 +140,11 @@ def _get_raw_translations():
             "inquiry_sent": "✅ 영업팀으로 견적 요청이 전송되었습니다.", "item_list": "상세 목록", "incoming_quotes": "📩 접수된 견적 요청",
             "my_quote_req": "🛒 나의 견적 요청 내역", "no_orders_admin": "대기 중인 주문이 없습니다.", "no_orders_buyer": "아직 요청한 내역이 없습니다.",
             "status_change": "상태 변경", "update_btn": "업데이트", "updated_msg": "업데이트 완료!", "offer_received": "💬 견적 도착! 이메일/전화를 확인하세요.",
-            "company_name": "회사명", "country": "국가", "email": "이메일", "phone": "전화번호"
+            "company_name": "회사명 *", "country": "국가 *", "email": "이메일 *", "phone": "전화번호",
+            "user_name": "담당자 성함 *", "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요."
         },
         "Russian": {
-            "app_title": "K-Used Car Глобальный Хаб", "login_title": "Вход / Регистрация", "id": "ID", "pw": "Пароль",
+            "app_title": "K-Used Car Глобальный Хаб", "login_title": "Вход", "id": "ID *", "pw": "Пароль *",
             "sign_in": "Войти", "sign_up": "Регистрация", "logout": "Выйти", "welcome": "Добро пожаловать, {}!", 
             "invalid_cred": "Неверные учетные данные", "user_exists": "ID уже существует.", "signup_success": "Аккаунт создан! Войдите.",
             "admin_tools": "Инструменты админа", "data_upload": "Загрузка данных", "save_data": "Сохранить данные", "addr_db": "БД Адресов",
@@ -181,10 +166,11 @@ def _get_raw_translations():
             "inquiry_sent": "✅ Запрос отправлен в отдел продаж.", "item_list": "Список товаров", "incoming_quotes": "📩 Входящие запросы",
             "my_quote_req": "🛒 Мои запросы", "no_orders_admin": "Нет ожидающих заказов.", "no_orders_buyer": "Вы еще не делали запросов.",
             "status_change": "Изменить статус", "update_btn": "Обновить", "updated_msg": "Обновлено!", "offer_received": "💬 Предложение получено! Проверьте почту.",
-            "company_name": "Название компании", "country": "Страна", "email": "Эл. почта", "phone": "Телефон"
+            "company_name": "Название компании *", "country": "Страна *", "email": "Эл. почта *", "phone": "Телефон",
+            "user_name": "Имя *", "signup_missing_fields": "⚠️ Заполните все обязательные поля (*)."
         },
         "Arabic": {
-            "app_title": "K-Used Car Global Hub", "login_title": "تسجيل الدخول / اشتراك", "id": "المعرف", "pw": "كلمة المرور",
+            "app_title": "K-Used Car Global Hub", "login_title": "تسجيل الدخول", "id": "المعرف *", "pw": "كلمة المرور *",
             "sign_in": "دخول", "sign_up": "اشتراك", "logout": "خروج", "welcome": "مرحباً، {}!", 
             "invalid_cred": "بيانات الاعتماد غير صالحة", "user_exists": "معرف المستخدم موجود بالفعل.", "signup_success": "تم إنشاء الحساب! الرجاء تسجيل الدخول.",
             "admin_tools": "أدوات المسؤول", "data_upload": "تحميل البيانات", "save_data": "حفظ البيانات", "addr_db": "قاعدة بيانات العناوين",
@@ -205,12 +191,46 @@ def _get_raw_translations():
             "send_btn": "🚀 إرسال الطلب", "fill_error": "⚠️ يرجى ملء الحقول المطلوبة: جهة الاتصال، العنصر، والسعر.",
             "inquiry_sent": "✅ تم إرسال الطلب إلى فريق المبيعات لدينا.", "item_list": "قائمة العناصر", "incoming_quotes": "📩 طلبات الأسعار الواردة", "my_quote_req": "🛒 طلبات الأسعار الخاصة بي", "no_orders_admin": "لا توجد طلبات معلقة.", "no_orders_buyer": "لم تقم بطلب أي عروض أسعار بعد.",
             "status_change": "تغيير الحالة", "update_btn": "تحديث", "updated_msg": "تم التحديث!", "offer_received": "💬 تم استلام العرض! تحقق من بريدك الإلكتروني/هاتفك.",
-            "company_name": "اسم الشركة", "country": "بلد", "email": "بريد إلكتروني", "phone": "رقم الهاتف"
+            "company_name": "اسم الشركة *", "country": "بلد *", "email": "بريد إلكتروني *", "phone": "رقم الهاتف",
+            "user_name": "الاسم *", "signup_missing_fields": "⚠️ يرجى ملء جميع الحقول المطلوبة (*)."
         }
     }
 
+def insert_dummy_data(conn):
+    """DB가 비어있을 때 테스트용 샘플 데이터를 넣는 함수"""
+    c = conn.cursor()
+    
+    yards = [
+        ("GoodByeCar", "경기도 양주시 광적면 현석로 398", "경기 양주"),
+        ("Dongjin", "인천광역시 남동구 논현고잔로 135", "인천 남동"),
+        ("SeoulParts", "서울 장안동 123", "서울 동대문"),
+        ("BusanMotors", "부산 강서구 456", "부산 강서")
+    ]
+    c.executemany("INSERT OR IGNORE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", yards)
+    
+    models = [
+        ("Hyundai", "Sonata"), ("Hyundai", "Grandeur"), ("Hyundai", "Avante"), ("Hyundai", "SantaFe"), ("Hyundai", "Porter"),
+        ("Kia", "K5"), ("Kia", "K7"), ("Kia", "Sorrento"), ("Kia", "Sportage"), ("Kia", "Bongo"),
+        ("Genesis", "G80"), ("Genesis", "GV80")
+    ]
+    c.executemany("INSERT OR IGNORE INTO model_list (manufacturer, model_name) VALUES (?, ?)", models)
+    
+    vehicles = []
+    engines = ["D4CB", "G4KJ", "J3", "D4HB", "G4NA"]
+    
+    for i in range(50):
+        maker, model = random.choice(models)
+        vin = f"K{random.randint(10000000, 99999999)}"
+        reg_date = f"202{random.randint(0, 4)}-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}"
+        year = random.randint(2010, 2024)
+        engine = random.choice(engines)
+        yard = random.choice(yards)[0]
+        vehicles.append((vin, reg_date, "12가3456", maker, model, year, yard, engine))
+        
+    c.executemany("INSERT OR IGNORE INTO vehicle_data (vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", vehicles)
+    conn.commit()
+
 def init_db():
-    # 🟢 1. 메인 DB 생성
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS vehicle_data (vin TEXT PRIMARY KEY, reg_date TEXT, car_no TEXT, manufacturer TEXT, model_name TEXT, model_year REAL, junkyard TEXT, engine_code TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
@@ -219,7 +239,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, buyer_id TEXT, contact_info TEXT, target_partner_alias TEXT, real_junkyard_name TEXT, items_summary TEXT, status TEXT DEFAULT 'PENDING', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
-    # 🟢 [신규] 사용자(Users) 테이블 생성
+    # 사용자 테이블 생성
     c.execute('''CREATE TABLE IF NOT EXISTS users (
         user_id TEXT PRIMARY KEY,
         password TEXT,
@@ -232,16 +252,19 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
 
-    # 인덱스 생성
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data(model_name)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_year ON vehicle_data(model_year)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_engine ON vehicle_data(engine_code)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_yard ON vehicle_data(junkyard)")
+    
+    count = c.execute("SELECT COUNT(*) FROM vehicle_data").fetchone()[0]
+    if count == 0:
+        insert_dummy_data(conn)
+        
     conn.commit()
     conn.close()
 
-    # 🟢 2. 번역 DB 생성
     if not os.path.exists(TRANS_DB):
         conn_t = sqlite3.connect(TRANS_DB)
         c_t = conn_t.cursor()
@@ -277,26 +300,26 @@ def create_user(user_id, password, name, company, country, email, phone):
         conn.close()
         return True
     except sqlite3.IntegrityError:
-        return False # ID Duplicate
+        return False
     except Exception as e:
         return False
 
 def login_user(user_id, password):
-    # 1. Hardcoded Check
     if user_id in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[user_id] == password:
         return "admin", "admin"
     
-    # 2. DB Check
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    c.execute("SELECT password, role, name FROM users WHERE user_id = ?", (user_id,))
-    data = c.fetchone()
-    conn.close()
-    
-    if data:
-        db_pw, role, name = data
-        if check_hashes(password, db_pw):
-            return role, name
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        c = conn.cursor()
+        c.execute("SELECT password, role, name FROM users WHERE user_id = ?", (user_id,))
+        data = c.fetchone()
+        conn.close()
+        
+        if data:
+            db_pw, role, name = data
+            if check_hashes(password, db_pw):
+                return role, name
+    except: pass
             
     return None, None
 
@@ -543,8 +566,7 @@ def search_data_from_db(maker, models, engines, sy, ey, yards):
             params.extend(yards)
             
         count_q = f"SELECT COUNT(*) FROM vehicle_data v WHERE {base_cond}"
-        cursor = conn.cursor()
-        total_count = cursor.execute(count_q, params).fetchone()[0]
+        total_count = conn.execute(count_q, params).fetchone()[0]
         
         data_q = f"""
             SELECT v.*, j.region, j.address 
@@ -591,13 +613,12 @@ def reset_dashboard():
     st.session_state['total_count'] = total
     st.session_state['is_filtered'] = False
     st.session_state['mode_demand'] = False
-    
-    if 'msel' in st.session_state: st.session_state['msel'] = "All"
-    if 'sy' in st.session_state: st.session_state['sy'] = 2000
-    if 'ey' in st.session_state: st.session_state['ey'] = datetime.datetime.now().year
-    if 'mms' in st.session_state: st.session_state['mms'] = []
-    if 'es' in st.session_state: st.session_state['es'] = []
-    if 'ys' in st.session_state: st.session_state['ys'] = []
+    st.session_state['msel'] = "All"
+    st.session_state['sy'] = 2000
+    st.session_state['ey'] = datetime.datetime.now().year
+    st.session_state['mms'] = []
+    st.session_state['es'] = []
+    st.session_state['ys'] = []
 
 # ---------------------------------------------------------
 # 🚀 메인 어플리케이션
@@ -607,7 +628,7 @@ try:
     if 'username' not in st.session_state: st.session_state.username = 'Guest'
     if 'language' not in st.session_state: st.session_state.language = 'English'
 
-    # DB 및 데이터 초기화
+    # DB 초기화 및 샘플 데이터 로드 확인
     init_db()
 
     if 'view_data' not in st.session_state or 'metadata_loaded' not in st.session_state:
@@ -639,7 +660,7 @@ try:
         st.divider()
         
         if st.session_state.user_role == 'guest':
-            # 🟢 [수정] 로그인 / 회원가입 탭 분리
+            # 🟢 로그인 / 회원가입 탭 분리
             log_tab, sign_tab = st.tabs([t('login_title'), t('sign_up')])
             
             with log_tab:
@@ -655,19 +676,24 @@ try:
                         st.error(t('invalid_cred'))
                         
             with sign_tab:
+                # 🟢 회원가입 폼 (필수값 검증)
                 new_id = st.text_input(t('id'), key="s_id")
                 new_pw = st.text_input(t('pw'), type="password", key="s_pw")
-                new_name = st.text_input(t('name_company'), key="s_name")
+                new_name = st.text_input(t('user_name'), key="s_name")
                 new_comp = st.text_input(t('company_name'), key="s_comp")
                 new_country = st.selectbox(t('country'), COUNTRY_LIST, key="s_country")
                 new_email = st.text_input(t('email'), key="s_email")
-                new_phone = st.text_input(t('phone'), key="s_phone")
+                new_phone = st.text_input(t('phone'), key="s_phone") # Optional
                 
                 if st.button(t('sign_up'), use_container_width=True):
-                    if create_user(new_id, new_pw, new_name, new_comp, new_country, new_email, new_phone):
-                        st.success(t('signup_success'))
+                    # Phone 제외 나머지 필수 검증
+                    if not all([new_id, new_pw, new_name, new_comp, new_country, new_email]) or new_country == "Select Country":
+                        st.error(t('signup_missing_fields'))
                     else:
-                        st.error(t('user_exists'))
+                        if create_user(new_id, new_pw, new_name, new_comp, new_country, new_email, new_phone):
+                            st.success(t('signup_success'))
+                        else:
+                            st.error(t('user_exists'))
 
         else:
             role_text = "Manager" if st.session_state.user_role == 'admin' else "Buyer"

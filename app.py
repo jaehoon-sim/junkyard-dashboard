@@ -13,9 +13,9 @@ import hashlib
 import numpy as np
 
 # ---------------------------------------------------------
-# 🛠️ [설정] 페이지 설정
+# 🛠️ [설정] 페이지 설정 (변경됨)
 # ---------------------------------------------------------
-st.set_page_config(page_title="K-Parts Global Hub", layout="wide")
+st.set_page_config(page_title="K-Used Car Global Hub", layout="wide")
 
 def safe_rerun():
     try:
@@ -45,7 +45,7 @@ BUYER_CREDENTIALS = {
 DB_NAME = 'junkyard.db'
 
 # ---------------------------------------------------------
-# 🌍 [설정] 주소 영문 변환 매핑
+# 🌍 [설정] 주소 변환 데이터
 # ---------------------------------------------------------
 PROVINCE_MAP = {
     '경기': 'Gyeonggi-do', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon-do',
@@ -171,8 +171,9 @@ def mask_dataframe(df, role):
             df_safe['partner_alias'] = df_safe['junkyard'].apply(generate_alias)
         return df_safe
 
+    # 바이어/게스트용 마스킹
     if 'junkyard' in df_safe.columns:
-        df_safe['real_junkyard'] = df_safe['junkyard']
+        df_safe['real_junkyard'] = df_safe['junkyard'] # 내부 로직용 백업
         if role == 'buyer':
             df_safe['junkyard'] = df_safe['junkyard'].apply(generate_alias)
         else:
@@ -413,7 +414,6 @@ def reset_dashboard():
 # ---------------------------------------------------------
 # 🚀 메인 어플리케이션
 # ---------------------------------------------------------
-# 🟢 [중요] try 구문 추가 (SyntaxError 해결)
 try:
     if 'user_role' not in st.session_state: st.session_state.user_role = 'guest'
     if 'username' not in st.session_state: st.session_state.username = 'Guest'
@@ -437,8 +437,9 @@ try:
 
     # 1. 사이드바
     with st.sidebar:
-        st.title("K-Parts Global Hub")
+        st.title("K-Used Car Global Hub")
         
+        # 로그인
         if st.session_state.user_role == 'guest':
             with st.expander("🔐 Login", expanded=True):
                 uid = st.text_input("ID")
@@ -589,7 +590,7 @@ try:
                 st.plotly_chart(fig, use_container_width=True)
             else: st.info("No data yet.")
     else:
-        st.title("🇰🇷 Korea Used Auto Parts Inventory")
+        st.title("K-Used Car/Engine Inventory")
         
         df_view = st.session_state['view_data']
         total_cnt = st.session_state['total_count']
@@ -681,7 +682,6 @@ try:
                                     real_name = target_partner
                                     if st.session_state.user_role == 'buyer':
                                         try:
-                                            # Alias 역추적 (주의: df_view는 원본데이터임)
                                             temp_df = df_view.copy()
                                             temp_df['alias'] = temp_df['junkyard'].apply(generate_alias)
                                             match = temp_df[temp_df['alias'] == target_partner]

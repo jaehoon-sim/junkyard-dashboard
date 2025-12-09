@@ -12,6 +12,8 @@ import gc
 import hashlib
 import numpy as np
 import smtplib
+import json
+import base64
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
@@ -49,13 +51,12 @@ DB_NAME = 'junkyard.db'
 TRANS_DB = 'translations.db'
 
 # ---------------------------------------------------------
-# 📧 [기능] 이메일 발송 함수 (첨부파일 지원)
+# 📧 [기능] 이메일 발송 함수 (다중 첨부 지원)
 # ---------------------------------------------------------
-def send_email(to_email, subject, content, attachment_file=None, attachment_name=None):
+def send_email(to_email, subject, content, attachment_files=[]):
     """
     SMTP를 사용하여 이메일을 발송합니다.
-    attachment_file: Streamlit UploadedFile 객체 또는 bytes
-    attachment_name: 파일명
+    attachment_files: List of Streamlit UploadedFile objects
     """
     if "@" not in to_email:
         return False
@@ -75,17 +76,21 @@ def send_email(to_email, subject, content, attachment_file=None, attachment_name
         msg['Subject'] = subject
         msg.attach(MIMEText(content, 'plain'))
 
-        # 파일 첨부 로직
-        if attachment_file is not None and attachment_name is not None:
-            # UploadedFile 객체인 경우 bytes로 읽음
-            if hasattr(attachment_file, "getvalue"):
-                file_data = attachment_file.getvalue()
-            else:
-                file_data = attachment_file
-
-            part = MIMEApplication(file_data, Name=attachment_name)
-            part['Content-Disposition'] = f'attachment; filename="{attachment_name}"'
-            msg.attach(part)
+        # 다중 파일 첨부 처리
+        if attachment_files:
+            for file in attachment_files:
+                try:
+                    # 파일 데이터 읽기
+                    file.seek(0)
+                    file_data = file.read()
+                    file_name = file.name
+                    
+                    part = MIMEApplication(file_data, Name=file_name)
+                    part['Content-Disposition'] = f'attachment; filename="{file_name}"'
+                    msg.attach(part)
+                except Exception as e:
+                    print(f"File attach error: {e}")
+                    continue
 
         with smtplib.SMTP(smtp_server, smtp_port) as server:
             server.starttls()
@@ -111,12 +116,42 @@ PROVINCE_MAP = {
 }
 
 CITY_MAP = {
-    '수원': 'Suwon', '성남': 'Seongnam', '용인': 'Yongin', '고양': 'Goyang', '부천': 'Bucheon',
-    '안산': 'Ansan', '화성': 'Hwaseong', '남양주': 'Namyangju', '안양': 'Anyang', '평택': 'Pyeongtaek',
-    '파주': 'Paju', '의정부': 'Uijeongbu', '시흥': 'Siheung', '김포': 'Gimpo', '광명': 'Gwangmyeong',
-    '광주': 'Gwangju', '군포': 'Gunpo', '오산': 'Osan', '이천': 'Icheon', '안성': 'Anseong', '포천': 'Pocheon',
-    '의왕': 'Uiwang', '하남': 'Hanam', '여주': 'Yeoju', '양평': 'Yangpyeong', '동두천': 'Dongducheon', 
-    '과천': 'Gwacheon', '가평': 'Gapyeong', '연천': 'Yeoncheon'
+    '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang',
+    '부천': 'Bucheon', '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon',
+    '안산': 'Ansan', '고양': 'Goyang', '과천': 'Gwacheon', '구리': 'Guri',
+    '남양주': 'Namyangju', '오산': 'Osan', '시흥': 'Siheung', '군포': 'Gunpo',
+    '의왕': 'Uiwang', '하남': 'Hanam', '용인': 'Yongin', '파주': 'Paju',
+    '이천': 'Icheon', '안성': 'Anseong', '김포': 'Gimpo', '화성': 'Hwaseong',
+    '광주': 'Gwangju', '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju',
+    '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong',
+    '천안': 'Cheonan', '공주': 'Gongju', '보령': 'Boryeong', '아산': 'Asan',
+    '서산': 'Seosan', '논산': 'Nonsan', '계룡': 'Gyeryong', '당진': 'Dangjin',
+    '금산': 'Geumsan', '부여': 'Buyeo', '서천': 'Seocheon', '청양': 'Cheongyang',
+    '홍성': 'Hongseong', '예산': 'Yesan', '태안': 'Taean',
+    '청주': 'Cheongju', '충주': 'Chungju', '제천': 'Jecheon', '보은': 'Boeun',
+    '옥천': 'Okcheon', '영동': 'Yeongdong', '증평': 'Jeungpyeong', '진천': 'Jincheon',
+    '괴산': 'Goesan', '음성': 'Eumseong', '단양': 'Danyang',
+    '포항': 'Pohang', '경주': 'Gyeongju', '김천': 'Gimcheon', '안동': 'Andong',
+    '구미': 'Gumi', '영주': 'Yeongju', '영천': 'Yeongcheon', '상주': 'Sangju',
+    '문경': 'Mungyeong', '경산': 'Gyeongsan', '군위': 'Gunwi', '의성': 'Uiseong',
+    '청송': 'Cheongsong', '영양': 'Yeongyang', '영덕': 'Yeongdeok', '청도': 'Cheongdo',
+    '고령': 'Goryeong', '성주': 'Seongju', '칠곡': 'Chilgok', '예천': 'Yecheon',
+    '봉화': 'Bonghwa', '울진': 'Uljin', '울릉': 'Ulleung',
+    '창원': 'Changwon', '진주': 'Jinju', '통영': 'Tongyeong', '사천': 'Sacheon',
+    '김해': 'Gimhae', '밀양': 'Miryang', '거제': 'Geoje', '양산': 'Yangsan',
+    '의령': 'Uiryeong', '함안': 'Haman', '창녕': 'Changnyeong', '고성': 'Goseong',
+    '남해': 'Namhae', '하동': 'Hadong', '산청': 'Sancheong', '함양': 'Hamyang',
+    '거창': 'Geochang', '합천': 'Hapcheon',
+    '전주': 'Jeonju', '군산': 'Gunsan', '익산': 'Iksan', '정읍': 'Jeongeup',
+    '남원': 'Namwon', '김제': 'Gimje', '완주': 'Wanju', '진안': 'Jinan',
+    '무주': 'Muju', '장수': 'Jangsu', '임실': 'Imsil', '순창': 'Sunchang',
+    '고창': 'Gochang', '부안': 'Buan',
+    '목포': 'Mokpo', '여수': 'Yeosu', '순천': 'Suncheon', '나주': 'Naju',
+    '광양': 'Gwangyang', '담양': 'Damyang', '곡성': 'Gokseong', '구례': 'Gurye',
+    '고흥': 'Goheung', '보성': 'Boseong', '화순': 'Hwasun', '장흥': 'Jangheung',
+    '강진': 'Gangjin', '해남': 'Haenam', '영암': 'Yeongam', '무안': 'Muan',
+    '함평': 'Hampyeong', '영광': 'Yeonggwang', '장성': 'Jangseong', '완도': 'Wando',
+    '진도': 'Jindo', '신안': 'Sinan', '제주': 'Jeju', '서귀포': 'Seogwipo'
 }
 
 COUNTRY_LIST = [
@@ -252,9 +287,31 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (name TEXT PRIMARY KEY, address TEXT, region TEXT, lat REAL, lon REAL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS model_list (manufacturer TEXT, model_name TEXT, PRIMARY KEY (manufacturer, model_name))''')
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, buyer_id TEXT, contact_info TEXT, target_partner_alias TEXT, real_junkyard_name TEXT, items_summary TEXT, status TEXT DEFAULT 'PENDING', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
-    # 사용자 테이블
+    # 🟢 [수정] orders 테이블에 답장용 컬럼(reply_text, reply_images) 추가
+    # 기존 테이블이 있을 수 있으므로 CREATE TABLE은 기본만 하고, ALTER TABLE로 컬럼 추가 시도
+    c.execute('''CREATE TABLE IF NOT EXISTS orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        buyer_id TEXT,
+        contact_info TEXT,
+        target_partner_alias TEXT,
+        real_junkyard_name TEXT,
+        items_summary TEXT,
+        status TEXT DEFAULT 'PENDING',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        reply_text TEXT,
+        reply_images TEXT
+    )''')
+    
+    # 기존 테이블 마이그레이션 (컬럼이 없을 경우 추가)
+    try:
+        c.execute("ALTER TABLE orders ADD COLUMN reply_text TEXT")
+    except: pass
+    try:
+        c.execute("ALTER TABLE orders ADD COLUMN reply_images TEXT")
+    except: pass
+    
+    # 사용자 테이블 생성
     c.execute('''CREATE TABLE IF NOT EXISTS users (
         user_id TEXT PRIMARY KEY,
         password TEXT,
@@ -276,7 +333,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-    # 🟢 번역 DB 갱신
+    # 번역 DB 갱신
     conn_t = sqlite3.connect(TRANS_DB)
     c_t = conn_t.cursor()
     c_t.execute('''CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
@@ -606,7 +663,6 @@ def load_metadata_and_init_data():
     
     total_cnt = conn.execute("SELECT COUNT(*) FROM vehicle_data").fetchone()[0]
     df_init = pd.read_sql("SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name ORDER BY v.reg_date DESC LIMIT 5000", conn)
-    
     conn.close()
     
     if not df_init.empty:
@@ -997,26 +1053,33 @@ try:
                                 with c1:
                                     reply_price = st.text_input("Final Quote Price (USD)", placeholder="$000")
                                 with c2:
-                                    reply_file = st.file_uploader("Attach Image", type=['png', 'jpg', 'jpeg'])
+                                    reply_files = st.file_uploader("Attach Images (Max 5)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
                                 
                                 reply_msg = st.text_area("Message to Buyer", value=f"Dear {row['buyer_id']},\n\nThank you for your inquiry. We are pleased to offer:\n\n", height=150)
                                 
                                 if st.form_submit_button("Send Reply & Set to QUOTED"):
-                                    # 메일 내용 구성
+                                    # 메일 내용
                                     email_content = f"{reply_msg}\n\n[Quote Price]: {reply_price}"
                                     
-                                    # 파일 처리
-                                    f_data = None
-                                    f_name = None
-                                    if reply_file:
-                                        f_data = reply_file
-                                        f_name = reply_file.name
-
-                                    # 메일 발송
-                                    sent = send_email(row['contact_info'], f"[K-Used Car] Quote for your request #{row['id']}", email_content, f_data, f_name)
+                                    # 메일 발송 (다중 파일)
+                                    sent = send_email(row['contact_info'], f"[K-Used Car] Quote for your request #{row['id']}", email_content, reply_files)
                                     
                                     if sent:
-                                        update_order_status(row['id'], 'QUOTED', notify_user=False) # 자동 알림 끄고, 지금 보낸 메일로 대체
+                                        # DB 업데이트 (답장 내용 및 이미지 저장)
+                                        # 이미지는 Base64 리스트로 변환하여 JSON 저장
+                                        img_list = []
+                                        if reply_files:
+                                            for f in reply_files:
+                                                f.seek(0)
+                                                b64_str = base64.b64encode(f.read()).decode('utf-8')
+                                                img_list.append(b64_str)
+                                        
+                                        conn_up = sqlite3.connect(DB_NAME)
+                                        conn_up.execute("UPDATE orders SET status = 'QUOTED', reply_text = ?, reply_images = ? WHERE id = ?", 
+                                                        (f"Price: {reply_price}\n\n{reply_msg}", json.dumps(img_list), row['id']))
+                                        conn_up.commit()
+                                        conn_up.close()
+
                                         st.success("Reply sent and status updated to QUOTED!")
                                         time.sleep(1)
                                         safe_rerun()
@@ -1024,7 +1087,7 @@ try:
                                         st.error("Failed to send email. Check SMTP settings.")
 
                             st.divider()
-                            # 기존 상태 변경 (단순 업데이트용)
+                            # 기존 상태 변경
                             c1, c2 = st.columns([3, 1])
                             with c1:
                                 new_status = st.selectbox(t('status_change'), 
@@ -1046,7 +1109,11 @@ try:
             with main_tabs[1]: 
                 st.subheader(f"{t('my_quote_req')}")
                 conn = sqlite3.connect(DB_NAME)
-                my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
+                # reply_text, reply_images 컬럼도 가져오기 (컬럼 없을 수 있으므로 예외처리 필요하지만 init_db에서 생성함)
+                try:
+                    my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
+                except:
+                    my_orders = pd.DataFrame() # 테이블 구조 안맞을때 대비
                 conn.close()
 
                 if not my_orders.empty:
@@ -1055,6 +1122,25 @@ try:
                         with st.expander(f"[{row['created_at']}] {row['target_partner_alias']} ({row['status']})"):
                             st.caption(f"Status: :{status_color}[{row['status']}]")
                             st.write(f"**Request Details:** {row['items_summary']}")
+                            
+                            # 🟢 [신규] 어드민 답장 확인 (텍스트 + 이미지)
+                            if row['status'] == 'QUOTED' or row.get('reply_text'):
+                                st.divider()
+                                st.info("📬 Admin Reply:")
+                                if row.get('reply_text'):
+                                    st.text(row['reply_text'])
+                                
+                                if row.get('reply_images'):
+                                    try:
+                                        img_data = json.loads(row['reply_images'])
+                                        if img_data:
+                                            st.write("**Attached Images:**")
+                                            cols = st.columns(len(img_data))
+                                            for i, b64_img in enumerate(img_data):
+                                                with cols[i]:
+                                                    st.image(base64.b64decode(b64_img), use_container_width=True)
+                                    except: pass
+                            
                             if row['status'] == 'QUOTED':
                                 st.success(t('offer_received'))
                 else:

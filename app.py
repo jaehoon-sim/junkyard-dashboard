@@ -35,7 +35,6 @@ except:
     NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
     NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
 
-# 바이어 계정
 BUYER_CREDENTIALS = {
     "buyer": "1111",
     "global": "2222",
@@ -98,10 +97,9 @@ CITY_MAP = {
 }
 
 # ---------------------------------------------------------
-# 1. 데이터베이스 초기화 (Main & Translation)
+# 1. 데이터베이스 초기화 (테이블 생성 전용)
 # ---------------------------------------------------------
 def _get_raw_translations():
-    """번역 데이터 원본 (DB 재생성용, 코드 맨 아래에 두어 가독성 확보)"""
     return {
         "English": {
             "app_title": "K-Used Car Global Hub", "login_title": "Login", "id": "ID", "pw": "Password",
@@ -192,14 +190,12 @@ def _get_raw_translations():
             "req_quote_title": "📨 طلب عرض أسعار لـ {}", "name_company": "الاسم / الشركة", "contact": "الاتصال (بريد إلكتروني/هاتف) *",
             "qty": "الكمية *", "item": "العنصر *", "unit_price": "السعر المستهدف (دولار) *", "message": "رسالة للمسؤول",
             "send_btn": "🚀 إرسال الطلب", "fill_error": "⚠️ يرجى ملء الحقول المطلوبة: جهة الاتصال، العنصر، والسعر.",
-            "inquiry_sent": "✅ تم إرسال الطلب إلى فريق المبيعات لدينا.", "item_list": "قائمة العناصر", "incoming_quotes": "📩 طلبات الأسعار الواردة",
-            "my_quote_req": "🛒 طلبات الأسعار الخاصة بي", "no_orders_admin": "لا توجد طلبات معلقة.", "no_orders_buyer": "لم تقم بطلب أي عروض أسعار بعد.",
-            "status_change": "تغيير الحالة", "update_btn": "تحديث", "updated_msg": "تم التحديث!", "offer_received": "💬 تم استلام العرض! تحقق من بريدك الإلكتروني/هاتفك."
+            "inquiry_sent": "✅ تم إرسال الطلب إلى فريق المبيعات لدينا.", "item_list": "قائمة العناصر", "incoming_quotes": "📩 طلبات الأسعار الواردة", "my_quote_req": "🛒 طلبات الأسعار الخاصة بي", "no_orders_admin": "لا توجد طلبات معلقة.", "no_orders_buyer": "لم تقم بطلب أي عروض أسعار بعد.", "status_change": "تغيير الحالة", "update_btn": "تحديث", "updated_msg": "تم التحديث!", "offer_received": "💬 تم استلام العرض! تحقق من بريدك الإلكتروني/هاتفك."
         }
     }
 
 def init_db():
-    # 1. Main DB
+    # 🟢 1. 메인 DB 테이블 생성
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS vehicle_data (vin TEXT PRIMARY KEY, reg_date TEXT, car_no TEXT, manufacturer TEXT, model_name TEXT, model_year REAL, junkyard TEXT, engine_code TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
@@ -208,7 +204,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, buyer_id TEXT, contact_info TEXT, target_partner_alias TEXT, real_junkyard_name TEXT, items_summary TEXT, status TEXT DEFAULT 'PENDING', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
-    # Indexes
+    # 인덱스 생성
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data(model_name)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_year ON vehicle_data(model_year)")
@@ -217,7 +213,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-    # 2. Translation DB (Auto Repair)
+    # 🟢 2. 번역 DB 생성 (파일이 없을 경우에만 자동 생성)
     if not os.path.exists(TRANS_DB):
         conn_t = sqlite3.connect(TRANS_DB)
         c_t = conn_t.cursor()
@@ -244,8 +240,8 @@ def init_db():
 # ---------------------------------------------------------
 @st.cache_data
 def load_translations():
-    # DB가 없으면 초기화
-    init_db() 
+    # DB 초기화 보장
+    init_db()
     conn = sqlite3.connect(TRANS_DB)
     df = pd.read_sql("SELECT * FROM translations", conn)
     conn.close()
@@ -336,7 +332,7 @@ def mask_dataframe(df, role):
 def log_search(keywords, s_type):
     if not keywords: return
     try:
-        conn = init_db()
+        conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
         city, country = 'Seoul', 'KR'
         if isinstance(keywords, list):
@@ -350,7 +346,7 @@ def log_search(keywords, s_type):
 
 def get_search_trends():
     try:
-        conn = init_db()
+        conn = sqlite3.connect(DB_NAME)
         eng = pd.read_sql("SELECT keyword, COUNT(*) as count FROM search_logs_v2 WHERE search_type='engine' GROUP BY keyword ORDER BY count DESC LIMIT 10", conn)
         mod = pd.read_sql("SELECT keyword, COUNT(*) as count FROM search_logs_v2 WHERE search_type='model' GROUP BY keyword ORDER BY count DESC LIMIT 10", conn)
         conn.close()
@@ -390,7 +386,7 @@ def save_vehicle_file(uploaded_file):
         required = ['등록일자', '차량번호', '차대번호', '제조사', '차량명', '회원사', '원동기형식']
         if not all(col in df.columns for col in required): return 0, 0
 
-        conn = init_db()
+        conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
         
         df_db = pd.DataFrame()
@@ -437,7 +433,7 @@ def save_address_file(uploaded_file):
         addr_col = next((c for c in df.columns if '주소' in c or '소재' in c), None)
         if not name_col or not addr_col: return 0
 
-        conn = init_db()
+        conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
         update_cnt = 0
         
@@ -456,7 +452,7 @@ def save_address_file(uploaded_file):
 @st.cache_data(ttl=60)
 def search_data_from_db(maker, models, engines, sy, ey, yards):
     try:
-        conn = init_db()
+        conn = sqlite3.connect(DB_NAME)
         base_cond = "1=1"
         params = []
         
@@ -505,7 +501,7 @@ def search_data_from_db(maker, models, engines, sy, ey, yards):
 
 @st.cache_data(ttl=300)
 def load_metadata_and_init_data():
-    conn = init_db()
+    conn = sqlite3.connect(DB_NAME)
     df_m = pd.read_sql("SELECT DISTINCT manufacturer, model_name FROM model_list", conn)
     df_e = pd.read_sql("SELECT DISTINCT engine_code FROM vehicle_data", conn)
     df_y = pd.read_sql("SELECT name FROM junkyard_info", conn)
@@ -522,7 +518,7 @@ def load_metadata_and_init_data():
     return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), df_init, total_cnt
 
 def update_order_status(order_id, new_status):
-    conn = init_db()
+    conn = sqlite3.connect(DB_NAME)
     conn.execute("UPDATE orders SET status = ? WHERE id = ?", (new_status, order_id))
     conn.commit()
     conn.close()
@@ -548,9 +544,6 @@ try:
     if 'user_role' not in st.session_state: st.session_state.user_role = 'guest'
     if 'username' not in st.session_state: st.session_state.username = 'Guest'
     if 'language' not in st.session_state: st.session_state.language = 'English'
-
-    # DB 및 데이터 초기화 (Translations DB 생성 포함)
-    init_db()
 
     if 'view_data' not in st.session_state or 'metadata_loaded' not in st.session_state:
         m_df, m_eng, m_yards, init_df, init_total = load_metadata_and_init_data()
@@ -628,7 +621,7 @@ try:
                     safe_rerun()
 
                 if st.button(f"🗑️ {t('reset_db')}"):
-                    conn = init_db()
+                    conn = sqlite3.connect(DB_NAME)
                     conn.execute("DROP TABLE vehicle_data")
                     conn.execute("DROP TABLE junkyard_info")
                     conn.execute("DROP TABLE model_list")
@@ -817,11 +810,12 @@ try:
                                 if not contact or not item or not offer:
                                     st.error(t('fill_error'))
                                 else:
-                                    conn = init_db()
+                                    conn = sqlite3.connect(DB_NAME)
                                     cur = conn.cursor()
                                     real_name = target_partner
                                     if st.session_state.user_role == 'buyer':
                                         try:
+                                            # Alias 매칭
                                             temp_df = df_view.copy()
                                             temp_df['alias'] = temp_df['junkyard'].apply(generate_alias)
                                             match = temp_df[temp_df['alias'] == target_partner]
@@ -843,7 +837,7 @@ try:
         if st.session_state.user_role == 'admin':
             with main_tabs[1]:
                 st.subheader(f"{t('incoming_quotes')}")
-                conn = init_db()
+                conn = sqlite3.connect(DB_NAME)
                 orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
                 conn.close()
                 
@@ -874,7 +868,7 @@ try:
         if st.session_state.user_role == 'buyer':
             with main_tabs[1]: 
                 st.subheader(f"{t('my_quote_req')}")
-                conn = init_db()
+                conn = sqlite3.connect(DB_NAME)
                 my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
                 conn.close()
 

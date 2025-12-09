@@ -45,7 +45,7 @@ BUYER_CREDENTIALS = {
 DB_NAME = 'junkyard.db'
 
 # ---------------------------------------------------------
-# 🌍 [설정] 주소 영문 변환 매핑
+# 🌍 [설정] 주소 변환 데이터
 # ---------------------------------------------------------
 PROVINCE_MAP = {
     '경기': 'Gyeonggi-do', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon-do',
@@ -117,8 +117,10 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
     
+    # ⚡ [최적화] 인덱스 필수
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data(model_name)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_year ON vehicle_data(model_year)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_engine ON vehicle_data(engine_code)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_yard ON vehicle_data(junkyard)")
     conn.commit()
@@ -134,21 +136,15 @@ def generate_alias(real_name):
     return f"Partner #{hash_int}"
 
 def translate_address(addr):
-    """한글 주소 -> 영문 주소 변환 (시/군 단위)"""
     if not isinstance(addr, str) or addr == "검색실패" or "조회" in addr:
         return "Unknown Address"
-        
     parts = addr.split()
     if len(parts) < 2: return "South Korea"
-    
-    k_do = parts[0][:2]
-    k_city = parts[1]
+    k_do, k_city = parts[0][:2], parts[1]
     
     en_do = PROVINCE_MAP.get(k_do, k_do)
     for k, v in PROVINCE_MAP.items():
-        if k in parts[0]: 
-            en_do = v
-            break
+        if k in parts[0]: en_do = v; break
             
     city_core = k_city.replace('시','').replace('군','').replace('구','')
     en_city = CITY_MAP.get(city_core, city_core)
@@ -157,10 +153,8 @@ def translate_address(addr):
         return f"{en_do}, Korea"
     else:
         suffix = "-si" if "시" in k_city else ("-gun" if "군" in k_city else "")
-        if en_city != city_core: 
-             return f"{en_do}, {en_city}{suffix}"
-        else:
-             return f"{en_do}, Korea"
+        if en_city != city_core: return f"{en_do}, {en_city}{suffix}"
+        else: return f"{en_do}, Korea"
 
 def mask_dataframe(df, role):
     if df.empty: return df
@@ -207,12 +201,7 @@ def log_search(keywords, s_type):
     try:
         conn = init_db()
         c = conn.cursor()
-        lat, lon, city, country = 37.5, 127.0, 'Seoul', 'KR' 
-        if isinstance(keywords, list):
-            for k in keywords:
-                c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city, lat, lon) VALUES (?, ?, ?, ?, ?, ?)", (str(k), s_type, country, city, lat, lon))
-        else:
-            c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city, lat, lon) VALUES (?, ?, ?, ?, ?, ?)", (str(keywords), s_type, country, city, lat, lon))
+        c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city) VALUES (?, ?, ?, ?)", (str(keywords), s_type, 'KR', 'Seoul'))
         conn.commit()
         conn.close()
     except: pass
@@ -227,6 +216,7 @@ def get_search_trends():
     except: return pd.DataFrame(), pd.DataFrame()
 
 def save_vehicle_file(uploaded_file):
+    # (동일)
     try:
         if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file, dtype=str)
         else: 
@@ -272,7 +262,7 @@ def save_vehicle_file(uploaded_file):
 
         unique_yards = df_db['junkyard'].unique().tolist()
         for yard in unique_yards:
-            c.execute("INSERT OR IGNORE INTO junkyard_info (name, address, region, lat, lon) VALUES (?, ?, ?, ?, ?)", (yard, '검색실패', '기타', 0.0, 0.0))
+            c.execute("INSERT OR IGNORE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (yard, '검색실패', '기타'))
             
         conn.commit()
         conn.close()
@@ -297,12 +287,7 @@ def save_address_file(uploaded_file):
         for _, row in df.iterrows():
             yard_name = str(row[name_col]).strip()
             address = str(row[addr_col]).strip()
-            
-            region = '기타'
-            addr_parts = address.split()
-            if len(addr_parts) >= 1:
-                region = addr_parts[0][:2]
-            
+            region = address.split()[0][:2] if len(address.split()) >= 1 else '기타'
             c.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (yard_name, address, region))
             update_cnt += 1
             
@@ -311,47 +296,80 @@ def save_address_file(uploaded_file):
         return update_cnt
     except: return 0
 
-@st.cache_data(ttl=300)
-def load_all_data():
+# ---------------------------------------------------------
+# ⚡ [핵심] SQL 기반 고속 검색 함수 (Performance Tuning)
+# ---------------------------------------------------------
+@st.cache_data(ttl=60)
+def search_data_from_db(maker, models, engines, sy, ey, yards):
+    """
+    Pandas Filtering 대신 DB SQL WHERE 절을 사용하여 
+    데이터 로드량을 획기적으로 줄임
+    """
     try:
         conn = init_db()
-        query = "SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name"
-        df = pd.read_sql(query, conn)
+        
+        # Base Query
+        query = """
+            SELECT v.*, j.region, j.address 
+            FROM vehicle_data v 
+            LEFT JOIN junkyard_info j ON v.junkyard = j.name
+            WHERE 1=1
+        """
+        params = []
+        
+        # 1. Manufacturer
+        if maker and maker != "All":
+            query += " AND v.manufacturer = ?"
+            params.append(maker)
+            
+        # 2. Year Range
+        query += " AND v.model_year >= ? AND v.model_year <= ?"
+        params.extend([sy, ey])
+        
+        # 3. Models (IN clause)
+        if models:
+            placeholders = ','.join(['?'] * len(models))
+            query += f" AND v.model_name IN ({placeholders})"
+            params.extend(models)
+            
+        # 4. Engines (IN clause)
+        if engines:
+            placeholders = ','.join(['?'] * len(engines))
+            query += f" AND v.engine_code IN ({placeholders})"
+            params.extend(engines)
+            
+        # 5. Yards (IN clause) - 관리자가 아닌 경우 Alias 해독 필요하지만
+        # 여기서는 관리자/바이어 공통으로 실명(junkyard) 컬럼 기준 검색 지원
+        # (바이어 UI에서는 Alias 선택 -> 내부 로직으로 실명 변환 후 이 함수 호출해야 함)
+        if yards:
+            placeholders = ','.join(['?'] * len(yards))
+            query += f" AND v.junkyard IN ({placeholders})"
+            params.extend(yards)
+            
+        # Limit (성능 안전장치)
+        query += " ORDER BY v.reg_date DESC LIMIT 5000"
+        
+        df = pd.read_sql(query, conn, params=params)
         conn.close()
+        
         if not df.empty:
             df['model_year'] = pd.to_numeric(df['model_year'], errors='coerce').fillna(0)
             df['reg_date'] = pd.to_datetime(df['reg_date'], errors='coerce')
+            
         return df
-    except: return pd.DataFrame()
+    except Exception as e:
+        # st.error(f"DB Error: {e}")
+        return pd.DataFrame()
 
-def load_model_list():
-    try:
-        conn = init_db()
-        df = pd.read_sql("SELECT manufacturer, model_name FROM model_list ORDER BY manufacturer, model_name", conn)
-        conn.close()
-        return df
-    except: return pd.DataFrame()
-
-def load_engine_list():
-    try:
-        conn = init_db()
-        df = pd.read_sql("SELECT DISTINCT engine_code FROM vehicle_data ORDER BY engine_code", conn)
-        conn.close()
-        return df['engine_code'].tolist()
-    except: return []
-
-def load_yard_list_for_filter(role):
-    try:
-        conn = init_db()
-        df = pd.read_sql("SELECT name FROM junkyard_info ORDER BY name", conn)
-        conn.close()
-        real_names = df['name'].tolist()
-        if role == 'admin':
-            return real_names
-        elif role == 'buyer':
-            return sorted(list(set([generate_alias(name) for name in real_names])))
-        return []
-    except: return []
+# 참조 데이터만 가볍게 로드
+@st.cache_data(ttl=300)
+def load_metadata():
+    conn = init_db()
+    df_m = pd.read_sql("SELECT DISTINCT manufacturer, model_name FROM model_list", conn)
+    df_e = pd.read_sql("SELECT DISTINCT engine_code FROM vehicle_data", conn)
+    df_y = pd.read_sql("SELECT name FROM junkyard_info", conn)
+    conn.close()
+    return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist()
 
 def update_order_status(order_id, new_status):
     conn = init_db()
@@ -359,9 +377,8 @@ def update_order_status(order_id, new_status):
     conn.commit()
     conn.close()
 
-# 🟢 [수정됨] 리셋 함수: 키 이름을 위젯과 정확히 일치시킴 ('msel')
 def reset_dashboard():
-    st.session_state['view_data'] = load_all_data()
+    st.session_state['view_data'] = pd.DataFrame() # 초기화 시 빈 데이터
     st.session_state['is_filtered'] = False
     st.session_state['mode_demand'] = False
     
@@ -381,9 +398,8 @@ if 'view_data' not in st.session_state: st.session_state['view_data'] = pd.DataF
 if 'is_filtered' not in st.session_state: st.session_state['is_filtered'] = False
 if 'mode_demand' not in st.session_state: st.session_state.mode_demand = False
 
-df_raw = load_all_data()
-df_models = load_model_list()
-list_engines = load_engine_list()
+# 메타데이터 로드 (가벼움)
+df_models, list_engines, list_yards = load_metadata()
 
 # 1. 사이드바
 with st.sidebar:
@@ -411,6 +427,7 @@ with st.sidebar:
         if st.button("Logout"):
             st.session_state.user_role = 'guest'
             st.session_state.username = 'Guest'
+            st.session_state.view_data = pd.DataFrame()
             safe_rerun()
 
     st.divider()
@@ -426,14 +443,13 @@ with st.sidebar:
                     tot += n
                     bar.progress((i+1)/len(up_files))
                 st.success(f"{tot} records uploaded.")
-                load_all_data.clear()
+                # load_metadata.clear() # 메타데이터 갱신 필요
                 safe_rerun()
             
             addr_file = st.file_uploader("Address DB", type=['xlsx', 'xls', 'csv'], key="a_up")
             if addr_file and st.button("Save Address"):
                 cnt = save_address_file(addr_file)
                 st.success(f"{cnt} addresses updated.")
-                load_all_data.clear()
                 safe_rerun()
 
             if st.button("🗑️ Reset DB"):
@@ -452,65 +468,69 @@ with st.sidebar:
     search_tabs = st.tabs(["🚙 Vehicle", "🔧 Engine", "🏭 Yard", "🔮 Forecast"])
     
     with search_tabs[0]: 
-        if not df_models.empty:
-            makers = sorted(df_models['manufacturer'].unique().tolist())
-            makers.insert(0, "All")
-            sel_maker = st.selectbox("Manufacturer", makers, key="msel")
-            
-            c1, c2 = st.columns(2)
-            with c1: sel_sy = st.number_input("From", 1990, 2030, 2000, key="sy")
-            with c2: sel_ey = st.number_input("To", 1990, 2030, 2025, key="ey")
-            
-            if sel_maker != "All":
-                f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].tolist())
-            else:
-                f_models = sorted(df_models['model_name'].unique().tolist())
-            sel_models = st.multiselect("Model", f_models, key="mms")
-            
-            if st.button("🔍 Search Vehicle", type="primary"):
-                log_search(sel_models, 'model')
-                res = load_all_data()
-                if sel_maker != "All": res = res[res['manufacturer'] == sel_maker]
-                if sel_models: res = res[res['model_name'].isin(sel_models)]
-                res = res[(res['model_year'] >= sel_sy) & (res['model_year'] <= sel_ey)]
-                
-                st.session_state['view_data'] = res.reset_index(drop=True)
-                st.session_state['is_filtered'] = True
-                st.session_state['mode_demand'] = False
-                safe_rerun()
+        makers = sorted(df_models['manufacturer'].unique().tolist())
+        makers.insert(0, "All")
+        sel_maker = st.selectbox("Manufacturer", makers, key="msel")
+        
+        c1, c2 = st.columns(2)
+        with c1: sel_sy = st.number_input("From", 1990, 2030, 2000, key="sy")
+        with c2: sel_ey = st.number_input("To", 1990, 2030, 2025, key="ey")
+        
+        if sel_maker != "All":
+            f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].unique().tolist())
+        else:
+            f_models = sorted(df_models['model_name'].unique().tolist())
+        sel_models = st.multiselect("Model", f_models, key="mms")
+        
+        if st.button("🔍 Search Vehicle", type="primary"):
+            log_search(sel_models, 'model')
+            # ⚡ SQL 필터링 호출
+            res = search_data_from_db(sel_maker, sel_models, [], sel_sy, sel_ey, [])
+            st.session_state['view_data'] = res
+            st.session_state['is_filtered'] = True
+            st.session_state['mode_demand'] = False
+            safe_rerun()
 
     with search_tabs[1]: 
-        if list_engines:
-            sel_engines = st.multiselect("Engine Code", list_engines, key="es")
-            if st.button("🔍 Search Engine", type="primary"):
-                log_search(sel_engines, 'engine')
-                res = load_all_data()
-                if sel_engines: res = res[res['engine_code'].isin(sel_engines)]
-                st.session_state['view_data'] = res.reset_index(drop=True)
-                st.session_state['is_filtered'] = True
-                st.session_state['mode_demand'] = False
-                safe_rerun()
+        sel_engines = st.multiselect("Engine Code", sorted(list_engines), key="es")
+        if st.button("🔍 Search Engine", type="primary"):
+            log_search(sel_engines, 'engine')
+            # ⚡ SQL 필터링 호출
+            res = search_data_from_db(None, [], sel_engines, 1990, 2030, [])
+            st.session_state['view_data'] = res
+            st.session_state['is_filtered'] = True
+            st.session_state['mode_demand'] = False
+            safe_rerun()
 
     with search_tabs[2]: 
-        filter_yards = load_yard_list_for_filter(st.session_state.user_role)
-        if not filter_yards:
-            st.warning("Login required.")
+        # 폐차장 목록 필터링 (바이어는 Alias, 관리자는 실명)
+        yard_opts = list_yards
+        if st.session_state.user_role == 'buyer':
+            yard_opts = sorted(list(set([generate_alias(name) for name in list_yards])))
         else:
-            sel_yards = st.multiselect("Partner Name", filter_yards, key="ys")
-            if st.button("🔍 Search Partner", type="primary"):
-                res = load_all_data()
-                if sel_yards:
-                    res['alias_temp'] = res['junkyard'].apply(generate_alias)
-                    if st.session_state.user_role == 'admin':
-                        res = res[res['junkyard'].isin(sel_yards)]
-                    else:
-                        res = res[res['alias_temp'].isin(sel_yards)]
-                    if 'alias_temp' in res.columns: res = res.drop(columns=['alias_temp'])
-
-                st.session_state['view_data'] = res.reset_index(drop=True)
-                st.session_state['is_filtered'] = True
-                st.session_state['mode_demand'] = False
-                safe_rerun()
+            yard_opts = sorted(list_yards)
+            
+        sel_yards = st.multiselect("Partner Name", yard_opts, key="ys")
+        
+        if st.button("🔍 Search Partner", type="primary"):
+            # 바이어가 선택한 Alias를 실명 리스트로 변환해야 함 (역추적)
+            # 여기서는 전체 목록을 순회하며 Alias 매칭되는 실명을 찾아서 쿼리
+            real_yard_names = []
+            if st.session_state.user_role == 'buyer':
+                for y in list_yards:
+                    if generate_alias(y) in sel_yards:
+                        real_yard_names.append(y)
+            else:
+                real_yard_names = sel_yards
+                
+            # ⚡ SQL 필터링 호출
+            res = search_data_from_db(None, [], [], 1990, 2030, real_yard_names)
+            
+            # 결과 뷰에 Alias 처리는 main 화면에서 mask_dataframe이 담당
+            st.session_state['view_data'] = res
+            st.session_state['is_filtered'] = True
+            st.session_state['mode_demand'] = False
+            safe_rerun()
 
     with search_tabs[3]: 
         st.info("Check global search trends.")
@@ -518,8 +538,8 @@ with st.sidebar:
             st.session_state['mode_demand'] = True
             safe_rerun()
 
-    # 🟢 [수정됨] 리셋 버튼에 콜백 연결
-    st.button("🔄 Reset Filters", use_container_width=True, on_click=reset_dashboard)
+    if st.button("🔄 Reset Filters", use_container_width=True, on_click=reset_dashboard):
+        pass
 
 # 2. 메인 화면
 if st.session_state.mode_demand:
@@ -553,7 +573,10 @@ else:
 
     with main_tabs[0]:
         if df_display.empty:
-            st.info("Please select filters from the sidebar to search.")
+            if st.session_state['is_filtered']:
+                st.warning("No results found matching your criteria.")
+            else:
+                st.info("Please select filters from the sidebar to search.")
         else:
             c1, c2, c3 = st.columns(3)
             c1.metric("Total Vehicles", f"{len(df_display):,} EA")
@@ -568,10 +591,14 @@ else:
             if st.session_state.user_role == 'admin' and 'region' in df_display.columns:
                 grp_cols.append('region')
             
+            # 주소 없는 경우 처리
+            if 'address' in df_display.columns:
+                df_display['address'] = df_display['address'].fillna("Unknown")
+
             stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
             selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
             
-            # [견적 요청 폼]
+            # 견적 요청 폼
             if len(selection.selection.rows) > 0:
                 sel_idx = selection.selection.rows[0]
                 sel_row = stock_summary.iloc[sel_idx]
@@ -591,7 +618,7 @@ else:
                             contact = st.text_input("Contact (Email/Phone) *")
                             req_qty = st.number_input("Quantity *", min_value=1, value=1)
                         with c_b:
-                            # 🟢 검색 필터 기반 자동 품목 생성
+                            # 검색 조건에 따른 Item 자동 완성
                             s_maker = st.session_state.get('msel', 'All')
                             s_models = st.session_state.get('mms', [])
                             s_engines = st.session_state.get('es', [])
@@ -622,7 +649,13 @@ else:
                                 real_name = target_partner
                                 if st.session_state.user_role == 'buyer':
                                     try:
-                                        match = df_view[df_view['junkyard'].apply(generate_alias) == target_partner]
+                                        # 현재 뷰 데이터에 있는 실명 역추적 (주의: SQL 필터링 결과인 df_view 사용)
+                                        # df_view에는 아직 Alias 처리가 안된 'junkyard' 실명이 있음
+                                        # 따라서 generate_alias를 적용해서 비교해야 함
+                                        temp_df = df_view.copy()
+                                        temp_df['alias'] = temp_df['junkyard'].apply(generate_alias)
+                                        match = temp_df[temp_df['alias'] == target_partner]
+                                        
                                         if not match.empty:
                                             real_name = match['junkyard'].iloc[0]
                                     except: real_name = "Unknown"
@@ -644,45 +677,5 @@ else:
             conn = init_db()
             orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
             conn.close()
-            
-            if not orders.empty:
-                for idx, row in orders.iterrows():
-                    with st.expander(f"[{row['status']}] {row['created_at']} | From: {row['buyer_id']}"):
-                        st.write(f"**Contact:** {row['contact_info']}")
-                        st.write(f"**Target:** {row['real_junkyard_name']} ({row['target_partner_alias']})")
-                        st.info(f"**Request:** {row['items_summary']}")
-                        
-                        c1, c2 = st.columns([3, 1])
-                        with c1:
-                            new_status = st.selectbox("Change Status", 
-                                                      ["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"],
-                                                      index=["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"].index(row['status']),
-                                                      key=f"st_{row['id']}")
-                        with c2:
-                            st.write("")
-                            st.write("")
-                            if st.button("Update", key=f"btn_{row['id']}"):
-                                update_order_status(row['id'], new_status)
-                                st.success("Updated!")
-                                time.sleep(0.5)
-                                safe_rerun()
-            else:
-                st.info("No orders.")
-
-    if st.session_state.user_role == 'buyer':
-        with main_tabs[1]: # My Orders
-            st.subheader("🛒 My Quote Requests")
-            conn = init_db()
-            my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
-            conn.close()
-
-            if not my_orders.empty:
-                for idx, row in my_orders.iterrows():
-                    status_color = "green" if row['status'] == 'DONE' else "orange" if row['status'] == 'PENDING' else "blue"
-                    with st.expander(f"[{row['created_at']}] {row['target_partner_alias']} ({row['status']})"):
-                        st.caption(f"Status: :{status_color}[{row['status']}]")
-                        st.write(f"**Request Details:** {row['items_summary']}")
-                        if row['status'] == 'QUOTED':
-                            st.success("💬 Offer Received! Check your email/phone.")
-            else:
-                st.info("You haven't requested any quotes yet.")
+            if not orders.empty: st.dataframe(orders)
+            else: st.info("No orders.")

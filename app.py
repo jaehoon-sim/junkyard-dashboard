@@ -13,7 +13,7 @@ import hashlib
 import numpy as np
 
 # ---------------------------------------------------------
-# 🛠️ [설정] 페이지 설정
+# 🛠️ [설정] 페이지 설정 (무조건 맨 위)
 # ---------------------------------------------------------
 st.set_page_config(page_title="K-Parts Global Hub", layout="wide")
 
@@ -134,15 +134,21 @@ def generate_alias(real_name):
     return f"Partner #{hash_int}"
 
 def translate_address(addr):
+    """한글 주소 -> 영문 주소 변환 (시/군 단위)"""
     if not isinstance(addr, str) or addr == "검색실패" or "조회" in addr:
         return "Unknown Address"
+        
     parts = addr.split()
     if len(parts) < 2: return "South Korea"
-    k_do, k_city = parts[0][:2], parts[1]
+    
+    k_do = parts[0][:2]
+    k_city = parts[1]
     
     en_do = PROVINCE_MAP.get(k_do, k_do)
     for k, v in PROVINCE_MAP.items():
-        if k in parts[0]: en_do = v; break
+        if k in parts[0]: 
+            en_do = v
+            break
             
     city_core = k_city.replace('시','').replace('군','').replace('구','')
     en_city = CITY_MAP.get(city_core, city_core)
@@ -151,8 +157,10 @@ def translate_address(addr):
         return f"{en_do}, Korea"
     else:
         suffix = "-si" if "시" in k_city else ("-gun" if "군" in k_city else "")
-        if en_city != city_core: return f"{en_do}, {en_city}{suffix}"
-        else: return f"{en_do}, Korea"
+        if en_city != city_core: 
+             return f"{en_do}, {en_city}{suffix}"
+        else:
+             return f"{en_do}, Korea"
 
 def mask_dataframe(df, role):
     if df.empty: return df
@@ -163,8 +171,9 @@ def mask_dataframe(df, role):
             df_safe['partner_alias'] = df_safe['junkyard'].apply(generate_alias)
         return df_safe
 
+    # 바이어/게스트용 마스킹
     if 'junkyard' in df_safe.columns:
-        df_safe['real_junkyard'] = df_safe['junkyard']
+        df_safe['real_junkyard'] = df_safe['junkyard'] # 내부 로직용 백업
         if role == 'buyer':
             df_safe['junkyard'] = df_safe['junkyard'].apply(generate_alias)
         else:
@@ -195,17 +204,13 @@ def mask_dataframe(df, role):
 # 기능 함수들
 # ---------------------------------------------------------
 def log_search(keywords, s_type):
-    """검색어 저장 (리스트도 개별 저장)"""
     if not keywords: return
     try:
         conn = init_db()
         c = conn.cursor()
-        # IP 조회 (간소화)
         city, country = 'Seoul', 'KR'
-        
         if isinstance(keywords, list):
             for k in keywords:
-                # 🟢 [중요] 리스트 요소 하나하나를 개별 행으로 저장
                 c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city) VALUES (?, ?, ?, ?)", (str(k), s_type, country, city))
         else:
             c.execute("INSERT INTO search_logs_v2 (keyword, search_type, country, city) VALUES (?, ?, ?, ?)", (str(keywords), s_type, country, city))
@@ -214,44 +219,27 @@ def log_search(keywords, s_type):
     except: pass
 
 def get_search_trends():
-    """
-    검색 트렌드 분석 (문자열로 뭉쳐진 데이터도 쪼개서 카운팅)
-    """
     try:
         conn = init_db()
-        # 최근 5000건만 분석 (속도)
         df = pd.read_sql("SELECT keyword, search_type FROM search_logs_v2 ORDER BY created_at DESC LIMIT 5000", conn)
         conn.close()
         
         if df.empty: return pd.DataFrame(), pd.DataFrame()
 
         def process_counts(sub_df):
-            # 🟢 [핵심] 문자열 정제 및 분리 로직 (Explode)
-            # 예: "['K5', 'Sonata']" -> ['K5', 'Sonata'] -> Row 분리
-            
-            # 1. 문자열 정리 (리스트 형태 텍스트 제거)
             sub_df['clean_keyword'] = sub_df['keyword'].astype(str).apply(
                 lambda x: x.replace('[', '').replace(']', '').replace("'", "").replace('"', '')
             )
-            
-            # 2. 콤마로 분리하여 리스트화
             sub_df['split_keyword'] = sub_df['clean_keyword'].apply(lambda x: [i.strip() for i in x.split(',') if i.strip()])
-            
-            # 3. 행 분리 (Explode)
             exploded = sub_df.explode('split_keyword')
-            
-            # 4. 카운팅
             counts = exploded['split_keyword'].value_counts().reset_index()
             counts.columns = ['keyword', 'count']
             return counts.head(10)
 
         eng_counts = process_counts(df[df['search_type'] == 'engine'])
         mod_counts = process_counts(df[df['search_type'] == 'model'])
-        
         return eng_counts, mod_counts
-    except Exception as e: 
-        # st.error(e) 
-        return pd.DataFrame(), pd.DataFrame()
+    except: return pd.DataFrame(), pd.DataFrame()
 
 def save_vehicle_file(uploaded_file):
     try:
@@ -395,7 +383,6 @@ def load_metadata_and_init_data():
     df_e = pd.read_sql("SELECT DISTINCT engine_code FROM vehicle_data", conn)
     df_y = pd.read_sql("SELECT name FROM junkyard_info", conn)
     
-    # 초기 로드 (5000개)
     total_cnt = conn.execute("SELECT COUNT(*) FROM vehicle_data").fetchone()[0]
     df_init = pd.read_sql("SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name ORDER BY v.reg_date DESC LIMIT 5000", conn)
     
@@ -516,9 +503,17 @@ with st.sidebar:
                 st.success("Reset Done")
                 load_metadata_and_init_data.clear()
                 safe_rerun()
+                
+        # 🟢 [관리자 전용] 수요 예측 버튼 추가
+        st.divider()
+        st.subheader("👑 Admin Menu")
+        if st.button("🔮 Global Demand Analysis", use_container_width=True):
+            st.session_state['mode_demand'] = True
+            safe_rerun()
 
     st.subheader("🔍 Search Filter")
-    search_tabs = st.tabs(["🚙 Vehicle", "🔧 Engine", "🏭 Yard", "🔮 Forecast"])
+    # 관리자는 4탭(수요예측 삭제), 바이어/게스트는 3탭
+    search_tabs = st.tabs(["🚙 Vehicle", "🔧 Engine", "🏭 Yard"])
     
     with search_tabs[0]: 
         makers = sorted(df_models['manufacturer'].unique().tolist())
@@ -580,31 +575,23 @@ with st.sidebar:
             st.session_state['mode_demand'] = False
             safe_rerun()
 
-    with search_tabs[3]: 
-        st.info("Check global search trends.")
-        if st.button("🔮 Show Trends"):
-            st.session_state['mode_demand'] = True
-            safe_rerun()
-
     if st.button("🔄 Reset Filters", use_container_width=True, on_click=reset_dashboard):
         pass
 
 # 2. 메인 화면
-if st.session_state.mode_demand:
+if st.session_state.mode_demand and st.session_state.user_role == 'admin':
     st.title("📈 Global Demand Trends (Real-time)")
     eng_trend, mod_trend = get_search_trends()
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("🔥 Top Searched Engines")
         if not eng_trend.empty:
-            # 🟢 [수정] 쪼개진 키워드 기반 차트
             fig = px.bar(eng_trend, x='count', y='keyword', orientation='h', text='count')
             st.plotly_chart(fig, use_container_width=True)
         else: st.info("No data yet.")
     with c2:
         st.subheader("🚙 Top Searched Models")
         if not mod_trend.empty:
-            # 🟢 [수정] 쪼개진 키워드 기반 차트
             fig = px.bar(mod_trend, x='count', y='keyword', orientation='h', text='count')
             st.plotly_chart(fig, use_container_width=True)
         else: st.info("No data yet.")
@@ -626,7 +613,7 @@ else:
             if st.session_state['is_filtered']:
                 st.warning("No results found.")
             else:
-                st.info("Please select filters to search.")
+                st.info("Please select filters from the sidebar to search.")
         else:
             c1, c2, c3 = st.columns(3)
             c1.metric("Total Vehicles", f"{total_cnt:,} EA")
@@ -691,7 +678,7 @@ else:
                         
                         if st.form_submit_button("🚀 Send Inquiry"):
                             if not contact or not item or not offer:
-                                st.error("⚠️ Please fill in all required fields.")
+                                st.error("⚠️ Please fill in all required fields: Contact, Item, and Price.")
                             else:
                                 conn = init_db()
                                 cur = conn.cursor()
@@ -718,9 +705,54 @@ else:
 
     if st.session_state.user_role == 'admin':
         with main_tabs[1]:
-            st.subheader("📩 Quote Requests")
+            st.subheader("📩 Incoming Quote Requests")
             conn = init_db()
             orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
             conn.close()
-            if not orders.empty: st.dataframe(orders)
-            else: st.info("No orders.")
+            
+            if not orders.empty:
+                for idx, row in orders.iterrows():
+                    with st.expander(f"[{row['status']}] {row['created_at']} | From: {row['buyer_id']}"):
+                        st.write(f"**Contact:** {row['contact_info']}")
+                        st.write(f"**Target:** {row['real_junkyard_name']} ({row['target_partner_alias']})")
+                        st.info(f"**Request:** {row['items_summary']}")
+                        
+                        c1, c2 = st.columns([3, 1])
+                        with c1:
+                            new_status = st.selectbox("Change Status", 
+                                                      ["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"],
+                                                      index=["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"].index(row['status']),
+                                                      key=f"st_{row['id']}")
+                        with c2:
+                            st.write("")
+                            st.write("")
+                            if st.button("Update", key=f"btn_{row['id']}"):
+                                update_order_status(row['id'], new_status)
+                                st.success("Updated!")
+                                time.sleep(0.5)
+                                safe_rerun()
+            else:
+                st.info("No pending orders.")
+
+    if st.session_state.user_role == 'buyer':
+        with main_tabs[1]: # My Orders
+            st.subheader("🛒 My Quote Requests")
+            conn = init_db()
+            my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
+            conn.close()
+
+            if not my_orders.empty:
+                for idx, row in my_orders.iterrows():
+                    status_color = "green" if row['status'] == 'DONE' else "orange" if row['status'] == 'PENDING' else "blue"
+                    with st.expander(f"[{row['created_at']}] {row['target_partner_alias']} ({row['status']})"):
+                        st.caption(f"Status: :{status_color}[{row['status']}]")
+                        st.write(f"**Request Details:** {row['items_summary']}")
+                        if row['status'] == 'QUOTED':
+                            st.success("💬 Offer Received! Check your email/phone.")
+            else:
+                st.info("You haven't requested any quotes yet.")
+
+except Exception as e:
+    st.error("⛔ 앱 실행 중 문제가 발생했습니다.")
+    with st.expander("상세 오류 보기"):
+        st.code(traceback.format_exc())

@@ -11,7 +11,9 @@ import time
 import gc
 import hashlib
 import numpy as np
-# random 모듈 제거 (더미 데이터 생성용)
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # ---------------------------------------------------------
 # 🛠️ [설정] 페이지 설정
@@ -25,7 +27,7 @@ def safe_rerun():
         st.experimental_rerun()
 
 # ---------------------------------------------------------
-# 🔐 [보안] 계정 및 암호화 설정
+# 🔐 [보안] 계정 설정
 # ---------------------------------------------------------
 try:
     ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
@@ -45,23 +47,47 @@ BUYER_CREDENTIALS = {
 DB_NAME = 'junkyard.db'
 TRANS_DB = 'translations.db'
 
-# 비밀번호 해싱 함수
-def make_hashes(password):
-    return hashlib.sha256(str.encode(password)).hexdigest()
+# ---------------------------------------------------------
+# 📧 [기능] 이메일 발송 함수
+# ---------------------------------------------------------
+def send_email(to_email, subject, content):
+    """
+    SMTP를 사용하여 이메일을 발송합니다.
+    secrets.toml에 EMAIL 설정이 되어 있어야 합니다.
+    """
+    # 이메일 형식이 아니면 발송 스킵 (@ 없으면 패스)
+    if "@" not in to_email:
+        return False
 
-def check_hashes(password, hashed_text):
-    if make_hashes(password) == hashed_text:
+    try:
+        # st.secrets에서 설정 로드
+        if "EMAIL" not in st.secrets:
+            # 설정이 없으면 조용히 리턴 (에러 방지)
+            return False
+
+        smtp_server = st.secrets["EMAIL"]["smtp_server"]
+        smtp_port = st.secrets["EMAIL"]["smtp_port"]
+        sender_email = st.secrets["EMAIL"]["sender_email"]
+        sender_password = st.secrets["EMAIL"]["sender_password"]
+
+        # 메일 객체 생성
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(content, 'plain'))
+
+        # SMTP 서버 연결 및 발송
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()  # 보안 연결
+            server.login(sender_email, sender_password)
+            server.send_message(msg)
+        
         return True
-    return False
-
-# ---------------------------------------------------------
-# 🌍 [설정] 국가 목록 (회원가입용)
-# ---------------------------------------------------------
-COUNTRY_LIST = [
-    "Select Country", "Russia", "Jordan", "Saudi Arabia", "UAE", "Egypt", "Kazakhstan", "Kyrgyzstan", 
-    "Mongolia", "Vietnam", "Philippines", "Chile", "Dominican Rep.", "Ghana", "Nigeria", 
-    "Cambodia", "Uzbekistan", "Tajikistan", "USA", "Canada", "Other"
-]
+    except Exception as e:
+        # 디버깅용: 실제 운영시에는 로그만 남기거나 주석 처리
+        # st.error(f"Email sending failed: {e}")
+        return False
 
 # ---------------------------------------------------------
 # 🌍 [설정] 주소 변환 데이터
@@ -77,19 +103,63 @@ PROVINCE_MAP = {
 }
 
 CITY_MAP = {
-    '수원': 'Suwon', '성남': 'Seongnam', '용인': 'Yongin', '고양': 'Goyang', '부천': 'Bucheon',
-    '안산': 'Ansan', '화성': 'Hwaseong', '남양주': 'Namyangju', '안양': 'Anyang', '평택': 'Pyeongtaek',
-    '파주': 'Paju', '의정부': 'Uijeongbu', '시흥': 'Siheung', '김포': 'Gimpo', '광명': 'Gwangmyeong',
-    '광주': 'Gwangju', '군포': 'Gunpo', '오산': 'Osan', '이천': 'Icheon', '양주': 'Yangju',
-    '구리': 'Guri', '안성': 'Anseong', '포천': 'Pocheon', '의왕': 'Uiwang', '하남': 'Hanam',
-    '여주': 'Yeoju', '양평': 'Yangpyeong', '동두천': 'Dongducheon', '과천': 'Gwacheon', '가평': 'Gapyeong', '연천': 'Yeoncheon'
+    '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang',
+    '부천': 'Bucheon', '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon',
+    '안산': 'Ansan', '고양': 'Goyang', '과천': 'Gwacheon', '구리': 'Guri',
+    '남양주': 'Namyangju', '오산': 'Osan', '시흥': 'Siheung', '군포': 'Gunpo',
+    '의왕': 'Uiwang', '하남': 'Hanam', '용인': 'Yongin', '파주': 'Paju',
+    '이천': 'Icheon', '안성': 'Anseong', '김포': 'Gimpo', '화성': 'Hwaseong',
+    '광주': 'Gwangju', '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju',
+    '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong',
+    '천안': 'Cheonan', '공주': 'Gongju', '보령': 'Boryeong', '아산': 'Asan',
+    '서산': 'Seosan', '논산': 'Nonsan', '계룡': 'Gyeryong', '당진': 'Dangjin',
+    '금산': 'Geumsan', '부여': 'Buyeo', '서천': 'Seocheon', '청양': 'Cheongyang',
+    '홍성': 'Hongseong', '예산': 'Yesan', '태안': 'Taean',
+    '청주': 'Cheongju', '충주': 'Chungju', '제천': 'Jecheon', '보은': 'Boeun',
+    '옥천': 'Okcheon', '영동': 'Yeongdong', '증평': 'Jeungpyeong', '진천': 'Jincheon',
+    '괴산': 'Goesan', '음성': 'Eumseong', '단양': 'Danyang',
+    '포항': 'Pohang', '경주': 'Gyeongju', '김천': 'Gimcheon', '안동': 'Andong',
+    '구미': 'Gumi', '영주': 'Yeongju', '영천': 'Yeongcheon', '상주': 'Sangju',
+    '문경': 'Mungyeong', '경산': 'Gyeongsan', '군위': 'Gunwi', '의성': 'Uiseong',
+    '청송': 'Cheongsong', '영양': 'Yeongyang', '영덕': 'Yeongdeok', '청도': 'Cheongdo',
+    '고령': 'Goryeong', '성주': 'Seongju', '칠곡': 'Chilgok', '예천': 'Yecheon',
+    '봉화': 'Bonghwa', '울진': 'Uljin', '울릉': 'Ulleung',
+    '창원': 'Changwon', '진주': 'Jinju', '통영': 'Tongyeong', '사천': 'Sacheon',
+    '김해': 'Gimhae', '밀양': 'Miryang', '거제': 'Geoje', '양산': 'Yangsan',
+    '의령': 'Uiryeong', '함안': 'Haman', '창녕': 'Changnyeong', '고성': 'Goseong',
+    '남해': 'Namhae', '하동': 'Hadong', '산청': 'Sancheong', '함양': 'Hamyang',
+    '거창': 'Geochang', '합천': 'Hapcheon',
+    '전주': 'Jeonju', '군산': 'Gunsan', '익산': 'Iksan', '정읍': 'Jeongeup',
+    '남원': 'Namwon', '김제': 'Gimje', '완주': 'Wanju', '진안': 'Jinan',
+    '무주': 'Muju', '장수': 'Jangsu', '임실': 'Imsil', '순창': 'Sunchang',
+    '고창': 'Gochang', '부안': 'Buan',
+    '목포': 'Mokpo', '여수': 'Yeosu', '순천': 'Suncheon', '나주': 'Naju',
+    '광양': 'Gwangyang', '담양': 'Damyang', '곡성': 'Gokseong', '구례': 'Gurye',
+    '고흥': 'Goheung', '보성': 'Boseong', '화순': 'Hwasun', '장흥': 'Jangheung',
+    '강진': 'Gangjin', '해남': 'Haenam', '영암': 'Yeongam', '무안': 'Muan',
+    '함평': 'Hampyeong', '영광': 'Yeonggwang', '장성': 'Jangseong', '완도': 'Wando',
+    '진도': 'Jindo', '신안': 'Sinan', '제주': 'Jeju', '서귀포': 'Seogwipo'
 }
+
+COUNTRY_LIST = [
+    "Select Country", "Russia", "Jordan", "Saudi Arabia", "UAE", "Egypt", "Kazakhstan", "Kyrgyzstan", 
+    "Mongolia", "Vietnam", "Philippines", "Chile", "Dominican Rep.", "Ghana", "Nigeria", 
+    "Cambodia", "Uzbekistan", "Tajikistan", "USA", "Canada", "Other"
+]
+
+# 비밀번호 해싱 함수
+def make_hashes(password):
+    return hashlib.sha256(str.encode(password)).hexdigest()
+
+def check_hashes(password, hashed_text):
+    if make_hashes(password) == hashed_text:
+        return True
+    return False
 
 # ---------------------------------------------------------
 # 1. 데이터베이스 초기화 및 샘플 데이터
 # ---------------------------------------------------------
 def _get_raw_translations():
-    # 🟢 번역 데이터 원본 (이곳을 수정하면 화면에 반영됨)
     return {
         "English": {
             "app_title": "K-Used Car Global Hub", "login_title": "Login", "id": "ID *", "pw": "Password *",
@@ -197,8 +267,6 @@ def _get_raw_translations():
         }
     }
 
-# 🔴 [수정] 더미 데이터 생성 로직 제거됨
-
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
@@ -227,12 +295,10 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_engine ON vehicle_data(engine_code)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_yard ON vehicle_data(junkyard)")
     
-    # 🔴 [수정] 더미 데이터 생성 부분 제거됨
-    
     conn.commit()
     conn.close()
 
-    # 🟢 [수정] 번역 DB는 무조건 갱신 (항상 최신 코드 반영)
+    # 🟢 번역 DB 갱신
     conn_t = sqlite3.connect(TRANS_DB)
     c_t = conn_t.cursor()
     c_t.execute('''CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
@@ -291,9 +357,11 @@ def login_user(user_id, password):
     return None, None
 
 # ---------------------------------------------------------
-# 🌐 [i18n] 번역 로딩 (캐시 제거됨)
+# 🌐 [i18n] 번역 로딩
 # ---------------------------------------------------------
+@st.cache_data
 def load_translations():
+    init_db()
     conn = sqlite3.connect(TRANS_DB)
     df = pd.read_sql("SELECT * FROM translations", conn)
     conn.close()
@@ -572,6 +640,14 @@ def load_metadata_and_init_data():
 def update_order_status(order_id, new_status):
     conn = sqlite3.connect(DB_NAME)
     conn.execute("UPDATE orders SET status = ? WHERE id = ?", (new_status, order_id))
+    # 이메일 발송 로직 추가
+    cursor = conn.cursor()
+    cursor.execute("SELECT contact_info, status FROM orders WHERE id = ?", (order_id,))
+    data = cursor.fetchone()
+    if data:
+        contact_email, _ = data
+        send_email(contact_email, f"[K-Used Car] Order Status Update: {new_status}", 
+                   f"Your order status has been updated to: {new_status}.\nPlease check your dashboard for details.")
     conn.commit()
     conn.close()
 
@@ -897,6 +973,12 @@ try:
                                             if not match.empty:
                                                 real_name = match['junkyard'].iloc[0]
                                         except: real_name = "Unknown"
+                                    
+                                    # Send email notification to Admin
+                                    if "EMAIL" in st.secrets:
+                                        admin_email = st.secrets["EMAIL"]["admin_email"]
+                                        send_email(admin_email, f"[K-Used Car] New Quote Request from {buyer_name}",
+                                                   f"Buyer: {buyer_name}\nContact: {contact}\nItem: {item}\nQty: {req_qty}\nPrice: {offer}\nMessage: {msg}")
 
                                     summary = f"Qty: {req_qty} (Total Stock: {stock_cnt}), Item: {item}, Price: {offer}, Msg: {msg}"
                                     cur.execute("INSERT INTO orders (buyer_id, contact_info, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?, ?)",

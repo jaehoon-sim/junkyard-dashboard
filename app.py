@@ -782,4 +782,4 @@ try:
 except Exception as e:
     st.error("⛔ 앱 실행 중 문제가 발생했습니다.")
     with st.expander("상세 오류 보기"):
-        st.code(traceback.format_
+        st.code(traceback.format_exc())

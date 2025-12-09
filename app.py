@@ -48,8 +48,8 @@ BUYER_CREDENTIALS = {
 }
 
 # 🟢 [설정] 데이터베이스 파일 분리
-INVENTORY_DB = 'inventory.db'  # 재고, 폐차장, 모델 (대용량)
-SYSTEM_DB = 'system.db'        # 유저, 주문, 로그, 번역 (소용량)
+INVENTORY_DB = 'inventory.db'
+SYSTEM_DB = 'system.db'
 
 # ---------------------------------------------------------
 # 📧 [기능] 이메일 발송 함수
@@ -104,6 +104,46 @@ PROVINCE_MAP = {
     '제주': 'Jeju', '경상남도': 'Gyeongnam', '경상북도': 'Gyeongbuk', 
     '전라남도': 'Jeonnam', '전라북도': 'Jeonbuk', '충청남도': 'Chungnam', '충청북도': 'Chungbuk',
     '경기도': 'Gyeonggi-do', '강원도': 'Gangwon-do', '제주도': 'Jeju'
+}
+
+# 🟢 [복구] CITY_MAP 정의 (주소 영문화에 필수)
+CITY_MAP = {
+    '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang',
+    '부천': 'Bucheon', '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon',
+    '안산': 'Ansan', '고양': 'Goyang', '과천': 'Gwacheon', '구리': 'Guri',
+    '남양주': 'Namyangju', '오산': 'Osan', '시흥': 'Siheung', '군포': 'Gunpo',
+    '의왕': 'Uiwang', '하남': 'Hanam', '용인': 'Yongin', '파주': 'Paju',
+    '이천': 'Icheon', '안성': 'Anseong', '김포': 'Gimpo', '화성': 'Hwaseong',
+    '광주': 'Gwangju', '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju',
+    '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong',
+    '천안': 'Cheonan', '공주': 'Gongju', '보령': 'Boryeong', '아산': 'Asan',
+    '서산': 'Seosan', '논산': 'Nonsan', '계룡': 'Gyeryong', '당진': 'Dangjin',
+    '금산': 'Geumsan', '부여': 'Buyeo', '서천': 'Seocheon', '청양': 'Cheongyang',
+    '홍성': 'Hongseong', '예산': 'Yesan', '태안': 'Taean',
+    '청주': 'Cheongju', '충주': 'Chungju', '제천': 'Jecheon', '보은': 'Boeun',
+    '옥천': 'Okcheon', '영동': 'Yeongdong', '증평': 'Jeungpyeong', '진천': 'Jincheon',
+    '괴산': 'Goesan', '음성': 'Eumseong', '단양': 'Danyang',
+    '포항': 'Pohang', '경주': 'Gyeongju', '김천': 'Gimcheon', '안동': 'Andong',
+    '구미': 'Gumi', '영주': 'Yeongju', '영천': 'Yeongcheon', '상주': 'Sangju',
+    '문경': 'Mungyeong', '경산': 'Gyeongsan', '군위': 'Gunwi', '의성': 'Uiseong',
+    '청송': 'Cheongsong', '영양': 'Yeongyang', '영덕': 'Yeongdeok', '청도': 'Cheongdo',
+    '고령': 'Goryeong', '성주': 'Seongju', '칠곡': 'Chilgok', '예천': 'Yecheon',
+    '봉화': 'Bonghwa', '울진': 'Uljin', '울릉': 'Ulleung',
+    '창원': 'Changwon', '진주': 'Jinju', '통영': 'Tongyeong', '사천': 'Sacheon',
+    '김해': 'Gimhae', '밀양': 'Miryang', '거제': 'Geoje', '양산': 'Yangsan',
+    '의령': 'Uiryeong', '함안': 'Haman', '창녕': 'Changnyeong', '고성': 'Goseong',
+    '남해': 'Namhae', '하동': 'Hadong', '산청': 'Sancheong', '함양': 'Hamyang',
+    '거창': 'Geochang', '합천': 'Hapcheon',
+    '전주': 'Jeonju', '군산': 'Gunsan', '익산': 'Iksan', '정읍': 'Jeongeup',
+    '남원': 'Namwon', '김제': 'Gimje', '완주': 'Wanju', '진안': 'Jinan',
+    '무주': 'Muju', '장수': 'Jangsu', '임실': 'Imsil', '순창': 'Sunchang',
+    '고창': 'Gochang', '부안': 'Buan',
+    '목포': 'Mokpo', '여수': 'Yeosu', '순천': 'Suncheon', '나주': 'Naju',
+    '광양': 'Gwangyang', '담양': 'Damyang', '곡성': 'Gokseong', '구례': 'Gurye',
+    '고흥': 'Goheung', '보성': 'Boseong', '화순': 'Hwasun', '장흥': 'Jangheung',
+    '강진': 'Gangjin', '해남': 'Haenam', '영암': 'Yeongam', '무안': 'Muan',
+    '함평': 'Hampyeong', '영광': 'Yeonggwang', '장성': 'Jangseong', '완도': 'Wando',
+    '진도': 'Jindo', '신안': 'Sinan', '제주': 'Jeju', '서귀포': 'Seogwipo'
 }
 
 # 비밀번호 해싱
@@ -296,6 +336,7 @@ def translate_address(addr):
     k_do, k_city = parts[0][:2], parts[1]
     
     en_do = PROVINCE_MAP.get(k_do, k_do)
+    # CITY_MAP is now available
     city_core = k_city.replace('시','').replace('군','').replace('구','')
     en_city = CITY_MAP.get(city_core, city_core)
     
@@ -535,7 +576,9 @@ def update_order_status(order_id, new_status, notify_user=True):
     conn.commit()
     conn.close()
 
-# 🟢 reset_dashboard 함수를 위쪽으로 이동
+# ---------------------------------------------------------
+# 🟢 Reset Dashboard (함수 정의 위치 이동됨)
+# ---------------------------------------------------------
 def reset_dashboard():
     _, _, _, df_init, total = load_metadata_and_init_data()
     st.session_state['view_data'] = df_init
@@ -654,8 +697,6 @@ try:
                     load_metadata_and_init_data.clear()
                     safe_rerun()
 
-                # DB Reset Buttons 분리
-                # 🟢 [수정] DROP 후 바로 재생성 로직 추가하여 에러 방지
                 if st.button(f"🗑️ {t('reset_inv')}"):
                     conn = sqlite3.connect(INVENTORY_DB)
                     conn.execute("DROP TABLE IF EXISTS vehicle_data")

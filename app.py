@@ -34,22 +34,13 @@ def safe_rerun():
 # ---------------------------------------------------------
 try:
     ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
-    NAVER_CLIENT_ID = st.secrets["NAVER_CLIENT_ID"]
-    NAVER_CLIENT_SECRET = st.secrets["NAVER_CLIENT_SECRET"]
 except:
     ADMIN_CREDENTIALS = {"admin": "1234"}
-    NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
-    NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
-
-BUYER_CREDENTIALS = {
-    "buyer": "1111",
-    "global": "2222",
-    "testbuyer": "1234"
-}
 
 # 🟢 [설정] 데이터베이스 파일 분리
 INVENTORY_DB = 'inventory.db'
 SYSTEM_DB = 'system.db'
+TRANS_DB = 'translations.db'  # 번역 DB 파일명 별도 정의 (init_system_db에서 사용)
 
 # ---------------------------------------------------------
 # 📧 [기능] 이메일 발송 함수
@@ -88,7 +79,7 @@ def send_email(to_email, subject, content, attachment_files=[]):
     except: return False
 
 # ---------------------------------------------------------
-# 🌍 [설정] 데이터 (국가, 주소 매핑)
+# 🌍 [설정] 다국어 주소 매핑 데이터
 # ---------------------------------------------------------
 COUNTRY_LIST = [
     "Select Country", "Russia", "Jordan", "Saudi Arabia", "UAE", "Egypt", "Kazakhstan", "Kyrgyzstan", 
@@ -96,54 +87,49 @@ COUNTRY_LIST = [
     "Cambodia", "Uzbekistan", "Tajikistan", "USA", "Canada", "Other"
 ]
 
-PROVINCE_MAP = {
+# 🟢 1. 영어 매핑
+PROVINCE_MAP_EN = {
     '경기': 'Gyeonggi-do', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon-do',
     '충북': 'Chungbuk', '충남': 'Chungnam', '대전': 'Daejeon', '세종': 'Sejong',
-    '전북': 'Jeonbuk', '전남': 'Jeonnam', '광주': 'Gwangju',
-    '경북': 'Gyeongbuk', '경남': 'Gyeongnam', '대구': 'Daegu', '부산': 'Busan', '울산': 'Ulsan',
-    '제주': 'Jeju', '경상남도': 'Gyeongnam', '경상북도': 'Gyeongbuk', 
-    '전라남도': 'Jeonnam', '전라북도': 'Jeonbuk', '충청남도': 'Chungnam', '충청북도': 'Chungbuk',
-    '경기도': 'Gyeonggi-do', '강원도': 'Gangwon-do', '제주도': 'Jeju'
+    '전북': 'Jeonbuk', '전남': 'Jeonnam', '광주': 'Gwangju', '경북': 'Gyeongbuk', 
+    '경남': 'Gyeongnam', '대구': 'Daegu', '부산': 'Busan', '울산': 'Ulsan', '제주': 'Jeju'
+}
+CITY_MAP_EN = {
+    '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang', '부천': 'Bucheon',
+    '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon', '안산': 'Ansan', '고양': 'Goyang',
+    '과천': 'Gwacheon', '구리': 'Guri', '남양주': 'Namyangju', '오산': 'Osan', '시흥': 'Siheung',
+    '군포': 'Gunpo', '의왕': 'Uiwang', '하남': 'Hanam', '용인': 'Yongin', '파주': 'Paju',
+    '이천': 'Icheon', '안성': 'Anseong', '김포': 'Gimpo', '화성': 'Hwaseong', '광주': 'Gwangju'
 }
 
-# 🟢 [복구] CITY_MAP 정의 (주소 영문화에 필수)
-CITY_MAP = {
-    '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang',
-    '부천': 'Bucheon', '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon',
-    '안산': 'Ansan', '고양': 'Goyang', '과천': 'Gwacheon', '구리': 'Guri',
-    '남양주': 'Namyangju', '오산': 'Osan', '시흥': 'Siheung', '군포': 'Gunpo',
-    '의왕': 'Uiwang', '하남': 'Hanam', '용인': 'Yongin', '파주': 'Paju',
-    '이천': 'Icheon', '안성': 'Anseong', '김포': 'Gimpo', '화성': 'Hwaseong',
-    '광주': 'Gwangju', '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju',
-    '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong',
-    '천안': 'Cheonan', '공주': 'Gongju', '보령': 'Boryeong', '아산': 'Asan',
-    '서산': 'Seosan', '논산': 'Nonsan', '계룡': 'Gyeryong', '당진': 'Dangjin',
-    '금산': 'Geumsan', '부여': 'Buyeo', '서천': 'Seocheon', '청양': 'Cheongyang',
-    '홍성': 'Hongseong', '예산': 'Yesan', '태안': 'Taean',
-    '청주': 'Cheongju', '충주': 'Chungju', '제천': 'Jecheon', '보은': 'Boeun',
-    '옥천': 'Okcheon', '영동': 'Yeongdong', '증평': 'Jeungpyeong', '진천': 'Jincheon',
-    '괴산': 'Goesan', '음성': 'Eumseong', '단양': 'Danyang',
-    '포항': 'Pohang', '경주': 'Gyeongju', '김천': 'Gimcheon', '안동': 'Andong',
-    '구미': 'Gumi', '영주': 'Yeongju', '영천': 'Yeongcheon', '상주': 'Sangju',
-    '문경': 'Mungyeong', '경산': 'Gyeongsan', '군위': 'Gunwi', '의성': 'Uiseong',
-    '청송': 'Cheongsong', '영양': 'Yeongyang', '영덕': 'Yeongdeok', '청도': 'Cheongdo',
-    '고령': 'Goryeong', '성주': 'Seongju', '칠곡': 'Chilgok', '예천': 'Yecheon',
-    '봉화': 'Bonghwa', '울진': 'Uljin', '울릉': 'Ulleung',
-    '창원': 'Changwon', '진주': 'Jinju', '통영': 'Tongyeong', '사천': 'Sacheon',
-    '김해': 'Gimhae', '밀양': 'Miryang', '거제': 'Geoje', '양산': 'Yangsan',
-    '의령': 'Uiryeong', '함안': 'Haman', '창녕': 'Changnyeong', '고성': 'Goseong',
-    '남해': 'Namhae', '하동': 'Hadong', '산청': 'Sancheong', '함양': 'Hamyang',
-    '거창': 'Geochang', '합천': 'Hapcheon',
-    '전주': 'Jeonju', '군산': 'Gunsan', '익산': 'Iksan', '정읍': 'Jeongeup',
-    '남원': 'Namwon', '김제': 'Gimje', '완주': 'Wanju', '진안': 'Jinan',
-    '무주': 'Muju', '장수': 'Jangsu', '임실': 'Imsil', '순창': 'Sunchang',
-    '고창': 'Gochang', '부안': 'Buan',
-    '목포': 'Mokpo', '여수': 'Yeosu', '순천': 'Suncheon', '나주': 'Naju',
-    '광양': 'Gwangyang', '담양': 'Damyang', '곡성': 'Gokseong', '구례': 'Gurye',
-    '고흥': 'Goheung', '보성': 'Boseong', '화순': 'Hwasun', '장흥': 'Jangheung',
-    '강진': 'Gangjin', '해남': 'Haenam', '영암': 'Yeongam', '무안': 'Muan',
-    '함평': 'Hampyeong', '영광': 'Yeonggwang', '장성': 'Jangseong', '완도': 'Wando',
-    '진도': 'Jindo', '신안': 'Sinan', '제주': 'Jeju', '서귀포': 'Seogwipo'
+# 🟢 2. 러시아어 매핑
+PROVINCE_MAP_RU = {
+    '경기': 'Кёнгидо', '서울': 'Сеул', '인천': 'Инчхон', '강원': 'Канвондо',
+    '충북': 'Чхунбук', '충남': 'Чхуннам', '대전': 'Тэджон', '세종': 'Седжон',
+    '전북': 'Чонбук', '전남': 'Чоннам', '광주': 'Кванджу', '경북': 'Кёнбук', 
+    '경남': 'Кённам', '대구': 'Тэгу', '부산': 'Пусан', '울산': 'Ульсан', '제주': 'Чеджу'
+}
+CITY_MAP_RU = {
+    '수원': 'Сувон', '성남': 'Соннам', '의정부': 'Ыйджонбу', '안양': 'Анян', '부천': 'Пучхон',
+    '광명': 'Кванмён', '평택': 'Пхёнтхэк', '동두천': 'Тондучхон', '안산': 'Ансан', '고양': 'Коян',
+    '과천': 'Квачхон', '구리': 'Кури', '남양주': 'Намянчжу', '오산': 'Осан', '시흥': 'Сихын',
+    '군포': 'Кунпхо', '의왕': 'Ыйван', '하남': 'Ханам', '용인': 'Йонин', '파주': 'Пхаджу',
+    '이천': 'Ичхон', '안성': 'Ансон', '김포': 'Кимпхо', '화성': 'Хвасон', '광주': 'Кванджу'
+}
+
+# 🟢 3. 아랍어 매핑
+PROVINCE_MAP_AR = {
+    '경기': 'جيونج جي دو', '서울': 'سيول', '인천': 'إنتشون', '강원': 'كانغوون دو',
+    '충북': 'تشونغ تشونغ', '충남': 'تشونغ نام', '대전': 'دايجون', '세종': 'سيجونغ',
+    '전북': 'جيون بوك', '전남': 'جيون نام', '광주': 'غوانغجو', '경북': 'جيونج بوك', 
+    '경남': 'جيونج نام', '대구': 'دايغو', '부산': 'بوسان', '울산': 'أولسان', '제주': 'جيجو'
+}
+CITY_MAP_AR = {
+    '수원': 'سوون', '성남': 'سيونغنام', '의정부': 'أويجيونغبو', '안양': 'أنيانغ', '부천': 'بوتشون',
+    '광명': 'غوانغميونغ', '평택': 'بيونغتايك', '동두천': 'دونغدوتشون', '안산': 'أنسان', '고양': 'جويانغ',
+    '과천': 'غواتشيون', '구리': 'غوري', '남양주': 'ناميانغجو', '오산': 'أوسان', '시흥': 'شيهونغ',
+    '군포': 'جونبو', '의왕': 'أويوانغ', '하남': 'هانام', '용인': 'يونجين', '파주': 'باجو',
+    '이천': 'إيتشون', '안성': 'أنسونغ', '김포': 'جيمبو', '화성': 'هواسئونغ', '광주': 'غوانغجو'
 }
 
 # 비밀번호 해싱
@@ -215,17 +201,14 @@ def _get_raw_translations():
             "user_name": "담당자 성함 *", "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요."
         }
     }
-    # (다른 언어는 생략, 자동 생성 시 영어 기반으로 채워짐)
+    # (다른 언어는 생략 - 자동 생성 시 영어 기반으로 채워짐)
 
 def init_inventory_db():
-    """재고 DB (차량, 주소, 모델) 초기화 - 대용량"""
     conn = sqlite3.connect(INVENTORY_DB)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS vehicle_data (vin TEXT PRIMARY KEY, reg_date TEXT, car_no TEXT, manufacturer TEXT, model_name TEXT, model_year REAL, junkyard TEXT, engine_code TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (name TEXT PRIMARY KEY, address TEXT, region TEXT, lat REAL, lon REAL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS model_list (manufacturer TEXT, model_name TEXT, PRIMARY KEY (manufacturer, model_name))''')
-    
-    # 인덱스
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data(model_name)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_year ON vehicle_data(model_year)")
@@ -235,20 +218,14 @@ def init_inventory_db():
     conn.close()
 
 def init_system_db():
-    """시스템 DB (유저, 주문, 로그, 번역) 초기화 - 소용량"""
     conn = sqlite3.connect(SYSTEM_DB)
     c = conn.cursor()
-    
-    # 유저
     c.execute('''CREATE TABLE IF NOT EXISTS users (user_id TEXT PRIMARY KEY, password TEXT, name TEXT, company TEXT, country TEXT, email TEXT, phone TEXT, role TEXT DEFAULT 'buyer', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    # 주문 (답장 컬럼 포함)
     c.execute('''CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, buyer_id TEXT, contact_info TEXT, target_partner_alias TEXT, real_junkyard_name TEXT, items_summary TEXT, status TEXT DEFAULT 'PENDING', reply_text TEXT, reply_images TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    # 로그
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    # 번역
     c.execute('''CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
-
-    # 번역 데이터 갱신 (항상 최신 코드 반영)
+    
+    # 번역 데이터 갱신
     raw_data = _get_raw_translations()
     keys = raw_data["English"].keys()
     data_to_insert = []
@@ -262,7 +239,6 @@ def init_system_db():
         )
         data_to_insert.append(row)
     c.executemany("INSERT OR REPLACE INTO translations VALUES (?, ?, ?, ?, ?)", data_to_insert)
-    
     conn.commit()
     conn.close()
 
@@ -285,7 +261,6 @@ def create_user(user_id, password, name, company, country, email, phone):
 def login_user(user_id, password):
     if user_id in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[user_id] == password:
         return "admin", "admin"
-    
     try:
         conn = sqlite3.connect(SYSTEM_DB)
         c = conn.cursor()
@@ -314,7 +289,6 @@ def load_translations():
     return trans_dict
 
 def t(key):
-    # 캐시 없이 매번 로딩 (개발 편의성) - 운영 시에는 캐시 적용 권장
     translations = load_translations()
     lang = st.session_state.get('language', 'English')
     lang_dict = translations.get(lang, translations.get('English', {}))
@@ -330,22 +304,39 @@ def generate_alias(real_name):
     return f"Partner #{hash_int}"
 
 def translate_address(addr):
+    """
+    다국어 주소 변환 함수
+    """
     if not isinstance(addr, str) or addr == "검색실패" or "조회" in addr: return "Unknown Address"
     parts = addr.split()
     if len(parts) < 2: return "South Korea"
+    
     k_do, k_city = parts[0][:2], parts[1]
     
-    en_do = PROVINCE_MAP.get(k_do, k_do)
-    # CITY_MAP is now available
-    city_core = k_city.replace('시','').replace('군','').replace('구','')
-    en_city = CITY_MAP.get(city_core, city_core)
+    # 현재 언어 가져오기
+    current_lang = st.session_state.get('language', 'English')
     
-    if en_do in ['Seoul', 'Incheon', 'Busan', 'Daegu', 'Daejeon', 'Gwangju', 'Ulsan']:
-        return f"{en_do}, Korea"
-    else:
-        suffix = "-si" if "시" in k_city else ("-gun" if "군" in k_city else "")
-        if en_city != city_core: return f"{en_do}, {en_city}{suffix}"
-        else: return f"{en_do}, Korea"
+    # 🟢 [핵심] 언어별 매핑 선택
+    if current_lang == 'Russian':
+        pmap, cmap = PROVINCE_MAP_RU, CITY_MAP_RU
+    elif current_lang == 'Arabic':
+        pmap, cmap = PROVINCE_MAP_AR, CITY_MAP_AR
+    else: # English or default
+        pmap, cmap = PROVINCE_MAP_EN, CITY_MAP_EN
+
+    # 매핑 (없으면 영어로 fallback, 영어도 없으면 한글 그대로)
+    en_do = pmap.get(k_do, PROVINCE_MAP_EN.get(k_do, k_do))
+    
+    city_core = k_city.replace('시','').replace('군','').replace('구','')
+    en_city = cmap.get(city_core, CITY_MAP_EN.get(city_core, city_core))
+    
+    # 포맷팅
+    if current_lang == 'English' and en_do not in ['Seoul', 'Incheon', 'Busan', 'Daegu', 'Daejeon', 'Gwangju', 'Ulsan']:
+        # 영어일 때만 시/군/구 접미사 처리 (러시아/아랍어는 맵 자체에 포함됨)
+         suffix = "-si" if "시" in k_city else ("-gun" if "군" in k_city else "")
+         en_city += suffix
+
+    return f"{en_do}, {en_city}"
 
 def mask_dataframe(df, role):
     if df.empty: return df
@@ -367,6 +358,7 @@ def mask_dataframe(df, role):
         if role == 'buyer':
             df_safe['address'] = df_safe['address'].apply(translate_address)
             if 'region' in df_safe.columns:
+                # Region 컬럼도 주소 앞부분(Province)으로 통일
                 df_safe['region'] = df_safe['address'].apply(lambda x: x.split(',')[0] if ',' in str(x) else x)
         else:
             df_safe['address'] = "🔒 Login Required"
@@ -561,24 +553,7 @@ def load_metadata_and_init_data():
         
     return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), df_init, total_cnt
 
-def update_order_status(order_id, new_status, notify_user=True):
-    conn = sqlite3.connect(SYSTEM_DB)
-    conn.execute("UPDATE orders SET status = ? WHERE id = ?", (new_status, order_id))
-    
-    if notify_user:
-        cursor = conn.cursor()
-        cursor.execute("SELECT contact_info FROM orders WHERE id = ?", (order_id,))
-        data = cursor.fetchone()
-        if data:
-            contact_email = data[0]
-            send_email(contact_email, f"[K-Used Car] Order Status Update: {new_status}", 
-                       f"Your order status has been updated to: {new_status}.\nPlease check your dashboard for details.")
-    conn.commit()
-    conn.close()
-
-# ---------------------------------------------------------
-# 🟢 Reset Dashboard (함수 정의 위치 이동됨)
-# ---------------------------------------------------------
+# 🟢 reset_dashboard 함수를 위쪽으로 이동
 def reset_dashboard():
     _, _, _, df_init, total = load_metadata_and_init_data()
     st.session_state['view_data'] = df_init

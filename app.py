@@ -654,25 +654,29 @@ try:
                     load_metadata_and_init_data.clear()
                     safe_rerun()
 
+                # DB Reset Buttons 분리
+                # 🟢 [수정] DROP 후 바로 재생성 로직 추가하여 에러 방지
                 if st.button(f"🗑️ {t('reset_inv')}"):
                     conn = sqlite3.connect(INVENTORY_DB)
-                    conn.execute("DROP TABLE vehicle_data")
-                    conn.execute("DROP TABLE junkyard_info")
-                    conn.execute("DROP TABLE model_list")
+                    conn.execute("DROP TABLE IF EXISTS vehicle_data")
+                    conn.execute("DROP TABLE IF EXISTS junkyard_info")
+                    conn.execute("DROP TABLE IF EXISTS model_list")
                     conn.commit()
                     conn.close()
+                    init_inventory_db() # 즉시 복구
                     st.success(t('reset_done'))
                     load_metadata_and_init_data.clear()
                     safe_rerun()
 
                 if st.button(f"⚙️ {t('reset_db')}"):
                     conn = sqlite3.connect(SYSTEM_DB)
-                    conn.execute("DROP TABLE users")
-                    conn.execute("DROP TABLE orders")
-                    conn.execute("DROP TABLE search_logs_v2")
-                    conn.execute("DROP TABLE translations")
+                    conn.execute("DROP TABLE IF EXISTS users")
+                    conn.execute("DROP TABLE IF EXISTS orders")
+                    conn.execute("DROP TABLE IF EXISTS search_logs_v2")
+                    conn.execute("DROP TABLE IF EXISTS translations")
                     conn.commit()
                     conn.close()
+                    init_system_db() # 즉시 복구
                     st.success(t('reset_done'))
                     safe_rerun()
             

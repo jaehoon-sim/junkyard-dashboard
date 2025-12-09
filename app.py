@@ -13,7 +13,7 @@ import hashlib
 import numpy as np
 
 # ---------------------------------------------------------
-# 🛠️ [설정] 페이지 설정 (변경됨)
+# 🛠️ [설정] 페이지 설정
 # ---------------------------------------------------------
 st.set_page_config(page_title="K-Used Car Global Hub", layout="wide")
 
@@ -43,61 +43,51 @@ BUYER_CREDENTIALS = {
 }
 
 DB_NAME = 'junkyard.db'
+DICT_DB_NAME = 'dictionary.db'
 
 # ---------------------------------------------------------
-# 🌍 [설정] 주소 변환 데이터
+# 📚 [Dictionary] DB 로드 (캐싱)
 # ---------------------------------------------------------
-PROVINCE_MAP = {
-    '경기': 'Gyeonggi-do', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon-do',
-    '충북': 'Chungbuk', '충남': 'Chungnam', '대전': 'Daejeon', '세종': 'Sejong',
-    '전북': 'Jeonbuk', '전남': 'Jeonnam', '광주': 'Gwangju',
-    '경북': 'Gyeongbuk', '경남': 'Gyeongnam', '대구': 'Daegu', '부산': 'Busan', '울산': 'Ulsan',
-    '제주': 'Jeju', '경상남도': 'Gyeongnam', '경상북도': 'Gyeongbuk', 
-    '전라남도': 'Jeonnam', '전라북도': 'Jeonbuk', '충청남도': 'Chungnam', '충청북도': 'Chungbuk',
-    '경기도': 'Gyeonggi-do', '강원도': 'Gangwon-do', '제주도': 'Jeju'
-}
+@st.cache_data(ttl=3600)
+def load_dictionaries_from_db():
+    """dictionary.db에서 맵핑 데이터를 로드하여 딕셔너리로 반환"""
+    try:
+        conn = sqlite3.connect(DICT_DB_NAME)
+        
+        # 1. Provinces
+        df_prov = pd.read_sql("SELECT * FROM provinces", conn)
+        province_map = dict(zip(df_prov['kr'], df_prov['en']))
+        
+        # 2. Cities
+        df_city = pd.read_sql("SELECT * FROM cities", conn)
+        city_map = dict(zip(df_city['kr'], df_city['en']))
+        
+        # 3. Translations (Reconstruct to Nested Dict)
+        df_trans = pd.read_sql("SELECT * FROM translations", conn)
+        conn.close()
+        
+        translations = {}
+        languages = ['English', 'Korean', 'Russian', 'Arabic']
+        for lang in languages:
+            # key와 해당 언어 컬럼을 묶어서 딕셔너리 생성
+            translations[lang] = dict(zip(df_trans['key'], df_trans[lang]))
+            
+        return province_map, city_map, translations
+    except Exception as e:
+        # DB가 없을 경우를 대비한 Fallback (빈 딕셔너리)
+        return {}, {}, {"English": {}}
 
-CITY_MAP = {
-    '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang',
-    '부천': 'Bucheon', '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon',
-    '안산': 'Ansan', '고양': 'Goyang', '과천': 'Gwacheon', '구리': 'Guri',
-    '남양주': 'Namyangju', '오산': 'Osan', '시흥': 'Siheung', '군포': 'Gunpo',
-    '의왕': 'Uiwang', '하남': 'Hanam', '용인': 'Yongin', '파주': 'Paju',
-    '이천': 'Icheon', '안성': 'Anseong', '김포': 'Gimpo', '화성': 'Hwaseong',
-    '광주': 'Gwangju', '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju',
-    '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong',
-    '천안': 'Cheonan', '공주': 'Gongju', '보령': 'Boryeong', '아산': 'Asan',
-    '서산': 'Seosan', '논산': 'Nonsan', '계룡': 'Gyeryong', '당진': 'Dangjin',
-    '금산': 'Geumsan', '부여': 'Buyeo', '서천': 'Seocheon', '청양': 'Cheongyang',
-    '홍성': 'Hongseong', '예산': 'Yesan', '태안': 'Taean',
-    '청주': 'Cheongju', '충주': 'Chungju', '제천': 'Jecheon', '보은': 'Boeun',
-    '옥천': 'Okcheon', '영동': 'Yeongdong', '증평': 'Jeungpyeong', '진천': 'Jincheon',
-    '괴산': 'Goesan', '음성': 'Eumseong', '단양': 'Danyang',
-    '포항': 'Pohang', '경주': 'Gyeongju', '김천': 'Gimcheon', '안동': 'Andong',
-    '구미': 'Gumi', '영주': 'Yeongju', '영천': 'Yeongcheon', '상주': 'Sangju',
-    '문경': 'Mungyeong', '경산': 'Gyeongsan', '군위': 'Gunwi', '의성': 'Uiseong',
-    '청송': 'Cheongsong', '영양': 'Yeongyang', '영덕': 'Yeongdeok', '청도': 'Cheongdo',
-    '고령': 'Goryeong', '성주': 'Seongju', '칠곡': 'Chilgok', '예천': 'Yecheon',
-    '봉화': 'Bonghwa', '울진': 'Uljin', '울릉': 'Ulleung',
-    '창원': 'Changwon', '진주': 'Jinju', '통영': 'Tongyeong', '사천': 'Sacheon',
-    '김해': 'Gimhae', '밀양': 'Miryang', '거제': 'Geoje', '양산': 'Yangsan',
-    '의령': 'Uiryeong', '함안': 'Haman', '창녕': 'Changnyeong', '고성': 'Goseong',
-    '남해': 'Namhae', '하동': 'Hadong', '산청': 'Sancheong', '함양': 'Hamyang',
-    '거창': 'Geochang', '합천': 'Hapcheon',
-    '전주': 'Jeonju', '군산': 'Gunsan', '익산': 'Iksan', '정읍': 'Jeongeup',
-    '남원': 'Namwon', '김제': 'Gimje', '완주': 'Wanju', '진안': 'Jinan',
-    '무주': 'Muju', '장수': 'Jangsu', '임실': 'Imsil', '순창': 'Sunchang',
-    '고창': 'Gochang', '부안': 'Buan',
-    '목포': 'Mokpo', '여수': 'Yeosu', '순천': 'Suncheon', '나주': 'Naju',
-    '광양': 'Gwangyang', '담양': 'Damyang', '곡성': 'Gokseong', '구례': 'Gurye',
-    '고흥': 'Goheung', '보성': 'Boseong', '화순': 'Hwasun', '장흥': 'Jangheung',
-    '강진': 'Gangjin', '해남': 'Haenam', '영암': 'Yeongam', '무안': 'Muan',
-    '함평': 'Hampyeong', '영광': 'Yeonggwang', '장성': 'Jangseong', '완도': 'Wando',
-    '진도': 'Jindo', '신안': 'Sinan', '제주': 'Jeju', '서귀포': 'Seogwipo'
-}
+# 앱 시작 시 한 번 로드
+PROVINCE_MAP, CITY_MAP, TRANSLATIONS = load_dictionaries_from_db()
+
+def t(key):
+    """다국어 번역 함수"""
+    lang = st.session_state.get('language', 'English')
+    # 로드 실패 시 English, 키 없으면 키 그대로 반환
+    return TRANSLATIONS.get(lang, TRANSLATIONS.get('English', {})).get(key, key)
 
 # ---------------------------------------------------------
-# 1. 데이터베이스 초기화
+# 1. 데이터베이스 초기화 (Main DB)
 # ---------------------------------------------------------
 def init_db():
     conn = sqlite3.connect(DB_NAME)
@@ -119,6 +109,7 @@ def init_db():
     
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data(model_name)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_year ON vehicle_data(model_year)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_engine ON vehicle_data(engine_code)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_yard ON vehicle_data(junkyard)")
     conn.commit()
@@ -153,6 +144,7 @@ def translate_address(addr):
     city_core = k_city.replace('시','').replace('군','').replace('구','')
     en_city = CITY_MAP.get(city_core, city_core)
     
+    # 광역시/특별시 체크
     if en_do in ['Seoul', 'Incheon', 'Busan', 'Daegu', 'Daejeon', 'Gwangju', 'Ulsan']:
         return f"{en_do}, Korea"
     else:
@@ -417,6 +409,7 @@ def reset_dashboard():
 try:
     if 'user_role' not in st.session_state: st.session_state.user_role = 'guest'
     if 'username' not in st.session_state: st.session_state.username = 'Guest'
+    if 'language' not in st.session_state: st.session_state.language = 'English'
 
     if 'view_data' not in st.session_state or 'metadata_loaded' not in st.session_state:
         m_df, m_eng, m_yards, init_df, init_total = load_metadata_and_init_data()
@@ -437,14 +430,22 @@ try:
 
     # 1. 사이드바
     with st.sidebar:
-        st.title("K-Used Car Global Hub")
+        st.title(t('app_title'))
+        
+        # 언어 선택
+        lang_choice = st.selectbox("Language / Язык / اللغة", ["English", "Korean", "Russian", "Arabic"], key='lang_selector')
+        if lang_choice != st.session_state.language:
+            st.session_state.language = lang_choice
+            safe_rerun()
+
+        st.divider()
         
         # 로그인
         if st.session_state.user_role == 'guest':
-            with st.expander("🔐 Login", expanded=True):
-                uid = st.text_input("ID")
-                upw = st.text_input("Password", type="password")
-                if st.button("Sign In"):
+            with st.expander(f"🔐 {t('login_title')}", expanded=True):
+                uid = st.text_input(t('id'))
+                upw = st.text_input(t('pw'), type="password")
+                if st.button(t('sign_in')):
                     if uid in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[uid] == upw:
                         st.session_state.user_role = 'admin'
                         st.session_state.username = uid
@@ -454,11 +455,11 @@ try:
                         st.session_state.username = uid
                         safe_rerun()
                     else:
-                        st.error("Invalid Credentials")
+                        st.error(t('invalid_cred'))
         else:
-            role_text = "Manager" if st.session_state.user_role == 'admin' else "Global Buyer"
-            st.success(f"Welcome, {st.session_state.username} ({role_text})!")
-            if st.button("Logout"):
+            role_text = "Manager" if st.session_state.user_role == 'admin' else "Buyer"
+            st.success(t('welcome').format(st.session_state.username))
+            if st.button(t('logout')):
                 st.session_state.user_role = 'guest'
                 st.session_state.username = 'Guest'
                 del st.session_state['metadata_loaded']
@@ -467,27 +468,27 @@ try:
         st.divider()
 
         if st.session_state.user_role == 'admin':
-            with st.expander("📂 Admin Tools"):
-                up_files = st.file_uploader("Data Upload", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
-                if up_files and st.button("Save Data"):
+            with st.expander(f"📂 {t('admin_tools')}"):
+                up_files = st.file_uploader(t('data_upload'), type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
+                if up_files and st.button(t('save_data')):
                     tot = 0
                     bar = st.progress(0)
                     for i, f in enumerate(up_files):
                         n, _ = save_vehicle_file(f)
                         tot += n
                         bar.progress((i+1)/len(up_files))
-                    st.success(f"{tot} records uploaded.")
+                    st.success(t('records_saved').format(tot))
                     load_metadata_and_init_data.clear()
                     safe_rerun()
                 
-                addr_file = st.file_uploader("Address DB", type=['xlsx', 'xls', 'csv'], key="a_up")
-                if addr_file and st.button("Save Address"):
+                addr_file = st.file_uploader(t('addr_db'), type=['xlsx', 'xls', 'csv'], key="a_up")
+                if addr_file and st.button(t('save_addr')):
                     cnt = save_address_file(addr_file)
-                    st.success(f"{cnt} addresses updated.")
+                    st.success(t('addr_updated').format(cnt))
                     load_metadata_and_init_data.clear()
                     safe_rerun()
 
-                if st.button("🗑️ Reset DB"):
+                if st.button(f"🗑️ {t('reset_db')}"):
                     conn = init_db()
                     conn.execute("DROP TABLE vehicle_data")
                     conn.execute("DROP TABLE junkyard_info")
@@ -496,35 +497,35 @@ try:
                     conn.execute("DROP TABLE orders")
                     conn.commit()
                     conn.close()
-                    st.success("Reset Done")
+                    st.success(t('reset_done'))
                     load_metadata_and_init_data.clear()
                     safe_rerun()
             
             st.divider()
-            st.subheader("👑 Admin Menu")
-            if st.button("🔮 Global Demand Analysis", use_container_width=True):
+            st.subheader(f"👑 {t('admin_menu')}")
+            if st.button(f"🔮 {t('demand_analysis')}", use_container_width=True):
                 st.session_state['mode_demand'] = True
                 safe_rerun()
 
-        st.subheader("🔍 Search Filter")
-        search_tabs = st.tabs(["🚙 Vehicle", "🔧 Engine", "🏭 Yard"])
+        st.subheader(f"🔍 {t('search_filter')}")
+        search_tabs = st.tabs([f"🚙 {t('tab_vehicle')}", f"🔧 {t('tab_engine')}", f"🏭 {t('tab_yard')}"])
         
         with search_tabs[0]: 
             makers = sorted(df_models['manufacturer'].unique().tolist())
             makers.insert(0, "All")
-            sel_maker = st.selectbox("Manufacturer", makers, key="msel")
+            sel_maker = st.selectbox(t('manufacturer'), makers, key="msel")
             
             c1, c2 = st.columns(2)
-            with c1: sel_sy = st.number_input("From", 1990, 2030, 2000, key="sy")
-            with c2: sel_ey = st.number_input("To", 1990, 2030, 2025, key="ey")
+            with c1: sel_sy = st.number_input(t('from_year'), 1990, 2030, 2000, key="sy")
+            with c2: sel_ey = st.number_input(t('to_year'), 1990, 2030, 2025, key="ey")
             
             if sel_maker != "All":
                 f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].unique().tolist())
             else:
                 f_models = sorted(df_models['model_name'].unique().tolist())
-            sel_models = st.multiselect("Model", f_models, key="mms")
+            sel_models = st.multiselect(t('model'), f_models, key="mms")
             
-            if st.button("🔍 Search Vehicle", type="primary"):
+            if st.button(f"🔍 {t('search_btn_veh')}", type="primary"):
                 log_search(sel_models, 'model')
                 res, tot = search_data_from_db(sel_maker, sel_models, [], sel_sy, sel_ey, [])
                 st.session_state['view_data'] = res
@@ -534,8 +535,8 @@ try:
                 safe_rerun()
 
         with search_tabs[1]: 
-            sel_engines = st.multiselect("Engine Code", sorted(list_engines), key="es")
-            if st.button("🔍 Search Engine", type="primary"):
+            sel_engines = st.multiselect(t('engine_code'), sorted(list_engines), key="es")
+            if st.button(f"🔍 {t('search_btn_eng')}", type="primary"):
                 log_search(sel_engines, 'engine')
                 res, tot = search_data_from_db(None, [], sel_engines, 1990, 2030, [])
                 st.session_state['view_data'] = res
@@ -551,9 +552,9 @@ try:
             else:
                 yard_opts = sorted(list_yards)
                 
-            sel_yards = st.multiselect("Partner Name", yard_opts, key="ys")
+            sel_yards = st.multiselect(t('partner_name'), yard_opts, key="ys")
             
-            if st.button("🔍 Search Partner", type="primary"):
+            if st.button(f"🔍 {t('search_btn_partners')}", type="primary"):
                 real_yard_names = []
                 if st.session_state.user_role == 'buyer':
                     for y in list_yards:
@@ -569,28 +570,28 @@ try:
                 st.session_state['mode_demand'] = False
                 safe_rerun()
 
-        if st.button("🔄 Reset Filters", use_container_width=True, on_click=reset_dashboard):
+        if st.button(f"🔄 {t('reset_filters')}", use_container_width=True, on_click=reset_dashboard):
             pass
 
     # 2. 메인 화면
     if st.session_state.mode_demand and st.session_state.user_role == 'admin':
-        st.title("📈 Global Demand Trends (Real-time)")
+        st.title(f"📈 {t('analysis_title')}")
         eng_trend, mod_trend = get_search_trends()
         c1, c2 = st.columns(2)
         with c1:
-            st.subheader("🔥 Top Searched Engines")
+            st.subheader(f"🔥 {t('top_engines')}")
             if not eng_trend.empty:
                 fig = px.bar(eng_trend, x='count', y='keyword', orientation='h', text='count')
                 st.plotly_chart(fig, use_container_width=True)
-            else: st.info("No data yet.")
+            else: st.info(t('no_results'))
         with c2:
-            st.subheader("🚙 Top Searched Models")
+            st.subheader(f"🚙 {t('top_models')}")
             if not mod_trend.empty:
                 fig = px.bar(mod_trend, x='count', y='keyword', orientation='h', text='count')
                 st.plotly_chart(fig, use_container_width=True)
-            else: st.info("No data yet.")
+            else: st.info(t('no_results'))
     else:
-        st.title("K-Used Car/Engine Inventory")
+        st.title(t('main_title'))
         
         df_view = st.session_state['view_data']
         total_cnt = st.session_state['total_count']
@@ -598,28 +599,28 @@ try:
         df_display = mask_dataframe(df_view, st.session_state.user_role)
         
         if st.session_state.user_role == 'admin':
-            main_tabs = st.tabs(["📊 Inventory", "📩 Orders"])
+            main_tabs = st.tabs([f"📊 {t('tab_inventory')}", f"📩 {t('tab_orders')}"])
         else:
-            main_tabs = st.tabs(["📊 Search Results", "🛒 My Orders"])
+            main_tabs = st.tabs([f"📊 {t('tab_results')}", f"🛒 {t('tab_my_orders')}"])
 
         with main_tabs[0]:
             if df_display.empty:
                 if st.session_state['is_filtered']:
-                    st.warning("No results found.")
+                    st.warning(t('no_results'))
                 else:
-                    st.info("Please select filters from the sidebar to search.")
+                    st.info(t('plz_select'))
             else:
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Total Vehicles", f"{total_cnt:,} EA")
-                c2.metric("Matched Engines", f"{df_display['engine_code'].nunique()} Types")
-                sup_label = "Real Junkyards" if st.session_state.user_role == 'admin' else "Partners"
+                c1.metric(t('total_veh'), f"{total_cnt:,} EA")
+                c2.metric(t('matched_eng'), f"{df_display['engine_code'].nunique()} Types")
+                sup_label = t('real_yards') if st.session_state.user_role == 'admin' else t('partners_cnt')
                 c3.metric(sup_label, f"{df_display['junkyard'].nunique()} EA")
                 
                 if total_cnt > 5000:
-                    st.warning(f"⚠️ Showing top 5,000 results out of {total_cnt:,}. Please refine your filters.")
+                    st.warning(t('limit_warning').format(total_cnt))
                 
                 st.divider()
-                st.subheader("📦 Stock by Partner")
+                st.subheader(f"📦 {t('stock_by_partner')}")
                 
                 grp_cols = ['junkyard', 'address']
                 if st.session_state.user_role == 'admin' and 'region' in df_display.columns:
@@ -639,19 +640,18 @@ try:
                     stock_cnt = sel_row['qty']
                     
                     if st.session_state.user_role == 'guest':
-                        st.warning("🔒 Login required to request a quote.")
+                        st.warning(t('login_req_warn'))
                     else:
-                        st.success(f"Selected: **{target_partner}** ({stock_cnt} EA)")
+                        st.success(t('selected_msg').format(target_partner, stock_cnt))
                         
                         with st.form("order_form"):
-                            st.markdown(f"### 📨 Request Quote to {target_partner}")
+                            st.markdown(f"### {t('req_quote_title').format(target_partner)}")
                             c_a, c_b = st.columns(2)
                             with c_a:
-                                buyer_name = st.text_input("Name / Company", value=st.session_state.username)
-                                contact = st.text_input("Contact (Email/Phone) *")
-                                req_qty = st.number_input("Quantity *", min_value=1, value=1)
+                                buyer_name = st.text_input(t('name_company'), value=st.session_state.username, disabled=True)
+                                contact = st.text_input(t('contact'))
+                                req_qty = st.number_input(t('qty'), min_value=1, value=1)
                             with c_b:
-                                # 자동 품목 완성
                                 s_maker = st.session_state.get('msel', 'All')
                                 s_models = st.session_state.get('mms', [])
                                 s_engines = st.session_state.get('es', [])
@@ -668,14 +668,14 @@ try:
                                 
                                 def_item = " ".join(item_desc)
                                 
-                                item = st.text_input("Item *", value=def_item)
-                                offer = st.text_input("Target Unit Price (USD) *", placeholder="e.g. $500/ea")
+                                item = st.text_input(t('item'), value=def_item)
+                                offer = st.text_input(t('unit_price'), placeholder="e.g. $500/ea")
                             
-                            msg = st.text_area("Message to Admin", height=80, placeholder="Details...")
+                            msg = st.text_area(t('message'), height=80)
                             
-                            if st.form_submit_button("🚀 Send Inquiry"):
+                            if st.form_submit_button(t('send_btn')):
                                 if not contact or not item or not offer:
-                                    st.error("⚠️ Please fill in all required fields: Contact, Item, and Price.")
+                                    st.error(t('fill_error'))
                                 else:
                                     conn = init_db()
                                     cur = conn.cursor()
@@ -694,15 +694,15 @@ try:
                                                 (buyer_name, contact, target_partner, real_name, summary, 'PENDING'))
                                     conn.commit()
                                     conn.close()
-                                    st.success("✅ Inquiry has been sent to our sales team.")
+                                    st.success(t('inquiry_sent'))
 
                 st.divider()
-                st.subheader("📋 Item List")
+                st.subheader(f"📋 {t('item_list')}")
                 st.dataframe(df_display, use_container_width=True)
 
         if st.session_state.user_role == 'admin':
             with main_tabs[1]:
-                st.subheader("📩 Incoming Quote Requests")
+                st.subheader(f"{t('incoming_quotes')}")
                 conn = init_db()
                 orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
                 conn.close()
@@ -716,40 +716,14 @@ try:
                             
                             c1, c2 = st.columns([3, 1])
                             with c1:
-                                new_status = st.selectbox("Change Status", 
+                                new_status = st.selectbox(t('status_change'), 
                                                           ["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"],
                                                           index=["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"].index(row['status']),
                                                           key=f"st_{row['id']}")
                             with c2:
                                 st.write("")
                                 st.write("")
-                                if st.button("Update", key=f"btn_{row['id']}"):
+                                if st.button(t('update_btn'), key=f"btn_{row['id']}"):
                                     update_order_status(row['id'], new_status)
-                                    st.success("Updated!")
-                                    time.sleep(0.5)
-                                    safe_rerun()
-                else:
-                    st.info("No pending orders.")
-
-        if st.session_state.user_role == 'buyer':
-            with main_tabs[1]: # My Orders
-                st.subheader("🛒 My Quote Requests")
-                conn = init_db()
-                my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
-                conn.close()
-
-                if not my_orders.empty:
-                    for idx, row in my_orders.iterrows():
-                        status_color = "green" if row['status'] == 'DONE' else "orange" if row['status'] == 'PENDING' else "blue"
-                        with st.expander(f"[{row['created_at']}] {row['target_partner_alias']} ({row['status']})"):
-                            st.caption(f"Status: :{status_color}[{row['status']}]")
-                            st.write(f"**Request Details:** {row['items_summary']}")
-                            if row['status'] == 'QUOTED':
-                                st.success("💬 Offer Received! Check your email/phone.")
-                else:
-                    st.info("You haven't requested any quotes yet.")
-
-except Exception as e:
-    st.error("⛔ 앱 실행 중 문제가 발생했습니다.")
-    with st.expander("상세 오류 보기"):
-        st.code(traceback.format_exc())
+                                    st.success(t('updated_msg'))
+                                    time.sleep(

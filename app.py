@@ -89,10 +89,10 @@ CITY_MAP = {
 # 1. 데이터베이스 초기화 및 샘플 데이터
 # ---------------------------------------------------------
 def _get_raw_translations():
-    # 이곳의 데이터를 수정하면 DB에 자동 반영됩니다.
+    # 🟢 번역 데이터 원본 (이곳을 수정하면 화면에 반영됨)
     return {
         "English": {
-            "app_title": "K-Used Car Global Hub", "login_title": "Login", "id": "ID", "pw": "Password",
+            "app_title": "K-Used Car Global Hub", "login_title": "Login", "id": "ID *", "pw": "Password *",
             "sign_in": "Sign In", "sign_up": "Sign Up", "logout": "Logout", "welcome": "Welcome, {}!", 
             "invalid_cred": "Invalid Credentials", "user_exists": "User ID already exists.", "signup_success": "Account created! Please login.",
             "admin_tools": "Admin Tools", "data_upload": "Data Upload", "save_data": "Save Data", "addr_db": "Address DB",
@@ -115,11 +115,11 @@ def _get_raw_translations():
             "inquiry_sent": "✅ Inquiry has been sent to our sales team.", "item_list": "Item List", "incoming_quotes": "📩 Incoming Quote Requests",
             "my_quote_req": "🛒 My Quote Requests", "no_orders_admin": "No pending orders.", "no_orders_buyer": "You haven't requested any quotes yet.",
             "status_change": "Change Status", "update_btn": "Update", "updated_msg": "Updated!", "offer_received": "💬 Offer Received! Check your email/phone.",
-            "company_name": "Company Name", "country": "Country", "email": "Email", "phone": "Phone Number",
-            "user_name": "Name (Person)", "signup_missing_fields": "⚠️ Please fill in all required fields (marked with *)."
+            "company_name": "Company Name *", "country": "Country *", "email": "Email *", "phone": "Phone Number",
+            "user_name": "Name (Person) *", "signup_missing_fields": "⚠️ Please fill in all required fields (marked with *)."
         },
         "Korean": {
-            "app_title": "K-Used Car 글로벌 허브", "login_title": "로그인", "id": "아이디", "pw": "비밀번호",
+            "app_title": "K-Used Car 글로벌 허브", "login_title": "로그인", "id": "아이디 *", "pw": "비밀번호 *",
             "sign_in": "로그인", "sign_up": "회원가입", "logout": "로그아웃", "welcome": "환영합니다, {}님!", 
             "invalid_cred": "로그인 정보가 올바르지 않습니다.", "user_exists": "이미 존재하는 아이디입니다.", "signup_success": "가입 완료! 로그인해주세요.",
             "admin_tools": "관리자 도구", "data_upload": "데이터 업로드", "save_data": "데이터 저장", "addr_db": "주소 DB",
@@ -141,11 +141,11 @@ def _get_raw_translations():
             "inquiry_sent": "✅ 영업팀으로 견적 요청이 전송되었습니다.", "item_list": "상세 목록", "incoming_quotes": "📩 접수된 견적 요청",
             "my_quote_req": "🛒 나의 견적 요청 내역", "no_orders_admin": "대기 중인 주문이 없습니다.", "no_orders_buyer": "아직 요청한 내역이 없습니다.",
             "status_change": "상태 변경", "update_btn": "업데이트", "updated_msg": "업데이트 완료!", "offer_received": "💬 견적 도착! 이메일/전화를 확인하세요.",
-            "company_name": "회사명", "country": "국가", "email": "이메일", "phone": "전화번호",
-            "user_name": "담당자 성함", "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요."
+            "company_name": "회사명 *", "country": "국가 *", "email": "이메일 *", "phone": "전화번호",
+            "user_name": "담당자 성함 *", "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요."
         },
         "Russian": {
-            "app_title": "K-Used Car Глобальный Хаб", "login_title": "Вход", "id": "ID", "pw": "Пароль",
+            "app_title": "K-Used Car Глобальный Хаб", "login_title": "Вход", "id": "ID *", "pw": "Пароль *",
             "sign_in": "Войти", "sign_up": "Регистрация", "logout": "Выйти", "welcome": "Добро пожаловать, {}!", 
             "invalid_cred": "Неверные учетные данные", "user_exists": "ID уже существует.", "signup_success": "Аккаунт создан! Войдите.",
             "admin_tools": "Инструменты админа", "data_upload": "Загрузка данных", "save_data": "Сохранить данные", "addr_db": "БД Адресов",
@@ -167,11 +167,11 @@ def _get_raw_translations():
             "inquiry_sent": "✅ Запрос отправлен в отдел продаж.", "item_list": "Список товаров", "incoming_quotes": "📩 Входящие запросы",
             "my_quote_req": "🛒 Мои запросы", "no_orders_admin": "Нет ожидающих заказов.", "no_orders_buyer": "Вы еще не делали запросов.",
             "status_change": "Изменить статус", "update_btn": "Обновить", "updated_msg": "Обновлено!", "offer_received": "💬 Предложение получено! Проверьте почту.",
-            "company_name": "Название компании", "country": "Страна", "email": "Эл. почта", "phone": "Телефон",
-            "user_name": "Имя", "signup_missing_fields": "⚠️ Заполните все обязательные поля (*)."
+            "company_name": "Название компании *", "country": "Страна *", "email": "Эл. почта *", "phone": "Телефон",
+            "user_name": "Имя *", "signup_missing_fields": "⚠️ Заполните все обязательные поля (*)."
         },
         "Arabic": {
-            "app_title": "K-Used Car Global Hub", "login_title": "تسجيل الدخول", "id": "المعرف", "pw": "كلمة المرور",
+            "app_title": "K-Used Car Global Hub", "login_title": "تسجيل الدخول", "id": "المعرف *", "pw": "كلمة المرور *",
             "sign_in": "دخول", "sign_up": "اشتراك", "logout": "خروج", "welcome": "مرحباً، {}!", 
             "invalid_cred": "بيانات الاعتماد غير صالحة", "user_exists": "معرف المستخدم موجود بالفعل.", "signup_success": "تم إنشاء الحساب! الرجاء تسجيل الدخول.",
             "admin_tools": "أدوات المسؤول", "data_upload": "تحميل البيانات", "save_data": "حفظ البيانات", "addr_db": "قاعدة بيانات العناوين",
@@ -192,8 +192,8 @@ def _get_raw_translations():
             "send_btn": "🚀 إرسال الطلب", "fill_error": "⚠️ يرجى ملء الحقول المطلوبة: جهة الاتصال، العنصر، والسعر.",
             "inquiry_sent": "✅ تم إرسال الطلب إلى فريق المبيعات لدينا.", "item_list": "قائمة العناصر", "incoming_quotes": "📩 طلبات الأسعار الواردة", "my_quote_req": "🛒 طلبات الأسعار الخاصة بي", "no_orders_admin": "لا توجد طلبات معلقة.", "no_orders_buyer": "لم تقم بطلب أي عروض أسعار بعد.",
             "status_change": "تغيير الحالة", "update_btn": "تحديث", "updated_msg": "تم التحديث!", "offer_received": "💬 تم استلام العرض! تحقق من بريدك الإلكتروني/هاتفك.",
-            "company_name": "اسم الشركة", "country": "بلد", "email": "بريد إلكتروني", "phone": "رقم الهاتف",
-            "user_name": "الاسم", "signup_missing_fields": "⚠️ يرجى ملء جميع الحقول المطلوبة (*)."
+            "company_name": "اسم الشركة *", "country": "بلد *", "email": "بريد إلكتروني *", "phone": "رقم الهاتف",
+            "user_name": "الاسم *", "signup_missing_fields": "⚠️ يرجى ملء جميع الحقول المطلوبة (*)."
         }
     }
 
@@ -240,7 +240,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, buyer_id TEXT, contact_info TEXT, target_partner_alias TEXT, real_junkyard_name TEXT, items_summary TEXT, status TEXT DEFAULT 'PENDING', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
-    # 사용자 테이블
+    # 사용자 테이블 생성
     c.execute('''CREATE TABLE IF NOT EXISTS users (
         user_id TEXT PRIMARY KEY,
         password TEXT,
@@ -266,7 +266,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-    # 🟢 [수정] 번역 DB는 무조건 갱신 (코드 수정 반영)
+    # 🟢 번역 DB 무조건 갱신
     conn_t = sqlite3.connect(TRANS_DB)
     c_t = conn_t.cursor()
     c_t.execute('''CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
@@ -325,11 +325,9 @@ def login_user(user_id, password):
     return None, None
 
 # ---------------------------------------------------------
-# 🌐 [i18n] 번역 로딩
+# 🌐 [i18n] 번역 로딩 (캐시 제거됨)
 # ---------------------------------------------------------
-@st.cache_data
 def load_translations():
-    init_db()
     conn = sqlite3.connect(TRANS_DB)
     df = pd.read_sql("SELECT * FROM translations", conn)
     conn.close()
@@ -596,7 +594,6 @@ def load_metadata_and_init_data():
     
     total_cnt = conn.execute("SELECT COUNT(*) FROM vehicle_data").fetchone()[0]
     df_init = pd.read_sql("SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name ORDER BY v.reg_date DESC LIMIT 5000", conn)
-    
     conn.close()
     
     if not df_init.empty:
@@ -633,7 +630,7 @@ try:
     if 'username' not in st.session_state: st.session_state.username = 'Guest'
     if 'language' not in st.session_state: st.session_state.language = 'English'
 
-    # DB 및 데이터 초기화
+    # DB 및 데이터 초기화 (Translations DB 생성 포함)
     init_db()
 
     if 'view_data' not in st.session_state or 'metadata_loaded' not in st.session_state:
@@ -681,7 +678,7 @@ try:
                         st.error(t('invalid_cred'))
                         
             with sign_tab:
-                # 🟢 회원가입 폼 (아이콘 및 필수값 표기)
+                # 🟢 회원가입 폼 (아이콘 및 필수값 검증)
                 new_id = st.text_input(f"👤 {t('id')}", key="s_id")
                 new_pw = st.text_input(f"🔒 {t('pw')}", type="password", key="s_pw")
                 new_name = st.text_input(f"📛 {t('user_name')}", key="s_name")
@@ -691,7 +688,7 @@ try:
                 new_phone = st.text_input(f"📞 {t('phone')}", key="s_phone") # Optional
                 
                 if st.button(t('sign_up'), use_container_width=True):
-                    # 필수값 검증
+                    # Phone 제외 나머지 필수 검증
                     if not all([new_id, new_pw, new_name, new_comp, new_country, new_email]) or new_country == "Select Country":
                         st.error(t('signup_missing_fields'))
                     else:

@@ -221,12 +221,14 @@ def log_search(keywords, s_type):
 def get_search_trends():
     try:
         conn = init_db()
-        df = pd.read_sql("SELECT keyword, search_type FROM search_logs_v2 ORDER BY created_at DESC LIMIT 5000", conn)
+        eng = pd.read_sql("SELECT keyword, COUNT(*) as count FROM search_logs_v2 WHERE search_type='engine' GROUP BY keyword ORDER BY count DESC LIMIT 10", conn)
+        mod = pd.read_sql("SELECT keyword, COUNT(*) as count FROM search_logs_v2 WHERE search_type='model' GROUP BY keyword ORDER BY count DESC LIMIT 10", conn)
         conn.close()
         
-        if df.empty: return pd.DataFrame(), pd.DataFrame()
-
+        if eng.empty and mod.empty: return pd.DataFrame(), pd.DataFrame()
+        
         def process_counts(sub_df):
+            if sub_df.empty: return pd.DataFrame()
             sub_df['clean_keyword'] = sub_df['keyword'].astype(str).apply(
                 lambda x: x.replace('[', '').replace(']', '').replace("'", "").replace('"', '')
             )
@@ -236,8 +238,8 @@ def get_search_trends():
             counts.columns = ['keyword', 'count']
             return counts.head(10)
 
-        eng_counts = process_counts(df[df['search_type'] == 'engine'])
-        mod_counts = process_counts(df[df['search_type'] == 'model'])
+        eng_counts = process_counts(eng)
+        mod_counts = process_counts(mod)
         return eng_counts, mod_counts
     except: return pd.DataFrame(), pd.DataFrame()
 
@@ -418,339 +420,343 @@ def reset_dashboard():
 # ---------------------------------------------------------
 # 🚀 메인 어플리케이션
 # ---------------------------------------------------------
-if 'user_role' not in st.session_state: st.session_state.user_role = 'guest'
-if 'username' not in st.session_state: st.session_state.username = 'Guest'
+# 🔴 [중요] try 구문 시작 (최종 수정: 구문 오류 방지)
+try:
+    if 'user_role' not in st.session_state: st.session_state.user_role = 'guest'
+    if 'username' not in st.session_state: st.session_state.username = 'Guest'
 
-# 초기 로딩
-if 'view_data' not in st.session_state or 'metadata_loaded' not in st.session_state:
-    m_df, m_eng, m_yards, init_df, init_total = load_metadata_and_init_data()
-    st.session_state['view_data'] = init_df
-    st.session_state['total_count'] = init_total
-    st.session_state['models_df'] = m_df
-    st.session_state['engines_list'] = m_eng
-    st.session_state['yards_list'] = m_yards
-    st.session_state['metadata_loaded'] = True
-    st.session_state['is_filtered'] = False
-    st.session_state['mode_demand'] = False
+    # 초기 로딩
+    if 'view_data' not in st.session_state or 'metadata_loaded' not in st.session_state:
+        m_df, m_eng, m_yards, init_df, init_total = load_metadata_and_init_data()
+        st.session_state['view_data'] = init_df
+        st.session_state['total_count'] = init_total
+        st.session_state['models_df'] = m_df
+        st.session_state['engines_list'] = m_eng
+        st.session_state['yards_list'] = m_yards
+        st.session_state['metadata_loaded'] = True
+        st.session_state['is_filtered'] = False
+        st.session_state['mode_demand'] = False
 
-df_raw = st.session_state['view_data']
-total_records = st.session_state['total_count']
-df_models = st.session_state['models_df']
-list_engines = st.session_state['engines_list']
-list_yards = st.session_state['yards_list']
+    df_raw = st.session_state['view_data']
+    total_records = st.session_state['total_count']
+    df_models = st.session_state['models_df']
+    list_engines = st.session_state['engines_list']
+    list_yards = st.session_state['yards_list']
 
-# 1. 사이드바
-with st.sidebar:
-    st.title("K-Parts Global Hub")
-    
-    # 로그인
-    if st.session_state.user_role == 'guest':
-        with st.expander("🔐 Login", expanded=True):
-            uid = st.text_input("ID")
-            upw = st.text_input("Password", type="password")
-            if st.button("Sign In"):
-                if uid in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[uid] == upw:
-                    st.session_state.user_role = 'admin'
-                    st.session_state.username = uid
-                    safe_rerun()
-                elif uid in BUYER_CREDENTIALS and BUYER_CREDENTIALS[uid] == upw:
-                    st.session_state.user_role = 'buyer'
-                    st.session_state.username = uid
-                    safe_rerun()
-                else:
-                    st.error("Invalid Credentials")
-    else:
-        role_text = "Manager" if st.session_state.user_role == 'admin' else "Global Buyer"
-        st.success(f"Welcome, {st.session_state.username} ({role_text})!")
-        if st.button("Logout"):
-            st.session_state.user_role = 'guest'
-            st.session_state.username = 'Guest'
-            del st.session_state['metadata_loaded'] # 재로딩 유도
-            safe_rerun()
-
-    st.divider()
-
-    if st.session_state.user_role == 'admin':
-        with st.expander("📂 Admin Tools"):
-            up_files = st.file_uploader("Data Upload", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
-            if up_files and st.button("Save Data"):
-                tot = 0
-                bar = st.progress(0)
-                for i, f in enumerate(up_files):
-                    n, _ = save_vehicle_file(f)
-                    tot += n
-                    bar.progress((i+1)/len(up_files))
-                st.success(f"{tot} records uploaded.")
-                load_metadata_and_init_data.clear()
-                safe_rerun()
-            
-            addr_file = st.file_uploader("Address DB", type=['xlsx', 'xls', 'csv'], key="a_up")
-            if addr_file and st.button("Save Address"):
-                cnt = save_address_file(addr_file)
-                st.success(f"{cnt} addresses updated.")
-                load_metadata_and_init_data.clear()
+    # 1. 사이드바
+    with st.sidebar:
+        st.title("K-Parts Global Hub")
+        
+        # 로그인
+        if st.session_state.user_role == 'guest':
+            with st.expander("🔐 Login", expanded=True):
+                uid = st.text_input("ID")
+                upw = st.text_input("Password", type="password")
+                if st.button("Sign In"):
+                    if uid in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[uid] == upw:
+                        st.session_state.user_role = 'admin'
+                        st.session_state.username = uid
+                        safe_rerun()
+                    elif uid in BUYER_CREDENTIALS and BUYER_CREDENTIALS[uid] == upw:
+                        st.session_state.user_role = 'buyer'
+                        st.session_state.username = uid
+                        safe_rerun()
+                    else:
+                        st.error("Invalid Credentials")
+        else:
+            role_text = "Manager" if st.session_state.user_role == 'admin' else "Global Buyer"
+            st.success(f"Welcome, {st.session_state.username} ({role_text})!")
+            if st.button("Logout"):
+                st.session_state.user_role = 'guest'
+                st.session_state.username = 'Guest'
+                del st.session_state['metadata_loaded'] # 재로딩 유도
                 safe_rerun()
 
-            if st.button("🗑️ Reset DB"):
-                conn = init_db()
-                conn.execute("DROP TABLE vehicle_data")
-                conn.execute("DROP TABLE junkyard_info")
-                conn.execute("DROP TABLE model_list")
-                conn.execute("DROP TABLE search_logs_v2")
-                conn.execute("DROP TABLE orders")
-                conn.commit()
-                conn.close()
-                st.success("Reset Done")
-                load_metadata_and_init_data.clear()
-                safe_rerun()
-                
-        # 🟢 [관리자 전용] 수요 예측 버튼 추가
         st.divider()
-        st.subheader("👑 Admin Menu")
-        if st.button("🔮 Global Demand Analysis", use_container_width=True):
-            st.session_state['mode_demand'] = True
-            safe_rerun()
 
-    st.subheader("🔍 Search Filter")
-    # 관리자는 4탭(수요예측 삭제), 바이어/게스트는 3탭
-    search_tabs = st.tabs(["🚙 Vehicle", "🔧 Engine", "🏭 Yard"])
-    
-    with search_tabs[0]: 
-        makers = sorted(df_models['manufacturer'].unique().tolist())
-        makers.insert(0, "All")
-        sel_maker = st.selectbox("Manufacturer", makers, key="msel")
-        
-        c1, c2 = st.columns(2)
-        with c1: sel_sy = st.number_input("From", 1990, 2030, 2000, key="sy")
-        with c2: sel_ey = st.number_input("To", 1990, 2030, 2025, key="ey")
-        
-        if sel_maker != "All":
-            f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].unique().tolist())
-        else:
-            f_models = sorted(df_models['model_name'].unique().tolist())
-        sel_models = st.multiselect("Model", f_models, key="mms")
-        
-        if st.button("🔍 Search Vehicle", type="primary"):
-            log_search(sel_models, 'model')
-            res, tot = search_data_from_db(sel_maker, sel_models, [], sel_sy, sel_ey, [])
-            st.session_state['view_data'] = res
-            st.session_state['total_count'] = tot
-            st.session_state['is_filtered'] = True
-            st.session_state['mode_demand'] = False
-            safe_rerun()
+        if st.session_state.user_role == 'admin':
+            with st.expander("📂 Admin Tools"):
+                up_files = st.file_uploader("Data Upload", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
+                if up_files and st.button("Save Data"):
+                    tot = 0
+                    bar = st.progress(0)
+                    for i, f in enumerate(up_files):
+                        n, _ = save_vehicle_file(f)
+                        tot += n
+                        bar.progress((i+1)/len(up_files))
+                    st.success(f"{tot} records uploaded.")
+                    load_metadata_and_init_data.clear()
+                    safe_rerun()
+                
+                addr_file = st.file_uploader("Address DB", type=['xlsx', 'xls', 'csv'], key="a_up")
+                if addr_file and st.button("Save Address"):
+                    cnt = save_address_file(addr_file)
+                    st.success(f"{cnt} addresses updated.")
+                    load_metadata_and_init_data.clear()
+                    safe_rerun()
 
-    with search_tabs[1]: 
-        sel_engines = st.multiselect("Engine Code", sorted(list_engines), key="es")
-        if st.button("🔍 Search Engine", type="primary"):
-            log_search(sel_engines, 'engine')
-            res, tot = search_data_from_db(None, [], sel_engines, 1990, 2030, [])
-            st.session_state['view_data'] = res
-            st.session_state['total_count'] = tot
-            st.session_state['is_filtered'] = True
-            st.session_state['mode_demand'] = False
-            safe_rerun()
-
-    with search_tabs[2]: 
-        yard_opts = list_yards
-        if st.session_state.user_role == 'buyer':
-            yard_opts = sorted(list(set([generate_alias(name) for name in list_yards])))
-        else:
-            yard_opts = sorted(list_yards)
+                if st.button("🗑️ Reset DB"):
+                    conn = init_db()
+                    conn.execute("DROP TABLE vehicle_data")
+                    conn.execute("DROP TABLE junkyard_info")
+                    conn.execute("DROP TABLE model_list")
+                    conn.execute("DROP TABLE search_logs_v2")
+                    conn.execute("DROP TABLE orders")
+                    conn.commit()
+                    conn.close()
+                    st.success("Reset Done")
+                    load_metadata_and_init_data.clear()
+                    safe_rerun()
             
-        sel_yards = st.multiselect("Partner Name", yard_opts, key="ys")
+            st.divider()
+            st.subheader("👑 Admin Menu")
+            if st.button("🔮 Global Demand Analysis", use_container_width=True):
+                st.session_state['mode_demand'] = True
+                safe_rerun()
+
+        st.subheader("🔍 Search Filter")
+        search_tabs = st.tabs(["🚙 Vehicle", "🔧 Engine", "🏭 Yard"])
         
-        if st.button("🔍 Search Partner", type="primary"):
-            real_yard_names = []
+        with search_tabs[0]: 
+            makers = sorted(df_models['manufacturer'].unique().tolist())
+            makers.insert(0, "All")
+            sel_maker = st.selectbox("Manufacturer", makers, key="msel")
+            
+            c1, c2 = st.columns(2)
+            with c1: sel_sy = st.number_input("From", 1990, 2030, 2000, key="sy")
+            with c2: sel_ey = st.number_input("To", 1990, 2030, 2025, key="ey")
+            
+            if sel_maker != "All":
+                f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].unique().tolist())
+            else:
+                f_models = sorted(df_models['model_name'].unique().tolist())
+            sel_models = st.multiselect("Model", f_models, key="mms")
+            
+            if st.button("🔍 Search Vehicle", type="primary"):
+                log_search(sel_models, 'model')
+                res, tot = search_data_from_db(sel_maker, sel_models, [], sel_sy, sel_ey, [])
+                st.session_state['view_data'] = res
+                st.session_state['total_count'] = tot
+                st.session_state['is_filtered'] = True
+                st.session_state['mode_demand'] = False
+                safe_rerun()
+
+        with search_tabs[1]: 
+            sel_engines = st.multiselect("Engine Code", sorted(list_engines), key="es")
+            if st.button("🔍 Search Engine", type="primary"):
+                log_search(sel_engines, 'engine')
+                res, tot = search_data_from_db(None, [], sel_engines, 1990, 2030, [])
+                st.session_state['view_data'] = res
+                st.session_state['total_count'] = tot
+                st.session_state['is_filtered'] = True
+                st.session_state['mode_demand'] = False
+                safe_rerun()
+
+        with search_tabs[2]: 
+            yard_opts = list_yards
             if st.session_state.user_role == 'buyer':
-                for y in list_yards:
-                    if generate_alias(y) in sel_yards:
-                        real_yard_names.append(y)
+                yard_opts = sorted(list(set([generate_alias(name) for name in list_yards])))
             else:
-                real_yard_names = sel_yards
+                yard_opts = sorted(list_yards)
                 
-            res, tot = search_data_from_db(None, [], [], 1990, 2030, real_yard_names)
-            st.session_state['view_data'] = res
-            st.session_state['total_count'] = tot
-            st.session_state['is_filtered'] = True
-            st.session_state['mode_demand'] = False
-            safe_rerun()
-
-    if st.button("🔄 Reset Filters", use_container_width=True, on_click=reset_dashboard):
-        pass
-
-# 2. 메인 화면
-if st.session_state.mode_demand and st.session_state.user_role == 'admin':
-    st.title("📈 Global Demand Trends (Real-time)")
-    eng_trend, mod_trend = get_search_trends()
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("🔥 Top Searched Engines")
-        if not eng_trend.empty:
-            fig = px.bar(eng_trend, x='count', y='keyword', orientation='h', text='count')
-            st.plotly_chart(fig, use_container_width=True)
-        else: st.info("No data yet.")
-    with c2:
-        st.subheader("🚙 Top Searched Models")
-        if not mod_trend.empty:
-            fig = px.bar(mod_trend, x='count', y='keyword', orientation='h', text='count')
-            st.plotly_chart(fig, use_container_width=True)
-        else: st.info("No data yet.")
-else:
-    st.title("🇰🇷 Korea Used Auto Parts Inventory")
-    
-    df_view = st.session_state['view_data']
-    total_cnt = st.session_state['total_count']
-    
-    df_display = mask_dataframe(df_view, st.session_state.user_role)
-    
-    if st.session_state.user_role == 'admin':
-        main_tabs = st.tabs(["📊 Inventory", "📩 Orders"])
-    else:
-        main_tabs = st.tabs(["📊 Search Results", "🛒 My Orders"])
-
-    with main_tabs[0]:
-        if df_display.empty:
-            if st.session_state['is_filtered']:
-                st.warning("No results found.")
-            else:
-                st.info("Please select filters from the sidebar to search.")
-        else:
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Total Vehicles", f"{total_cnt:,} EA")
-            c2.metric("Matched Engines", f"{df_display['engine_code'].nunique()} Types")
-            sup_label = "Real Junkyards" if st.session_state.user_role == 'admin' else "Partners"
-            c3.metric(sup_label, f"{df_display['junkyard'].nunique()} EA")
+            sel_yards = st.multiselect("Partner Name", yard_opts, key="ys")
             
-            if total_cnt > 5000:
-                st.warning(f"⚠️ Showing top 5,000 results out of {total_cnt:,}. Please refine your filters.")
-            
-            st.divider()
-            st.subheader("📦 Stock by Partner")
-            
-            grp_cols = ['junkyard', 'address']
-            if st.session_state.user_role == 'admin' and 'region' in df_display.columns:
-                grp_cols.append('region')
-            
-            if 'address' in df_display.columns:
-                df_display['address'] = df_display['address'].fillna("Unknown")
-
-            stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
-            selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
-            
-            if len(selection.selection.rows) > 0:
-                sel_idx = selection.selection.rows[0]
-                sel_row = stock_summary.iloc[sel_idx]
-                target_partner = sel_row['junkyard']
-                stock_cnt = sel_row['qty']
-                
-                if st.session_state.user_role == 'guest':
-                    st.warning("🔒 Login required to request a quote.")
+            if st.button("🔍 Search Partner", type="primary"):
+                real_yard_names = []
+                if st.session_state.user_role == 'buyer':
+                    for y in list_yards:
+                        if generate_alias(y) in sel_yards:
+                            real_yard_names.append(y)
                 else:
-                    st.success(f"Selected: **{target_partner}** ({stock_cnt} EA)")
+                    real_yard_names = sel_yards
                     
-                    with st.form("order_form"):
-                        st.markdown(f"### 📨 Request Quote to {target_partner}")
-                        c_a, c_b = st.columns(2)
-                        with c_a:
-                            buyer_name = st.text_input("Name / Company", value=st.session_state.username)
-                            contact = st.text_input("Contact (Email/Phone) *")
-                            req_qty = st.number_input("Quantity *", min_value=1, value=1)
-                        with c_b:
-                            s_maker = st.session_state.get('msel', 'All')
-                            s_models = st.session_state.get('mms', [])
-                            s_engines = st.session_state.get('es', [])
-                            s_sy = st.session_state.get('sy', 2000)
-                            s_ey = st.session_state.get('ey', 2025)
+                res, tot = search_data_from_db(None, [], [], 1990, 2030, real_yard_names)
+                st.session_state['view_data'] = res
+                st.session_state['total_count'] = tot
+                st.session_state['is_filtered'] = True
+                st.session_state['mode_demand'] = False
+                safe_rerun()
 
-                            item_desc = []
-                            if s_engines: item_desc.append(f"Engine: {','.join(s_engines[:3])}")
-                            elif s_models: item_desc.append(f"Model: {','.join(s_models[:3])}")
-                            elif s_maker != "All": item_desc.append(f"{s_maker} Cars")
-                            else: item_desc.append("Auto Parts")
-                            
-                            if not s_engines: item_desc.append(f"({s_sy}~{s_ey})")
-                            def_item = " ".join(item_desc)
-                            
-                            item = st.text_input("Item *", value=def_item)
-                            offer = st.text_input("Target Unit Price (USD) *", placeholder="e.g. $500/ea")
-                        
-                        msg = st.text_area("Message to Admin", height=80, placeholder="Details...")
-                        
-                        if st.form_submit_button("🚀 Send Inquiry"):
-                            if not contact or not item or not offer:
-                                st.error("⚠️ Please fill in all required fields: Contact, Item, and Price.")
-                            else:
-                                conn = init_db()
-                                cur = conn.cursor()
-                                real_name = target_partner
-                                if st.session_state.user_role == 'buyer':
-                                    try:
-                                        temp_df = df_view.copy()
-                                        temp_df['alias'] = temp_df['junkyard'].apply(generate_alias)
-                                        match = temp_df[temp_df['alias'] == target_partner]
-                                        if not match.empty:
-                                            real_name = match['junkyard'].iloc[0]
-                                    except: real_name = "Unknown"
+        if st.button("🔄 Reset Filters", use_container_width=True, on_click=reset_dashboard):
+            pass
 
-                                summary = f"Qty: {req_qty} (Total Stock: {stock_cnt}), Item: {item}, Price: {offer}, Msg: {msg}"
-                                cur.execute("INSERT INTO orders (buyer_id, contact_info, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?, ?)",
-                                            (buyer_name, contact, target_partner, real_name, summary, 'PENDING'))
-                                conn.commit()
-                                conn.close()
-                                st.success("✅ Inquiry has been sent to our sales team.")
+    # 2. 메인 화면
+    if st.session_state.mode_demand and st.session_state.user_role == 'admin':
+        st.title("📈 Global Demand Trends (Real-time)")
+        eng_trend, mod_trend = get_search_trends()
+        c1, c2 = st.columns(2)
+        with c1:
+            st.subheader("🔥 Top Searched Engines")
+            if not eng_trend.empty:
+                fig = px.bar(eng_trend, x='count', y='keyword', orientation='h', text='count')
+                st.plotly_chart(fig, use_container_width=True)
+            else: st.info("No data yet.")
+        with c2:
+            st.subheader("🚙 Top Searched Models")
+            if not mod_trend.empty:
+                fig = px.bar(mod_trend, x='count', y='keyword', orientation='h', text='count')
+                st.plotly_chart(fig, use_container_width=True)
+            else: st.info("No data yet.")
+    else:
+        st.title("🇰🇷 Korea Used Auto Parts Inventory")
+        
+        df_view = st.session_state['view_data']
+        total_cnt = st.session_state['total_count']
+        
+        df_display = mask_dataframe(df_view, st.session_state.user_role)
+        
+        if st.session_state.user_role == 'admin':
+            main_tabs = st.tabs(["📊 Inventory", "📩 Orders"])
+        else:
+            main_tabs = st.tabs(["📊 Search Results", "🛒 My Orders"])
 
-            st.divider()
-            st.subheader("📋 Item List")
-            st.dataframe(df_display, use_container_width=True)
-
-    if st.session_state.user_role == 'admin':
-        with main_tabs[1]:
-            st.subheader("📩 Incoming Quote Requests")
-            conn = init_db()
-            orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
-            conn.close()
-            
-            if not orders.empty:
-                for idx, row in orders.iterrows():
-                    with st.expander(f"[{row['status']}] {row['created_at']} | From: {row['buyer_id']}"):
-                        st.write(f"**Contact:** {row['contact_info']}")
-                        st.write(f"**Target:** {row['real_junkyard_name']} ({row['target_partner_alias']})")
-                        st.info(f"**Request:** {row['items_summary']}")
-                        
-                        c1, c2 = st.columns([3, 1])
-                        with c1:
-                            new_status = st.selectbox("Change Status", 
-                                                      ["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"],
-                                                      index=["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"].index(row['status']),
-                                                      key=f"st_{row['id']}")
-                        with c2:
-                            st.write("")
-                            st.write("")
-                            if st.button("Update", key=f"btn_{row['id']}"):
-                                update_order_status(row['id'], new_status)
-                                st.success("Updated!")
-                                time.sleep(0.5)
-                                safe_rerun()
+        with main_tabs[0]:
+            if df_display.empty:
+                if st.session_state['is_filtered']:
+                    st.warning("No results found.")
+                else:
+                    st.info("Please select filters from the sidebar to search.")
             else:
-                st.info("No pending orders.")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Total Vehicles", f"{total_cnt:,} EA")
+                c2.metric("Matched Engines", f"{df_display['engine_code'].nunique()} Types")
+                sup_label = "Real Junkyards" if st.session_state.user_role == 'admin' else "Partners"
+                c3.metric(sup_label, f"{df_display['junkyard'].nunique()} EA")
+                
+                if total_cnt > 5000:
+                    st.warning(f"⚠️ Showing top 5,000 results out of {total_cnt:,}. Please refine your filters.")
+                
+                st.divider()
+                st.subheader("📦 Stock by Partner")
+                
+                grp_cols = ['junkyard', 'address']
+                if st.session_state.user_role == 'admin' and 'region' in df_display.columns:
+                    grp_cols.append('region')
+                
+                if 'address' in df_display.columns:
+                    df_display['address'] = df_display['address'].fillna("Unknown")
 
-    if st.session_state.user_role == 'buyer':
-        with main_tabs[1]: # My Orders
-            st.subheader("🛒 My Quote Requests")
-            conn = init_db()
-            my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
-            conn.close()
+                stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
+                selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
+                
+                # 견적 요청 폼
+                if len(selection.selection.rows) > 0:
+                    sel_idx = selection.selection.rows[0]
+                    sel_row = stock_summary.iloc[sel_idx]
+                    target_partner = sel_row['junkyard']
+                    stock_cnt = sel_row['qty']
+                    
+                    if st.session_state.user_role == 'guest':
+                        st.warning("🔒 Login required to request a quote.")
+                    else:
+                        st.success(f"Selected: **{target_partner}** ({stock_cnt} EA)")
+                        
+                        with st.form("order_form"):
+                            st.markdown(f"### 📨 Request Quote to {target_partner}")
+                            c_a, c_b = st.columns(2)
+                            with c_a:
+                                buyer_name = st.text_input("Name / Company", value=st.session_state.username)
+                                contact = st.text_input("Contact (Email/Phone) *")
+                                req_qty = st.number_input("Quantity *", min_value=1, value=1)
+                            with c_b:
+                                # 검색 조건에 따른 Item 자동 완성
+                                s_maker = st.session_state.get('msel', 'All')
+                                s_models = st.session_state.get('mms', [])
+                                s_engines = st.session_state.get('es', [])
+                                s_sy = st.session_state.get('sy', 2000)
+                                s_ey = st.session_state.get('ey', 2025)
 
-            if not my_orders.empty:
-                for idx, row in my_orders.iterrows():
-                    status_color = "green" if row['status'] == 'DONE' else "orange" if row['status'] == 'PENDING' else "blue"
-                    with st.expander(f"[{row['created_at']}] {row['target_partner_alias']} ({row['status']})"):
-                        st.caption(f"Status: :{status_color}[{row['status']}]")
-                        st.write(f"**Request Details:** {row['items_summary']}")
-                        if row['status'] == 'QUOTED':
-                            st.success("💬 Offer Received! Check your email/phone.")
-            else:
-                st.info("You haven't requested any quotes yet.")
+                                item_desc = []
+                                if s_engines: item_desc.append(f"Engine: {','.join(s_engines[:3])}")
+                                elif s_models: item_desc.append(f"Model: {','.join(s_models[:3])}")
+                                elif s_maker != "All": item_desc.append(f"{s_maker} Cars")
+                                else: item_desc.append("Auto Parts")
+                                
+                                if not s_engines: item_desc.append(f"({s_sy}~{s_ey})")
+                                
+                                def_item = " ".join(item_desc)
+                                
+                                item = st.text_input("Item *", value=def_item)
+                                offer = st.text_input("Target Unit Price (USD) *", placeholder="e.g. $500/ea")
+                            
+                            msg = st.text_area("Message to Admin", height=80, placeholder="Details...")
+                            
+                            if st.form_submit_button("🚀 Send Inquiry"):
+                                if not contact or not item or not offer:
+                                    st.error("⚠️ Please fill in all required fields: Contact, Item, and Price.")
+                                else:
+                                    conn = init_db()
+                                    cur = conn.cursor()
+                                    real_name = target_partner
+                                    if st.session_state.user_role == 'buyer':
+                                        try:
+                                            # Alias 매칭 (주의: df_view는 원본데이터임)
+                                            temp_df = df_view.copy()
+                                            temp_df['alias'] = temp_df['junkyard'].apply(generate_alias)
+                                            match = temp_df[temp_df['alias'] == target_partner]
+                                            if not match.empty:
+                                                real_name = match['junkyard'].iloc[0]
+                                        except: real_name = "Unknown"
+
+                                    summary = f"Qty: {req_qty} (Total Stock: {stock_cnt}), Item: {item}, Price: {offer}, Msg: {msg}"
+                                    cur.execute("INSERT INTO orders (buyer_id, contact_info, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?, ?)",
+                                                (buyer_name, contact, target_partner, real_name, summary, 'PENDING'))
+                                    conn.commit()
+                                    conn.close()
+                                    st.success("✅ Inquiry has been sent to our sales team.")
+
+                st.divider()
+                st.subheader("📋 Item List")
+                st.dataframe(df_display, use_container_width=True)
+
+        if st.session_state.user_role == 'admin':
+            with main_tabs[1]:
+                st.subheader("📩 Incoming Quote Requests")
+                conn = init_db()
+                orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
+                conn.close()
+                
+                if not orders.empty:
+                    for idx, row in orders.iterrows():
+                        with st.expander(f"[{row['status']}] {row['created_at']} | From: {row['buyer_id']}"):
+                            st.write(f"**Contact:** {row['contact_info']}")
+                            st.write(f"**Target:** {row['real_junkyard_name']} ({row['target_partner_alias']})")
+                            st.info(f"**Request:** {row['items_summary']}")
+                            
+                            c1, c2 = st.columns([3, 1])
+                            with c1:
+                                new_status = st.selectbox("Change Status", 
+                                                          ["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"],
+                                                          index=["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"].index(row['status']),
+                                                          key=f"st_{row['id']}")
+                            with c2:
+                                st.write("")
+                                st.write("")
+                                if st.button("Update", key=f"btn_{row['id']}"):
+                                    update_order_status(row['id'], new_status)
+                                    st.success("Updated!")
+                                    time.sleep(0.5)
+                                    safe_rerun()
+                else:
+                    st.info("No pending orders.")
+
+        if st.session_state.user_role == 'buyer':
+            with main_tabs[1]: # My Orders
+                st.subheader("🛒 My Quote Requests")
+                conn = init_db()
+                my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
+                conn.close()
+
+                if not my_orders.empty:
+                    for idx, row in my_orders.iterrows():
+                        status_color = "green" if row['status'] == 'DONE' else "orange" if row['status'] == 'PENDING' else "blue"
+                        with st.expander(f"[{row['created_at']}] {row['target_partner_alias']} ({row['status']})"):
+                            st.caption(f"Status: :{status_color}[{row['status']}]")
+                            st.write(f"**Request Details:** {row['items_summary']}")
+                            if row['status'] == 'QUOTED':
+                                st.success("💬 Offer Received! Check your email/phone.")
+                else:
+                    st.info("You haven't requested any quotes yet.")
 
 except Exception as e:
     st.error("⛔ 앱 실행 중 문제가 발생했습니다.")

@@ -18,8 +18,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 
-# 🟢 [라이브러리] 인증
+# 🟢 [라이브러리] 인증 및 암호화
 import streamlit_authenticator as stauth
+import bcrypt  # bcrypt 직접 사용 (Hasher 오류 방지)
 import yaml
 from yaml.loader import SafeLoader
 
@@ -45,9 +46,9 @@ except:
     COOKIE_KEY = "some_random_secret_key_123"
 
 # 🟢 [설정] 데이터베이스 파일 분리
-INVENTORY_DB = 'inventory.db'  # 재고, 폐차장, 모델 (대용량)
-SYSTEM_DB = 'system.db'        # 유저, 주문, 로그, 번역 (소용량)
-TRANS_DB = 'translations.db'   # (init_system_db 내부 로직용)
+INVENTORY_DB = 'inventory.db'
+SYSTEM_DB = 'system.db'
+TRANS_DB = 'translations.db'
 
 # ---------------------------------------------------------
 # 📧 [기능] 이메일 발송 함수
@@ -68,16 +69,12 @@ def send_email(to_email, subject, content, attachment_files=[]):
         msg['Subject'] = subject
         msg.attach(MIMEText(content, 'plain'))
 
-        # 다중 파일 첨부
         if attachment_files:
-            # 리스트인지 단일 파일인지 확인하여 리스트로 통일
             files = attachment_files if isinstance(attachment_files, list) else [attachment_files]
-            
             for file in files:
                 try:
                     file.seek(0)
                     file_data = file.read()
-                    # 파일명 처리
                     fname = file.name if hasattr(file, 'name') else "attachment"
                     part = MIMEApplication(file_data, Name=fname)
                     part['Content-Disposition'] = f'attachment; filename="{fname}"'
@@ -114,7 +111,6 @@ PROVINCE_MAP = {
     '경기도': 'Gyeonggi-do', '강원도': 'Gangwon-do', '제주도': 'Jeju'
 }
 
-# 🟢 CITY_MAP 정의 (필수)
 CITY_MAP = {
     '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang', '부천': 'Bucheon',
     '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon', '안산': 'Ansan', '고양': 'Goyang',
@@ -124,7 +120,6 @@ CITY_MAP = {
     '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju', '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong'
 }
 
-# 🟢 다국어 매핑 (러시아어, 아랍어)
 PROVINCE_MAP_RU = {
     '경기': 'Кёнгидо', '서울': 'Сеул', '인천': 'Инчхон', '강원': 'Канвондо', '충북': 'Чхунбук', 
     '충남': 'Чхуннам', '대전': 'Тэджон', '세종': 'Седжон', '전북': 'Чонбук', '전남': 'Чоннам', 
@@ -199,10 +194,9 @@ def _get_raw_translations():
             "user_name": "담당자 성함 *", "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요."
         }
     }
-    # (다른 언어는 생략, 자동 생성 시 영어 기반으로 채워짐)
+    # (다른 언어는 생략)
 
 def init_inventory_db():
-    """재고 DB (차량, 주소, 모델) 초기화 - 대용량"""
     conn = sqlite3.connect(INVENTORY_DB)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS vehicle_data (vin TEXT PRIMARY KEY, reg_date TEXT, car_no TEXT, manufacturer TEXT, model_name TEXT, model_year REAL, junkyard TEXT, engine_code TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
@@ -217,7 +211,6 @@ def init_inventory_db():
     conn.close()
 
 def init_system_db():
-    """시스템 DB (유저, 주문, 로그, 번역) 초기화 - 소용량"""
     conn = sqlite3.connect(SYSTEM_DB)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users (user_id TEXT PRIMARY KEY, password TEXT, name TEXT, company TEXT, country TEXT, email TEXT, phone TEXT, role TEXT DEFAULT 'buyer', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
@@ -225,7 +218,7 @@ def init_system_db():
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
 
-    # 번역 데이터 갱신 (항상 최신 코드 반영)
+    # 번역 데이터 갱신
     raw_data = _get_raw_translations()
     keys = raw_data["English"].keys()
     data_to_insert = []
@@ -243,11 +236,11 @@ def init_system_db():
     conn.close()
 
 # ---------------------------------------------------------
-# 🟢 [인증] 사용자 로드 (Authenticator용) - 최신 문법 적용
+# 🟢 [인증] 사용자 로드 (Authenticator용)
 # ---------------------------------------------------------
 def fetch_users_for_auth():
-    # 🟢 [수정] stauth.Hasher(['1234']).generate()[0] 문법 사용
-    admin_pw_hash = stauth.Hasher(['1234']).generate()[0]
+    # 🟢 [수정] bcrypt 직접 사용하여 해시 생성 (라이브러리 버전 이슈 해결)
+    admin_pw_hash = bcrypt.hashpw('1234'.encode(), bcrypt.gensalt()).decode()
     
     credentials = {
         'usernames': {
@@ -279,14 +272,15 @@ def fetch_users_for_auth():
     return credentials
 
 # ---------------------------------------------------------
-# 👥 [User] 회원가입 (DB 저장) - 최신 문법 적용
+# 👥 [User] 회원가입 (DB 저장)
 # ---------------------------------------------------------
 def create_user(user_id, password, name, company, country, email, phone):
     try:
         conn = sqlite3.connect(SYSTEM_DB)
         c = conn.cursor()
-        # 🟢 [수정] stauth.Hasher(['1234']).generate()[0] 문법 사용
-        hashed_pw = stauth.Hasher([password]).generate()[0]
+        # 🟢 [수정] bcrypt 직접 사용하여 해시 생성
+        hashed_pw = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        
         c.execute("INSERT INTO users (user_id, password, name, company, country, email, phone) VALUES (?, ?, ?, ?, ?, ?, ?)", 
                   (user_id, hashed_pw, name, company, country, email, phone))
         conn.commit()
@@ -296,8 +290,7 @@ def create_user(user_id, password, name, company, country, email, phone):
     except: return False
 
 def login_user(user_id, password):
-    # 이 함수는 Authenticator 사용 시 더 이상 메인 로직에서 호출되지 않을 수 있으나
-    # 수동 검증이 필요할 경우를 위해 남겨둠 (Authenticator는 내부적으로 bcrypt 검증)
+    # 이 함수는 Authenticator가 작동하지 않을 때의 Fallback용
     if user_id in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[user_id] == password:
         return "admin", "admin"
     return None, None
@@ -570,7 +563,24 @@ def load_metadata_and_init_data():
         
     return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), df_init, total_cnt
 
-# 🟢 Reset Dashboard 함수 (위치 정의됨)
+def update_order_status(order_id, new_status, notify_user=True):
+    conn = sqlite3.connect(SYSTEM_DB)
+    conn.execute("UPDATE orders SET status = ? WHERE id = ?", (new_status, order_id))
+    
+    if notify_user:
+        cursor = conn.cursor()
+        cursor.execute("SELECT contact_info FROM orders WHERE id = ?", (order_id,))
+        data = cursor.fetchone()
+        if data:
+            contact_email = data[0]
+            send_email(contact_email, f"[K-Used Car] Order Status Update: {new_status}", 
+                       f"Your order status has been updated to: {new_status}.\nPlease check your dashboard for details.")
+    conn.commit()
+    conn.close()
+
+# ---------------------------------------------------------
+# 🟢 Reset Dashboard 함수
+# ---------------------------------------------------------
 def reset_dashboard():
     _, _, _, df_init, total = load_metadata_and_init_data()
     st.session_state['view_data'] = df_init
@@ -591,7 +601,6 @@ def reset_dashboard():
 try:
     if 'language' not in st.session_state: st.session_state.language = 'English'
     
-    # DB 초기화 (Inventory & System)
     init_inventory_db()
     init_system_db()
 

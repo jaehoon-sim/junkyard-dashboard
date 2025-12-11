@@ -22,7 +22,6 @@ from email.mime.application import MIMEApplication
 import streamlit_authenticator as stauth
 import yaml
 from yaml.loader import SafeLoader
-# bcrypt는 stauth 내부에서 처리되므로 직접 임포트 불필요할 수 있으나, 안전을 위해 유지
 
 # ---------------------------------------------------------
 # 🛠️ [설정] 페이지 설정
@@ -36,19 +35,18 @@ def safe_rerun():
         st.experimental_rerun()
 
 # ---------------------------------------------------------
-# 🔐 [보안] 계정 설정
+# 🔐 [보안] 계정 및 시크릿 설정
 # ---------------------------------------------------------
 try:
-    ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
-    COOKIE_KEY = st.secrets.get("COOKIE_KEY", "some_random_secret_key_123")
+    # 이메일 설정 등은 secrets에서 가져옴
+    COOKIE_KEY = st.secrets.get("COOKIE_KEY", "k_used_car_secure_key_999")
 except:
-    ADMIN_CREDENTIALS = {"admin": "1234"}
-    COOKIE_KEY = "some_random_secret_key_123"
+    COOKIE_KEY = "k_used_car_secure_key_999"
 
-# 🟢 [설정] 데이터베이스 파일 분리
-INVENTORY_DB = 'inventory.db'  # 재고, 폐차장, 모델 (대용량)
-SYSTEM_DB = 'system.db'        # 유저, 주문, 로그, 번역 (소용량)
-TRANS_DB = 'translations.db'   # (init_system_db 내부 로직용)
+# 🟢 [설정] 데이터베이스 파일
+INVENTORY_DB = 'inventory.db'  
+SYSTEM_DB = 'system.db'
+TRANS_DB = 'translations.db'
 
 # ---------------------------------------------------------
 # 📧 [기능] 이메일 발송 함수
@@ -69,16 +67,12 @@ def send_email(to_email, subject, content, attachment_files=[]):
         msg['Subject'] = subject
         msg.attach(MIMEText(content, 'plain'))
 
-        # 다중 파일 첨부
         if attachment_files:
-            # 리스트인지 단일 파일인지 확인하여 리스트로 통일
             files = attachment_files if isinstance(attachment_files, list) else [attachment_files]
-            
             for file in files:
                 try:
                     file.seek(0)
                     file_data = file.read()
-                    # 파일명 처리
                     fname = file.name if hasattr(file, 'name') else "attachment"
                     part = MIMEApplication(file_data, Name=fname)
                     part['Content-Disposition'] = f'attachment; filename="{fname}"'
@@ -115,7 +109,6 @@ PROVINCE_MAP = {
     '경기도': 'Gyeonggi-do', '강원도': 'Gangwon-do', '제주도': 'Jeju'
 }
 
-# 🟢 CITY_MAP 정의 (필수)
 CITY_MAP = {
     '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang', '부천': 'Bucheon',
     '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon', '안산': 'Ansan', '고양': 'Goyang',
@@ -125,7 +118,6 @@ CITY_MAP = {
     '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju', '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong'
 }
 
-# 🟢 다국어 매핑 (러시아어, 아랍어)
 PROVINCE_MAP_RU = {
     '경기': 'Кёнгидо', '서울': 'Сеул', '인천': 'Инчхон', '강원': 'Канвондо', '충북': 'Чхунбук', 
     '충남': 'Чхуннам', '대전': 'Тэджон', '세종': 'Седжон', '전북': 'Чонбук', '전남': 'Чоннам', 
@@ -138,14 +130,6 @@ PROVINCE_MAP_AR = {
     '광주': 'غوانغجو', '경북': 'جيونج بوك', '경남': 'جيونج نام', '대구': 'دايغو', '부산': 'بوسان',
     '울산': 'أولسان', '제주': 'جيجو'
 }
-
-# 비밀번호 해싱
-def make_hashes(password):
-    return hashlib.sha256(str.encode(password)).hexdigest()
-
-def check_hashes(password, hashed_text):
-    if make_hashes(password) == hashed_text: return True
-    return False
 
 # ---------------------------------------------------------
 # 🗄️ [DB] 데이터베이스 초기화
@@ -246,38 +230,30 @@ def init_system_db():
         )
         data_to_insert.append(row)
     c.executemany("INSERT OR REPLACE INTO translations VALUES (?, ?, ?, ?, ?)", data_to_insert)
+    
+    # 🟢 [핵심 수정] Admin 계정을 DB에 고정으로 생성 (새로고침 시 로그인 풀림 방지)
+    # 1. Admin이 있는지 확인
+    admin_check = c.execute("SELECT * FROM users WHERE user_id = 'admin'").fetchone()
+    if not admin_check:
+        # 2. 없으면 생성 (비밀번호 '1234')
+        # 주의: stauth.Hasher를 사용하여 해시값 고정
+        # 여기서는 호환성을 위해 try-except 사용
+        try:
+            admin_hash = stauth.Hasher(['1234']).generate()[0]
+        except:
+            admin_hash = stauth.Hasher().hash('1234')
+            
+        c.execute("INSERT INTO users (user_id, password, name, role) VALUES (?, ?, ?, ?)", 
+                  ('admin', admin_hash, 'Administrator', 'admin'))
+    
     conn.commit()
     conn.close()
 
 # ---------------------------------------------------------
-# 🟢 [인증] 사용자 로드 (Authenticator용) - 1.2.0 버전 호환
+# 🟢 [인증] 사용자 로드 (Authenticator용)
 # ---------------------------------------------------------
 def fetch_users_for_auth():
-    # 🟢 [수정] Hasher(['1234']) -> Hasher().hash('1234') 로 변경
-    # 최신 authenticator에서는 Hasher 생성자에 인자를 넣지 않고 hash() 메서드를 사용하거나, 
-    # stauth.Hasher(['1234']).generate()[0] 방식을 씁니다.
-    # 사용자의 에러는 인자 개수 문제이므로, 가장 안전한 방법으로 수정합니다.
-    try:
-        # v0.3.0 이상 방식 시도
-        admin_pw_hash = stauth.Hasher(['1234']).generate()[0]
-    except TypeError:
-        # 혹시 모를 구버전/변형 버전을 위한 예외 처리 (직접 bcrypt 사용 권장)
-        # 하지만 Streamlit Cloud 환경이라면 requirements.txt에 의해 최신이 설치될 것임.
-        # 에러 메시지(1 positional argument but 2 given)는 self 외에 인자가 더 들어갔다는 뜻.
-        # Hasher() 생성자가 인자를 안 받는 버전일 수 있음.
-        admin_pw_hash = stauth.Hasher().hash('1234')
-
-    credentials = {
-        'usernames': {
-            'admin': {
-                'name': 'Administrator',
-                'password': admin_pw_hash,
-                'email': 'admin@example.com',
-                'role': 'admin'
-            }
-        }
-    }
-    
+    credentials = {'usernames': {}}
     try:
         conn = sqlite3.connect(SYSTEM_DB)
         c = conn.cursor()
@@ -303,10 +279,10 @@ def create_user(user_id, password, name, company, country, email, phone):
     try:
         conn = sqlite3.connect(SYSTEM_DB)
         c = conn.cursor()
-        # 🟢 [수정] Hasher 사용법 통일
+        # Hasher 사용
         try:
             hashed_pw = stauth.Hasher([password]).generate()[0]
-        except TypeError:
+        except:
             hashed_pw = stauth.Hasher().hash(password)
             
         c.execute("INSERT INTO users (user_id, password, name, company, country, email, phone) VALUES (?, ?, ?, ?, ?, ?, ?)", 
@@ -316,11 +292,6 @@ def create_user(user_id, password, name, company, country, email, phone):
         return True
     except sqlite3.IntegrityError: return False
     except: return False
-
-def login_user(user_id, password):
-    if user_id in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[user_id] == password:
-        return "admin", "admin"
-    return None, None
 
 # ---------------------------------------------------------
 # 🌐 [i18n] 번역 로딩 (캐시 제거)
@@ -573,37 +544,6 @@ def search_data_from_db(maker, models, engines, sy, ey, yards):
             
         return df, total_count
     except Exception as e: return pd.DataFrame(), 0
-
-@st.cache_data(ttl=300)
-def load_metadata_and_init_data():
-    conn = sqlite3.connect(INVENTORY_DB)
-    df_m = pd.read_sql("SELECT DISTINCT manufacturer, model_name FROM model_list", conn)
-    df_e = pd.read_sql("SELECT DISTINCT engine_code FROM vehicle_data", conn)
-    df_y = pd.read_sql("SELECT name FROM junkyard_info", conn)
-    total_cnt = conn.execute("SELECT COUNT(*) FROM vehicle_data").fetchone()[0]
-    df_init = pd.read_sql("SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name ORDER BY v.reg_date DESC LIMIT 5000", conn)
-    conn.close()
-    
-    if not df_init.empty:
-        df_init['model_year'] = pd.to_numeric(df_init['model_year'], errors='coerce').fillna(0)
-        df_init['reg_date'] = pd.to_datetime(df_init['reg_date'], errors='coerce')
-        
-    return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), df_init, total_cnt
-
-def update_order_status(order_id, new_status, notify_user=True):
-    conn = sqlite3.connect(SYSTEM_DB)
-    conn.execute("UPDATE orders SET status = ? WHERE id = ?", (new_status, order_id))
-    
-    if notify_user:
-        cursor = conn.cursor()
-        cursor.execute("SELECT contact_info FROM orders WHERE id = ?", (order_id,))
-        data = cursor.fetchone()
-        if data:
-            contact_email = data[0]
-            send_email(contact_email, f"[K-Used Car] Order Status Update: {new_status}", 
-                       f"Your order status has been updated to: {new_status}.\nPlease check your dashboard for details.")
-    conn.commit()
-    conn.close()
 
 # 🟢 Reset Dashboard 함수
 def reset_dashboard():
@@ -995,7 +935,6 @@ try:
                                     if sent:
                                         img_list = []
                                         if reply_files:
-                                            # 리스트 변환 (업로드 파일이 하나여도 리스트로 처리)
                                             files = reply_files if isinstance(reply_files, list) else [reply_files]
                                             for f in files:
                                                 f.seek(0)

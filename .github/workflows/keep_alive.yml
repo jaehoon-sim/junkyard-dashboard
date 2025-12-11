@@ -1,0 +1,15 @@
+name: Keep App Alive
+
+on:
+  schedule:
+    # 30분마다 실행 (시간은 필요에 따라 조절 가능)
+    - cron: "*/30 * * * *"
+  workflow_dispatch: # 수동 실행 옵션
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit App
+        # 아래 주소를 본인의 앱 주소로 변경하세요
+        run: curl https://junkyard-dashboard-twqdargdpkezyprecedmli.streamlit.app/

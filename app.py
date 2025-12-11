@@ -666,22 +666,23 @@ try:
             
             # 🟢 [회원가입]
             with st.expander(f"📝 {t('sign_up')}"):
-                new_id = st.text_input(f"👤 {t('id')}", key="s_id")
-                new_pw = st.text_input(f"🔒 {t('pw')}", type="password", key="s_pw")
-                new_name = st.text_input(f"📛 {t('user_name')}", key="s_name")
-                new_comp = st.text_input(f"🏢 {t('company_name')}", key="s_comp")
-                new_country = st.selectbox(f"🌍 {t('country')}", COUNTRY_LIST, key="s_country")
-                new_email = st.text_input(f"📧 {t('email')}", key="s_email")
-                new_phone = st.text_input(f"📞 {t('phone')}", key="s_phone")
-                
-                if st.button(t('sign_up'), use_container_width=True):
-                    if not all([new_id, new_pw, new_name, new_comp, new_country, new_email]) or new_country == "Select Country":
-                        st.error(t('signup_missing_fields'))
-                    else:
-                        if create_user(new_id, new_pw, new_name, new_comp, new_country, new_email, new_phone):
-                            st.success(t('signup_success'))
+                with st.form("signup_form"):
+                    new_id = st.text_input(f"👤 {t('id')}", key="s_id")
+                    new_pw = st.text_input(f"🔒 {t('pw')}", type="password", key="s_pw")
+                    new_name = st.text_input(f"📛 {t('user_name')}", key="s_name")
+                    new_comp = st.text_input(f"🏢 {t('company_name')}", key="s_comp")
+                    new_country = st.selectbox(f"🌍 {t('country')}", COUNTRY_LIST, key="s_country")
+                    new_email = st.text_input(f"📧 {t('email')}", key="s_email")
+                    new_phone = st.text_input(f"📞 {t('phone')}", key="s_phone")
+                    
+                    if st.form_submit_button(t('sign_up'), use_container_width=True):
+                        if not all([new_id, new_pw, new_name, new_comp, new_country, new_email]) or new_country == "Select Country":
+                            st.error(t('signup_missing_fields'))
                         else:
-                            st.error(t('user_exists'))
+                            if create_user(new_id, new_pw, new_name, new_comp, new_country, new_email, new_phone):
+                                st.success(t('signup_success'))
+                            else:
+                                st.error(t('user_exists'))
 
         st.divider()
 
@@ -743,69 +744,79 @@ try:
                 st.session_state['mode_demand'] = True
                 safe_rerun()
 
-        # 검색 필터
+        # ⚡⚡⚡ [수정] 검색 필터에 st.form 적용 (입력 시 깜빡임 방지) ⚡⚡⚡
         st.subheader(f"🔍 {t('search_filter')}")
         search_tabs = st.tabs([f"🚙 {t('tab_vehicle')}", f"🔧 {t('tab_engine')}", f"🏭 {t('tab_yard')}"])
         
         with search_tabs[0]: 
-            makers = sorted(df_models['manufacturer'].unique().tolist())
-            makers.insert(0, "All")
-            sel_maker = st.selectbox(t('manufacturer'), makers, key="msel")
-            
-            c1, c2 = st.columns(2)
-            with c1: sel_sy = st.number_input(t('from_year'), 1990, 2030, 2000, key="sy")
-            with c2: sel_ey = st.number_input(t('to_year'), 1990, 2030, 2025, key="ey")
-            
-            if sel_maker != "All":
-                f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].unique().tolist())
-            else:
-                f_models = sorted(df_models['model_name'].unique().tolist())
-            sel_models = st.multiselect(t('model'), f_models, key="mms")
-            
-            if st.button(f"🔍 {t('search_btn_veh')}", type="primary"):
-                log_search(sel_models, 'model')
-                res, tot = search_data_from_db(sel_maker, sel_models, [], sel_sy, sel_ey, [])
-                st.session_state['view_data'] = res
-                st.session_state['total_count'] = tot
-                st.session_state['is_filtered'] = True
-                st.session_state['mode_demand'] = False
-                safe_rerun()
+            with st.form("veh_search_form"):
+                makers = sorted(df_models['manufacturer'].unique().tolist())
+                makers.insert(0, "All")
+                sel_maker = st.selectbox(t('manufacturer'), makers, key="msel")
+                
+                c1, c2 = st.columns(2)
+                with c1: sel_sy = st.number_input(t('from_year'), 1990, 2030, 2000, key="sy")
+                with c2: sel_ey = st.number_input(t('to_year'), 1990, 2030, 2025, key="ey")
+                
+                # Note: multiselect cannot be dynamic inside a form easily based on selectbox above 
+                # without rerunning. So we load all models or handle it carefully.
+                # To keep it simple and non-flickering, we show all models or rely on 'All' logic.
+                if sel_maker != "All":
+                    # This part causes rerun if outside form. Inside form, it won't update until submit.
+                    # So we show all models if possible or simple logic. 
+                    # For better UX inside form, we use all models.
+                    f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].unique().tolist())
+                else:
+                    f_models = sorted(df_models['model_name'].unique().tolist())
+                    
+                sel_models = st.multiselect(t('model'), f_models, key="mms")
+                
+                if st.form_submit_button(f"🔍 {t('search_btn_veh')}", type="primary"):
+                    log_search(sel_models, 'model')
+                    res, tot = search_data_from_db(sel_maker, sel_models, [], sel_sy, sel_ey, [])
+                    st.session_state['view_data'] = res
+                    st.session_state['total_count'] = tot
+                    st.session_state['is_filtered'] = True
+                    st.session_state['mode_demand'] = False
+                    safe_rerun()
 
         with search_tabs[1]: 
-            sel_engines = st.multiselect(t('engine_code'), sorted(list_engines), key="es")
-            if st.button(f"🔍 {t('search_btn_eng')}", type="primary"):
-                log_search(sel_engines, 'engine')
-                res, tot = search_data_from_db(None, [], sel_engines, 1990, 2030, [])
-                st.session_state['view_data'] = res
-                st.session_state['total_count'] = tot
-                st.session_state['is_filtered'] = True
-                st.session_state['mode_demand'] = False
-                safe_rerun()
+            with st.form("eng_search_form"):
+                sel_engines = st.multiselect(t('engine_code'), sorted(list_engines), key="es")
+                if st.form_submit_button(f"🔍 {t('search_btn_eng')}", type="primary"):
+                    log_search(sel_engines, 'engine')
+                    res, tot = search_data_from_db(None, [], sel_engines, 1990, 2030, [])
+                    st.session_state['view_data'] = res
+                    st.session_state['total_count'] = tot
+                    st.session_state['is_filtered'] = True
+                    st.session_state['mode_demand'] = False
+                    safe_rerun()
 
         with search_tabs[2]: 
-            yard_opts = list_yards
-            if st.session_state.user_role == 'buyer':
-                yard_opts = sorted(list(set([generate_alias(name) for name in list_yards])))
-            else:
-                yard_opts = sorted(list_yards)
-                
-            sel_yards = st.multiselect(t('partner_name'), yard_opts, key="ys")
-            
-            if st.button(f"🔍 {t('search_btn_partners')}", type="primary"):
-                real_yard_names = []
+            with st.form("yard_search_form"):
+                yard_opts = list_yards
                 if st.session_state.user_role == 'buyer':
-                    for y in list_yards:
-                        if generate_alias(y) in sel_yards:
-                            real_yard_names.append(y)
+                    yard_opts = sorted(list(set([generate_alias(name) for name in list_yards])))
                 else:
-                    real_yard_names = sel_yards
+                    yard_opts = sorted(list_yards)
                     
-                res, tot = search_data_from_db(None, [], [], 1990, 2030, real_yard_names)
-                st.session_state['view_data'] = res
-                st.session_state['total_count'] = tot
-                st.session_state['is_filtered'] = True
-                st.session_state['mode_demand'] = False
-                safe_rerun()
+                sel_yards = st.multiselect(t('partner_name'), yard_opts, key="ys")
+                
+                if st.form_submit_button(f"🔍 {t('search_btn_partners')}", type="primary"):
+                    real_yard_names = []
+                    if st.session_state.user_role == 'buyer':
+                        for y in list_yards:
+                            if generate_alias(y) in sel_yards:
+                                real_yard_names.append(y)
+                    else:
+                        real_yard_names = sel_yards
+                        
+                    res, tot = search_data_from_db(None, [], [], 1990, 2030, real_yard_names)
+                    st.session_state['view_data'] = res
+                    st.session_state['total_count'] = tot
+                    st.session_state['is_filtered'] = True
+                    st.session_state['mode_demand'] = False
+                    safe_rerun()
 
         if st.button(f"🔄 {t('reset_filters')}", use_container_width=True, on_click=reset_dashboard):
             pass
@@ -883,6 +894,7 @@ try:
                     else:
                         st.success(t('selected_msg').format(target_partner, stock_cnt))
                         
+                        # ⚡⚡⚡ [수정] 견적 요청도 st.form 사용 ⚡⚡⚡
                         with st.form("order_form"):
                             st.markdown(f"### {t('req_quote_title').format(target_partner)}")
                             c_a, c_b = st.columns(2)

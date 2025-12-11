@@ -14,7 +14,7 @@ import numpy as np
 import smtplib
 import json
 import base64
-import uuid  # 🟢 [추가] 토큰 생성을 위해 필요
+import uuid
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
@@ -120,11 +120,66 @@ def check_hashes(password, hashed_text):
 # 🗄️ [DB] 데이터베이스 초기화
 # ---------------------------------------------------------
 def _get_raw_translations():
-    # (번역 데이터는 너무 길어서 생략 - 기존과 동일하게 유지됨)
-    return { "English": {"app_title": "K-Used Car Global Hub"}, "Korean": {"app_title": "K-Used Car 글로벌 허브"} } 
-
-# 실제 코드 실행 시에는 기존 번역 딕셔너리 전체를 여기에 넣어주세요.
-# 편의상 여기서는 생략했지만, 반드시 기존 코드를 유지해야 합니다.
+    return {
+        "English": {
+            "app_title": "K-Used Car Global Hub", "login_title": "Login", "id": "ID *", "pw": "Password *",
+            "sign_in": "Sign In", "sign_up": "Sign Up", "logout": "Logout", "welcome": "Welcome, {}!", 
+            "invalid_cred": "Invalid Credentials", "user_exists": "User ID already exists.", "signup_success": "Account created! Please login.",
+            "admin_tools": "Admin Tools", "data_upload": "Data Upload", "save_data": "Save Data", "addr_db": "Address DB",
+            "save_addr": "Save Address", "reset_db": "Reset System DB", "reset_inv": "Reset Inventory DB", "reset_done": "Reset Done",
+            "records_saved": "{} records uploaded.", "addr_updated": "{} addresses updated.", "admin_menu": "Admin Menu", 
+            "demand_analysis": "Global Demand Analysis", "search_filter": "Search Filter", "tab_vehicle": "Vehicle", 
+            "tab_engine": "Engine", "tab_yard": "Yard", "manufacturer": "Manufacturer", "from_year": "From Year", 
+            "to_year": "To Year", "model": "Model", "engine_code": "Engine Code", "partner_name": "Partner Name", 
+            "search_btn_veh": "Search Vehicle", "search_btn_eng": "Search Engine", "search_btn_partners": "Search Partner", 
+            "reset_filters": "Reset Filters", "check_trends": "Check global search trends.", "show_trends": "Show Trends", 
+            "analysis_title": "Global Demand Trends (Real-time)", "top_engines": "Top Searched Engines", 
+            "top_models": "Top Searched Models", "main_title": "K-Used Car/Engine Inventory", "tab_inventory": "Inventory", 
+            "tab_orders": "Orders", "tab_results": "Search Results", "tab_my_orders": "My Orders", "no_results": "No results found.", 
+            "plz_select": "Please select filters from the sidebar to search.", "total_veh": "Total Vehicles", 
+            "matched_eng": "Matched Engines", "partners_cnt": "Partners", "real_yards": "Real Junkyards", 
+            "limit_warning": "⚠️ Showing top 5,000 results out of {:,}. Please refine filters.", "stock_by_partner": "Stock by Partner", 
+            "login_req_warn": "🔒 Login required to request a quote.", "selected_msg": "Selected: **{}** ({} EA)", 
+            "req_quote_title": "📨 Request Quote to {}", "name_company": "Name / Company", "contact": "Contact (Email/Phone) *", 
+            "qty": "Quantity *", "item": "Item *", "unit_price": "Target Unit Price (USD) *", "message": "Message to Admin", 
+            "send_btn": "🚀 Send Inquiry", "fill_error": "⚠️ Please fill in all required fields: Contact, Item, and Price.", 
+            "inquiry_sent": "✅ Inquiry has been sent to our sales team.", "item_list": "Item List", "incoming_quotes": "📩 Incoming Quote Requests", 
+            "my_quote_req": "🛒 My Quote Requests", "no_orders_admin": "No pending orders.", "no_orders_buyer": "You haven't requested any quotes yet.", 
+            "status_change": "Change Status", "update_btn": "Update", "updated_msg": "Updated!", 
+            "offer_received": "💬 Offer Received! Check your email/phone.", "company_name": "Company Name *", 
+            "country": "Country *", "email": "Email *", "phone": "Phone Number", "user_name": "Name (Person) *", 
+            "signup_missing_fields": "⚠️ Please fill in all required fields (marked with *).",
+            "tab_users": "User Management", "delete_user": "Delete User", "user_deleted": "User {} deleted."
+        },
+        "Korean": {
+            "app_title": "K-Used Car 글로벌 허브", "login_title": "로그인", "id": "아이디 *", "pw": "비밀번호 *",
+            "sign_in": "로그인", "sign_up": "회원가입", "logout": "로그아웃", "welcome": "환영합니다, {}님!", 
+            "invalid_cred": "로그인 정보가 올바르지 않습니다.", "user_exists": "이미 존재하는 아이디입니다.", "signup_success": "가입 완료! 로그인해주세요.",
+            "admin_tools": "관리자 도구", "data_upload": "데이터 업로드", "save_data": "데이터 저장", "addr_db": "주소 DB",
+            "save_addr": "주소 저장", "reset_db": "시스템 DB 초기화", "reset_inv": "재고 DB 초기화", "reset_done": "초기화 완료",
+            "records_saved": "{}건 저장 완료.", "addr_updated": "{}곳 주소 업데이트 완료.", "admin_menu": "관리자 메뉴", 
+            "demand_analysis": "글로벌 수요 분석", "search_filter": "검색 필터", "tab_vehicle": "차량", "tab_engine": "엔진", 
+            "tab_yard": "업체", "manufacturer": "제조사", "from_year": "시작 연식", "to_year": "종료 연식", "model": "모델명", 
+            "engine_code": "엔진코드", "partner_name": "파트너명", "search_btn_veh": "차량 검색", "search_btn_eng": "엔진 검색", 
+            "search_btn_partners": "파트너 검색", "reset_filters": "필터 초기화", "check_trends": "글로벌 검색 트렌드 확인", 
+            "show_trends": "트렌드 보기", "analysis_title": "글로벌 실시간 수요 분석", "top_engines": "인기 검색 엔진", 
+            "top_models": "인기 검색 차종", "main_title": "K-Used Car/Engine 재고 현황", "tab_inventory": "재고 조회", 
+            "tab_orders": "주문 관리", "tab_results": "검색 결과", "tab_my_orders": "내 주문 내역", "no_results": "검색 결과가 없습니다.", 
+            "plz_select": "사이드바에서 필터를 선택하여 검색하세요.", "total_veh": "총 차량", "matched_eng": "매칭 엔진", 
+            "partners_cnt": "파트너 수", "real_yards": "실제 폐차장", "limit_warning": "⚠️ 총 {:,}건 중 상위 5,000건만 표시됩니다. 필터를 상세 조정하세요.", 
+            "stock_by_partner": "업체별 보유 현황", "login_req_warn": "🔒 견적 요청을 위해 로그인이 필요합니다.", "selected_msg": "선택됨: **{}** ({} 개)", 
+            "req_quote_title": "📨 {}에 견적 요청", "name_company": "이름 / 회사명", "contact": "연락처 (이메일/전화) *", 
+            "qty": "요청 수량 *", "item": "품목 *", "unit_price": "희망 단가 (USD) *", "message": "메시지", 
+            "send_btn": "🚀 견적 요청 전송", "fill_error": "⚠️ 필수 입력 항목(연락처, 품목, 단가)을 입력해주세요.", 
+            "inquiry_sent": "✅ 영업팀으로 견적 요청이 전송되었습니다.", "item_list": "상세 목록", "incoming_quotes": "📩 접수된 견적 요청", 
+            "my_quote_req": "🛒 나의 견적 요청 내역", "no_orders_admin": "대기 중인 주문이 없습니다.", "no_orders_buyer": "아직 요청한 내역이 없습니다.", 
+            "status_change": "상태 변경", "update_btn": "업데이트", "updated_msg": "업데이트 완료!", "offer_received": "💬 견적 도착! 이메일/전화를 확인하세요.",
+            "company_name": "회사명 *", "country": "국가 *", "email": "이메일 *", "phone": "전화번호",
+            "user_name": "담당자 성함 *", "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요.",
+            "tab_users": "회원 관리", "delete_user": "회원 삭제", "user_deleted": "{} 회원이 삭제되었습니다."
+        }
+    }
+    # (다른 언어는 생략, 자동 생성 시 영어/한국어 기반으로 채워짐)
 
 def init_inventory_db():
     conn = sqlite3.connect(INVENTORY_DB)
@@ -147,17 +202,27 @@ def init_system_db():
     c.execute('''CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, buyer_id TEXT, contact_info TEXT, target_partner_alias TEXT, real_junkyard_name TEXT, items_summary TEXT, status TEXT DEFAULT 'PENDING', reply_text TEXT, reply_images TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
-    
-    # 🟢 [추가] 세션 관리를 위한 테이블
     c.execute('''CREATE TABLE IF NOT EXISTS user_sessions (token TEXT PRIMARY KEY, user_id TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
 
-    # 번역 데이터 갱신 (축소된 예시 - 실제로는 기존 full data 사용 권장)
-    # 실제 앱에서는 이 부분이 길어도 상관없습니다.
+    raw_data = _get_raw_translations()
+    keys = raw_data["English"].keys()
+    data_to_insert = []
+    for k in keys:
+        row = (
+            k,
+            raw_data.get("English", {}).get(k, k),
+            raw_data.get("Korean", {}).get(k, k),
+            raw_data.get("Russian", {}).get(k, k),
+            raw_data.get("Arabic", {}).get(k, k)
+        )
+        data_to_insert.append(row)
+    c.executemany("INSERT OR REPLACE INTO translations VALUES (?, ?, ?, ?, ?)", data_to_insert)
+    
     conn.commit()
     conn.close()
 
 # ---------------------------------------------------------
-# 👥 [User] 인증 및 세션 관리 (핵심 로직)
+# 👥 [User] 인증 및 세션 관리
 # ---------------------------------------------------------
 def create_user(user_id, password, name, company, country, email, phone):
     try:
@@ -173,11 +238,9 @@ def create_user(user_id, password, name, company, country, email, phone):
     except: return False
 
 def login_user(user_id, password):
-    # Admin 하드코딩 체크
     if user_id in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[user_id] == password:
         return "admin", "admin"
     
-    # DB 체크
     try:
         conn = sqlite3.connect(SYSTEM_DB)
         c = conn.cursor()
@@ -191,19 +254,15 @@ def login_user(user_id, password):
     except: pass
     return None, None
 
-# 🟢 [추가] 세션 토큰 생성 및 DB 저장
 def create_session(user_id):
     token = str(uuid.uuid4())
     conn = sqlite3.connect(SYSTEM_DB)
     c = conn.cursor()
-    # 기존 세션 정리 (선택사항, 중복 로그인 방지 원하면 주석 해제)
-    # c.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
     c.execute("INSERT INTO user_sessions (token, user_id) VALUES (?, ?)", (token, user_id))
     conn.commit()
     conn.close()
     return token
 
-# 🟢 [추가] 세션 토큰 검증
 def verify_session(token):
     if not token: return None, None
     try:
@@ -231,7 +290,6 @@ def verify_session(token):
         return role, name
     except: return None, None
 
-# 🟢 [추가] 세션 삭제 (로그아웃)
 def delete_session(token):
     try:
         conn = sqlite3.connect(SYSTEM_DB)
@@ -241,7 +299,7 @@ def delete_session(token):
     except: pass
 
 # ---------------------------------------------------------
-# 🌐 [i18n] 번역 로딩 (SYSTEM_DB)
+# 🌐 [i18n] 번역 로딩
 # ---------------------------------------------------------
 def load_translations():
     conn = sqlite3.connect(SYSTEM_DB)
@@ -257,7 +315,6 @@ def load_translations():
             if lang in df.columns:
                 trans_dict[lang] = dict(zip(df['key'], df[lang]))
     
-    # DB에 데이터가 없을 때를 대비한 기본값 (실제 앱에서는 init_system_db가 처리함)
     if not trans_dict:
         return _get_raw_translations()
         
@@ -270,7 +327,7 @@ def t(key):
     return lang_dict.get(key, key)
 
 # ---------------------------------------------------------
-# 🕵️ [Data] 데이터 처리 함수들 (이전과 동일)
+# 🕵️ [Data] 데이터 처리 함수들
 # ---------------------------------------------------------
 def generate_alias(real_name):
     if not isinstance(real_name, str): return "Unknown"
@@ -453,33 +510,46 @@ def search_data_from_db(maker, models, engines, sy, ey, yards):
         conn = sqlite3.connect(INVENTORY_DB)
         base_cond = "1=1"
         params = []
+        
         if maker and maker != "All":
             base_cond += " AND v.manufacturer = ?"
             params.append(maker)
+        
         base_cond += " AND v.model_year >= ? AND v.model_year <= ?"
         params.extend([sy, ey])
+        
         if models:
             placeholders = ','.join(['?'] * len(models))
             base_cond += f" AND v.model_name IN ({placeholders})"
             params.extend(models)
+            
         if engines:
             placeholders = ','.join(['?'] * len(engines))
             base_cond += f" AND v.engine_code IN ({placeholders})"
             params.extend(engines)
+            
         if yards:
             placeholders = ','.join(['?'] * len(yards))
             base_cond += f" AND v.junkyard IN ({placeholders})"
             params.extend(yards)
-        
+            
         count_q = f"SELECT COUNT(*) FROM vehicle_data v WHERE {base_cond}"
         total_count = conn.execute(count_q, params).fetchone()[0]
-        data_q = f"SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name WHERE {base_cond} ORDER BY v.reg_date DESC LIMIT 5000"
+        
+        data_q = f"""
+            SELECT v.*, j.region, j.address 
+            FROM vehicle_data v 
+            LEFT JOIN junkyard_info j ON v.junkyard = j.name
+            WHERE {base_cond}
+            ORDER BY v.reg_date DESC LIMIT 5000
+        """
         df = pd.read_sql(data_q, conn, params=params)
         conn.close()
         
         if not df.empty:
             df['model_year'] = pd.to_numeric(df['model_year'], errors='coerce').fillna(0)
             df['reg_date'] = pd.to_datetime(df['reg_date'], errors='coerce')
+            
         return df, total_count
     except Exception as e: return pd.DataFrame(), 0
 
@@ -502,12 +572,15 @@ def load_metadata_and_init_data():
 def update_order_status(order_id, new_status, notify_user=True):
     conn = sqlite3.connect(SYSTEM_DB)
     conn.execute("UPDATE orders SET status = ? WHERE id = ?", (new_status, order_id))
+    
     if notify_user:
         cursor = conn.cursor()
         cursor.execute("SELECT contact_info FROM orders WHERE id = ?", (order_id,))
         data = cursor.fetchone()
         if data:
-            send_email(data[0], f"[K-Used Car] Status Update: {new_status}", f"Order status: {new_status}")
+            contact_email = data[0]
+            send_email(contact_email, f"[K-Used Car] Order Status Update: {new_status}", 
+                       f"Your order status has been updated to: {new_status}.\nPlease check your dashboard for details.")
     conn.commit()
     conn.close()
 
@@ -532,12 +605,11 @@ try:
     init_inventory_db()
     init_system_db()
 
-    # 🟢 [수정] 앱 실행 시 URL 토큰 체크 (자동 로그인)
+    # 앱 실행 시 URL 토큰 체크 (자동 로그인)
     if 'user_role' not in st.session_state:
         st.session_state.user_role = 'guest'
         st.session_state.username = 'Guest'
         
-        # URL에서 토큰 확인
         query_params = st.query_params
         token = query_params.get("token")
         
@@ -587,7 +659,6 @@ try:
                 if st.button(t('sign_in'), use_container_width=True):
                     role, name = login_user(uid, upw)
                     if role:
-                        # 🟢 [수정] 로그인 성공 시 토큰 생성 및 URL 반영
                         token = create_session(uid)
                         st.query_params["token"] = token
                         
@@ -618,7 +689,6 @@ try:
         else:
             st.success(t('welcome').format(st.session_state.username))
             if st.button(t('logout')):
-                # 🟢 [수정] 로그아웃 시 토큰 삭제 및 URL 클리어
                 current_token = st.query_params.get("token")
                 if current_token:
                     delete_session(current_token)
@@ -672,7 +742,7 @@ try:
                     conn.execute("DROP TABLE IF EXISTS orders")
                     conn.execute("DROP TABLE IF EXISTS search_logs_v2")
                     conn.execute("DROP TABLE IF EXISTS translations")
-                    conn.execute("DROP TABLE IF EXISTS user_sessions") # 세션 테이블도 초기화
+                    conn.execute("DROP TABLE IF EXISTS user_sessions")
                     conn.commit()
                     conn.close()
                     init_system_db.clear()
@@ -777,16 +847,14 @@ try:
     else:
         st.title(t('main_title'))
         
-        if 'view_data' not in st.session_state:
-            reset_dashboard()
-            
         df_view = st.session_state['view_data']
-        total_cnt = st.session_state.get('total_count', 0)
+        total_cnt = st.session_state['total_count']
         
         df_display = mask_dataframe(df_view, st.session_state.user_role)
         
         if st.session_state.user_role == 'admin':
-            main_tabs = st.tabs([f"📊 {t('tab_inventory')}", f"📩 {t('tab_orders')}"])
+            # 🟢 [수정] 어드민용 탭 확장 (User Management 추가)
+            main_tabs = st.tabs([f"📊 {t('tab_inventory')}", f"📩 {t('tab_orders')}", f"👥 {t('tab_users')}"])
         else:
             main_tabs = st.tabs([f"📊 {t('tab_results')}", f"🛒 {t('tab_my_orders')}"])
 
@@ -921,7 +989,6 @@ try:
                                     if sent:
                                         img_list = []
                                         if reply_files:
-                                            # 리스트 변환 (업로드 파일이 하나여도 리스트로 처리)
                                             files = reply_files if isinstance(reply_files, list) else [reply_files]
                                             for f in files:
                                                 f.seek(0)
@@ -956,6 +1023,34 @@ try:
                                     safe_rerun()
                 else:
                     st.info(t('no_orders_admin'))
+            
+            # 🟢 [추가] 회원 관리 탭 구현
+            with main_tabs[2]:
+                st.subheader(f"👥 {t('tab_users')}")
+                conn = sqlite3.connect(SYSTEM_DB)
+                # 비밀번호는 보안상 제외하고 조회
+                users_df = pd.read_sql("SELECT user_id, name, company, country, email, phone, role, created_at FROM users", conn)
+                conn.close()
+                
+                st.dataframe(users_df, use_container_width=True)
+                
+                st.divider()
+                # 간단한 회원 삭제 UI (선택사항)
+                with st.expander(f"⚠️ {t('delete_user')}"):
+                    del_user_id = st.text_input(f"{t('id')} to delete")
+                    if st.button(t('delete_user'), type="primary"):
+                        if del_user_id:
+                            conn = sqlite3.connect(SYSTEM_DB)
+                            try:
+                                conn.execute("DELETE FROM users WHERE user_id = ?", (del_user_id,))
+                                conn.commit()
+                                st.success(t('user_deleted').format(del_user_id))
+                                time.sleep(1)
+                                safe_rerun()
+                            except Exception as e:
+                                st.error(f"Error: {e}")
+                            finally:
+                                conn.close()
 
         if st.session_state.user_role == 'buyer':
             with main_tabs[1]: 

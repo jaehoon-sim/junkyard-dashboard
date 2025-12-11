@@ -24,7 +24,7 @@ import yaml
 from yaml.loader import SafeLoader
 
 # ---------------------------------------------------------
-# 🛠️ [설정] 페이지 설정
+# 🛠️ [설정] 페이지 설정 (무조건 맨 위)
 # ---------------------------------------------------------
 st.set_page_config(page_title="K-Used Car Global Hub", layout="wide")
 
@@ -38,15 +38,57 @@ def safe_rerun():
 # 🔐 [보안] 계정 및 시크릿 설정
 # ---------------------------------------------------------
 try:
-    # 이메일 설정 등은 secrets에서 가져옴
-    COOKIE_KEY = st.secrets.get("COOKIE_KEY", "k_used_car_secure_key_999")
+    ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
+    COOKIE_KEY = st.secrets.get("COOKIE_KEY", "some_random_secret_key_123")
 except:
-    COOKIE_KEY = "k_used_car_secure_key_999"
+    ADMIN_CREDENTIALS = {"admin": "1234"}
+    COOKIE_KEY = "some_random_secret_key_123"
 
-# 🟢 [설정] 데이터베이스 파일
-INVENTORY_DB = 'inventory.db'  
-SYSTEM_DB = 'system.db'
-TRANS_DB = 'translations.db'
+# 🟢 [설정] 데이터베이스 파일 분리
+INVENTORY_DB = 'inventory.db'  # 재고, 폐차장, 모델 (대용량)
+SYSTEM_DB = 'system.db'        # 유저, 주문, 로그, 번역 (소용량)
+TRANS_DB = 'translations.db'   # (init_system_db 내부 로직용)
+
+# ---------------------------------------------------------
+# 🌍 [설정] 데이터 (국가, 주소 매핑)
+# ---------------------------------------------------------
+COUNTRY_LIST = [
+    "Select Country", "Russia", "Jordan", "Saudi Arabia", "UAE", "Egypt", "Kazakhstan", "Kyrgyzstan", 
+    "Mongolia", "Vietnam", "Philippines", "Chile", "Dominican Rep.", "Ghana", "Nigeria", 
+    "Cambodia", "Uzbekistan", "Tajikistan", "USA", "Canada", "Other"
+]
+
+PROVINCE_MAP = {
+    '경기': 'Gyeonggi-do', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon-do',
+    '충북': 'Chungbuk', '충남': 'Chungnam', '대전': 'Daejeon', '세종': 'Sejong',
+    '전북': 'Jeonbuk', '전남': 'Jeonnam', '광주': 'Gwangju',
+    '경북': 'Gyeongbuk', '경남': 'Gyeongnam', '대구': 'Daegu', '부산': 'Busan', '울산': 'Ulsan',
+    '제주': 'Jeju', '경상남도': 'Gyeongnam', '경상북도': 'Gyeongbuk', 
+    '전라남도': 'Jeonnam', '전라북도': 'Jeonbuk', '충청남도': 'Chungnam', '충청북도': 'Chungbuk',
+    '경기도': 'Gyeonggi-do', '강원도': 'Gangwon-do', '제주도': 'Jeju'
+}
+
+CITY_MAP = {
+    '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang', '부천': 'Bucheon',
+    '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon', '안산': 'Ansan', '고양': 'Goyang',
+    '과천': 'Gwacheon', '구리': 'Guri', '남양주': 'Namyangju', '오산': 'Osan', '시흥': 'Siheung',
+    '군포': 'Gunpo', '의왕': 'Uiwang', '하남': 'Hanam', '용인': 'Yongin', '파주': 'Paju',
+    '이천': 'Icheon', '안성': 'Anseong', '김포': 'Gimpo', '화성': 'Hwaseong', '광주': 'Gwangju',
+    '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju', '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong'
+}
+
+PROVINCE_MAP_RU = {
+    '경기': 'Кёнгидо', '서울': 'Сеул', '인천': 'Инчхон', '강원': 'Канвондо', '충북': 'Чхунбук', 
+    '충남': 'Чхуннам', '대전': 'Тэджон', '세종': 'Седжон', '전북': 'Чонбук', '전남': 'Чоннам', 
+    '광주': 'Кванджу', '경북': 'Кёнбук', '경남': 'Кённам', '대구': 'Тэгу', '부산': 'Пусан', 
+    '울산': 'Ульсан', '제주': 'Чеджу'
+}
+PROVINCE_MAP_AR = {
+    '경기': 'جيونج جي دو', '서울': 'سيول', '인천': 'إنتشون', '강원': 'كانغوون دو', '충북': 'تشونغ تشونغ',
+    '충남': 'تشونغ نام', '대전': 'دايجون', '세종': 'سيجونغ', '전북': 'جيون بوك', '전남': 'جيون نام',
+    '광주': 'غوانغجو', '경북': 'جيونج بوك', '경남': 'جيونج نام', '대구': 'دايغو', '부산': 'بوسان',
+    '울산': 'أولسان', '제주': 'جيجو'
+}
 
 # ---------------------------------------------------------
 # 📧 [기능] 이메일 발송 함수
@@ -89,47 +131,6 @@ def send_email(to_email, subject, content, attachment_files=[]):
     except Exception as e:
         print(f"Email send error: {e}")
         return False
-
-# ---------------------------------------------------------
-# 🌍 [설정] 데이터 (국가, 주소 매핑)
-# ---------------------------------------------------------
-COUNTRY_LIST = [
-    "Select Country", "Russia", "Jordan", "Saudi Arabia", "UAE", "Egypt", "Kazakhstan", "Kyrgyzstan", 
-    "Mongolia", "Vietnam", "Philippines", "Chile", "Dominican Rep.", "Ghana", "Nigeria", 
-    "Cambodia", "Uzbekistan", "Tajikistan", "USA", "Canada", "Other"
-]
-
-PROVINCE_MAP = {
-    '경기': 'Gyeonggi-do', '서울': 'Seoul', '인천': 'Incheon', '강원': 'Gangwon-do',
-    '충북': 'Chungbuk', '충남': 'Chungnam', '대전': 'Daejeon', '세종': 'Sejong',
-    '전북': 'Jeonbuk', '전남': 'Jeonnam', '광주': 'Gwangju',
-    '경북': 'Gyeongbuk', '경남': 'Gyeongnam', '대구': 'Daegu', '부산': 'Busan', '울산': 'Ulsan',
-    '제주': 'Jeju', '경상남도': 'Gyeongnam', '경상북도': 'Gyeongbuk', 
-    '전라남도': 'Jeonnam', '전라북도': 'Jeonbuk', '충청남도': 'Chungnam', '충청북도': 'Chungbuk',
-    '경기도': 'Gyeonggi-do', '강원도': 'Gangwon-do', '제주도': 'Jeju'
-}
-
-CITY_MAP = {
-    '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang', '부천': 'Bucheon',
-    '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon', '안산': 'Ansan', '고양': 'Goyang',
-    '과천': 'Gwacheon', '구리': 'Guri', '남양주': 'Namyangju', '오산': 'Osan', '시흥': 'Siheung',
-    '군포': 'Gunpo', '의왕': 'Uiwang', '하남': 'Hanam', '용인': 'Yongin', '파주': 'Paju',
-    '이천': 'Icheon', '안성': 'Anseong', '김포': 'Gimpo', '화성': 'Hwaseong', '광주': 'Gwangju',
-    '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju', '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong'
-}
-
-PROVINCE_MAP_RU = {
-    '경기': 'Кёнгидо', '서울': 'Сеул', '인천': 'Инчхон', '강원': 'Канвондо', '충북': 'Чхунбук', 
-    '충남': 'Чхуннам', '대전': 'Тэджон', '세종': 'Седжон', '전북': 'Чонбук', '전남': 'Чоннам', 
-    '광주': 'Кванджу', '경북': 'Кёнбук', '경남': 'Кённам', '대구': 'Тэгу', '부산': 'Пусан', 
-    '울산': 'Ульсан', '제주': 'Чеджу'
-}
-PROVINCE_MAP_AR = {
-    '경기': 'جيونج جي دو', '서울': 'سيول', '인천': 'إنتشون', '강원': 'كانغوون دو', '충북': 'تشونغ تشونغ',
-    '충남': 'تشونغ نام', '대전': 'دايجون', '세종': 'سيجونغ', '전북': 'جيون بوك', '전남': 'جيون نام',
-    '광주': 'غوانغجو', '경북': 'جيونج بوك', '경남': 'جيونج نام', '대구': 'دايغو', '부산': 'بوسان',
-    '울산': 'أولسان', '제주': 'جيجو'
-}
 
 # ---------------------------------------------------------
 # 🗄️ [DB] 데이터베이스 초기화
@@ -192,7 +193,7 @@ def _get_raw_translations():
             "user_name": "담당자 성함 *", "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요."
         }
     }
-    # (다른 언어는 생략)
+    # (다른 언어는 생략, 자동 생성 시 영어 기반으로 채워짐)
 
 def init_inventory_db():
     conn = sqlite3.connect(INVENTORY_DB)
@@ -216,7 +217,7 @@ def init_system_db():
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
 
-    # 번역 데이터 갱신
+    # 번역 데이터 갱신 (항상 최신 코드 반영)
     raw_data = _get_raw_translations()
     keys = raw_data["English"].keys()
     data_to_insert = []
@@ -230,30 +231,32 @@ def init_system_db():
         )
         data_to_insert.append(row)
     c.executemany("INSERT OR REPLACE INTO translations VALUES (?, ?, ?, ?, ?)", data_to_insert)
-    
-    # 🟢 [핵심 수정] Admin 계정을 DB에 고정으로 생성 (새로고침 시 로그인 풀림 방지)
-    # 1. Admin이 있는지 확인
-    admin_check = c.execute("SELECT * FROM users WHERE user_id = 'admin'").fetchone()
-    if not admin_check:
-        # 2. 없으면 생성 (비밀번호 '1234')
-        # 주의: stauth.Hasher를 사용하여 해시값 고정
-        # 여기서는 호환성을 위해 try-except 사용
-        try:
-            admin_hash = stauth.Hasher(['1234']).generate()[0]
-        except:
-            admin_hash = stauth.Hasher().hash('1234')
-            
-        c.execute("INSERT INTO users (user_id, password, name, role) VALUES (?, ?, ?, ?)", 
-                  ('admin', admin_hash, 'Administrator', 'admin'))
-    
     conn.commit()
     conn.close()
 
 # ---------------------------------------------------------
-# 🟢 [인증] 사용자 로드 (Authenticator용)
+# 🟢 [인증] 사용자 로드 (Authenticator용) - 최신 문법 적용
 # ---------------------------------------------------------
 def fetch_users_for_auth():
-    credentials = {'usernames': {}}
+    # 🟢 [수정] stauth.Hasher(['1234']).generate()[0] 문법 사용
+    # 라이브러리 버전에 따라 인자 개수 에러가 날 수 있으므로 예외 처리
+    try:
+        admin_pw_hash = stauth.Hasher(['1234']).generate()[0]
+    except:
+        # 구버전 또는 다른 인터페이스일 경우
+        admin_pw_hash = stauth.Hasher().hash('1234')
+
+    credentials = {
+        'usernames': {
+            'admin': {
+                'name': 'Administrator',
+                'password': admin_pw_hash,
+                'email': 'admin@example.com',
+                'role': 'admin'
+            }
+        }
+    }
+    
     try:
         conn = sqlite3.connect(SYSTEM_DB)
         c = conn.cursor()
@@ -279,7 +282,7 @@ def create_user(user_id, password, name, company, country, email, phone):
     try:
         conn = sqlite3.connect(SYSTEM_DB)
         c = conn.cursor()
-        # Hasher 사용
+        
         try:
             hashed_pw = stauth.Hasher([password]).generate()[0]
         except:
@@ -292,6 +295,12 @@ def create_user(user_id, password, name, company, country, email, phone):
         return True
     except sqlite3.IntegrityError: return False
     except: return False
+
+def login_user(user_id, password):
+    # Authenticator 외 수동 로그인용
+    if user_id in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[user_id] == password:
+        return "admin", "admin"
+    return None, None
 
 # ---------------------------------------------------------
 # 🌐 [i18n] 번역 로딩 (캐시 제거)
@@ -317,7 +326,7 @@ def t(key):
     return lang_dict.get(key, key)
 
 # ---------------------------------------------------------
-# 🕵️ [Data] 데이터 처리 함수들
+# 🕵️ [Data] 데이터 처리 함수들 (위치 조정됨)
 # ---------------------------------------------------------
 def generate_alias(real_name):
     if not isinstance(real_name, str): return "Unknown"
@@ -502,63 +511,63 @@ def search_data_from_db(maker, models, engines, sy, ey, yards):
         conn = sqlite3.connect(INVENTORY_DB)
         base_cond = "1=1"
         params = []
-        
         if maker and maker != "All":
             base_cond += " AND v.manufacturer = ?"
             params.append(maker)
-        
         base_cond += " AND v.model_year >= ? AND v.model_year <= ?"
         params.extend([sy, ey])
-        
         if models:
             placeholders = ','.join(['?'] * len(models))
             base_cond += f" AND v.model_name IN ({placeholders})"
             params.extend(models)
-            
         if engines:
             placeholders = ','.join(['?'] * len(engines))
             base_cond += f" AND v.engine_code IN ({placeholders})"
             params.extend(engines)
-            
         if yards:
             placeholders = ','.join(['?'] * len(yards))
             base_cond += f" AND v.junkyard IN ({placeholders})"
             params.extend(yards)
-            
+        
         count_q = f"SELECT COUNT(*) FROM vehicle_data v WHERE {base_cond}"
         total_count = conn.execute(count_q, params).fetchone()[0]
-        
-        data_q = f"""
-            SELECT v.*, j.region, j.address 
-            FROM vehicle_data v 
-            LEFT JOIN junkyard_info j ON v.junkyard = j.name
-            WHERE {base_cond}
-            ORDER BY v.reg_date DESC LIMIT 5000
-        """
+        data_q = f"SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name WHERE {base_cond} ORDER BY v.reg_date DESC LIMIT 5000"
         df = pd.read_sql(data_q, conn, params=params)
         conn.close()
         
         if not df.empty:
             df['model_year'] = pd.to_numeric(df['model_year'], errors='coerce').fillna(0)
             df['reg_date'] = pd.to_datetime(df['reg_date'], errors='coerce')
-            
         return df, total_count
     except Exception as e: return pd.DataFrame(), 0
 
-# 🟢 Reset Dashboard 함수
-def reset_dashboard():
-    _, _, _, df_init, total = load_metadata_and_init_data()
-    st.session_state['view_data'] = df_init
-    st.session_state['total_count'] = total
-    st.session_state['is_filtered'] = False
-    st.session_state['mode_demand'] = False
+@st.cache_data(ttl=300)
+def load_metadata_and_init_data():
+    conn = sqlite3.connect(INVENTORY_DB)
+    df_m = pd.read_sql("SELECT DISTINCT manufacturer, model_name FROM model_list", conn)
+    df_e = pd.read_sql("SELECT DISTINCT engine_code FROM vehicle_data", conn)
+    df_y = pd.read_sql("SELECT name FROM junkyard_info", conn)
+    total_cnt = conn.execute("SELECT COUNT(*) FROM vehicle_data").fetchone()[0]
+    df_init = pd.read_sql("SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name ORDER BY v.reg_date DESC LIMIT 5000", conn)
+    conn.close()
     
-    if 'msel' in st.session_state: st.session_state['msel'] = "All"
-    if 'sy' in st.session_state: st.session_state['sy'] = 2000
-    if 'ey' in st.session_state: st.session_state['ey'] = datetime.datetime.now().year
-    if 'mms' in st.session_state: st.session_state['mms'] = []
-    if 'es' in st.session_state: st.session_state['es'] = []
-    if 'ys' in st.session_state: st.session_state['ys'] = []
+    if not df_init.empty:
+        df_init['model_year'] = pd.to_numeric(df_init['model_year'], errors='coerce').fillna(0)
+        df_init['reg_date'] = pd.to_datetime(df_init['reg_date'], errors='coerce')
+        
+    return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), df_init, total_cnt
+
+def update_order_status(order_id, new_status, notify_user=True):
+    conn = sqlite3.connect(SYSTEM_DB)
+    conn.execute("UPDATE orders SET status = ? WHERE id = ?", (new_status, order_id))
+    if notify_user:
+        cursor = conn.cursor()
+        cursor.execute("SELECT contact_info FROM orders WHERE id = ?", (order_id,))
+        data = cursor.fetchone()
+        if data:
+            send_email(data[0], f"[K-Used Car] Status Update: {new_status}", f"Order status: {new_status}")
+    conn.commit()
+    conn.close()
 
 # ---------------------------------------------------------
 # 🚀 메인 어플리케이션
@@ -566,7 +575,6 @@ def reset_dashboard():
 try:
     if 'language' not in st.session_state: st.session_state.language = 'English'
     
-    # DB 초기화 (Inventory & System)
     init_inventory_db()
     init_system_db()
 
@@ -852,6 +860,7 @@ try:
                                 contact = st.text_input(t('contact'))
                                 req_qty = st.number_input(t('qty'), min_value=1, value=1)
                             with c_b:
+                                # 자동 품목 완성
                                 s_maker = st.session_state.get('msel', 'All')
                                 s_models = st.session_state.get('mms', [])
                                 s_engines = st.session_state.get('es', [])
@@ -935,6 +944,7 @@ try:
                                     if sent:
                                         img_list = []
                                         if reply_files:
+                                            # 리스트 변환 (업로드 파일이 하나여도 리스트로 처리)
                                             files = reply_files if isinstance(reply_files, list) else [reply_files]
                                             for f in files:
                                                 f.seek(0)

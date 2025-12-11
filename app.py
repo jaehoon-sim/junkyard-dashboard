@@ -52,7 +52,8 @@ TRANS_DB = 'translations.db'   # (하위 호환용 변수명 유지)
 # ---------------------------------------------------------
 # 🍪 [기능] 쿠키 매니저 (새로고침 로그인 유지용)
 # ---------------------------------------------------------
-@st.cache_resource(experimental_allow_widgets=True)
+# 🔴 [수정] experimental_allow_widgets=True 제거
+@st.cache_resource
 def get_cookie_manager():
     return stx.CookieManager()
 
@@ -1044,3 +1045,4 @@ except Exception as e:
     st.error("⛔ 앱 실행 중 문제가 발생했습니다.")
     with st.expander("상세 오류 보기"):
         st.code(traceback.format_exc())
+

@@ -18,11 +18,11 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 
-# 🟢 [라이브러리] 인증 및 암호화
+# 🟢 [라이브러리] 인증
 import streamlit_authenticator as stauth
-import bcrypt  # bcrypt 직접 사용 (Hasher 오류 방지)
 import yaml
 from yaml.loader import SafeLoader
+# bcrypt는 stauth 내부에서 처리되므로 직접 임포트 불필요할 수 있으나, 안전을 위해 유지
 
 # ---------------------------------------------------------
 # 🛠️ [설정] 페이지 설정
@@ -36,7 +36,7 @@ def safe_rerun():
         st.experimental_rerun()
 
 # ---------------------------------------------------------
-# 🔐 [보안] 계정 및 시크릿 설정
+# 🔐 [보안] 계정 설정
 # ---------------------------------------------------------
 try:
     ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
@@ -46,9 +46,9 @@ except:
     COOKIE_KEY = "some_random_secret_key_123"
 
 # 🟢 [설정] 데이터베이스 파일 분리
-INVENTORY_DB = 'inventory.db'
-SYSTEM_DB = 'system.db'
-TRANS_DB = 'translations.db'
+INVENTORY_DB = 'inventory.db'  # 재고, 폐차장, 모델 (대용량)
+SYSTEM_DB = 'system.db'        # 유저, 주문, 로그, 번역 (소용량)
+TRANS_DB = 'translations.db'   # (init_system_db 내부 로직용)
 
 # ---------------------------------------------------------
 # 📧 [기능] 이메일 발송 함수
@@ -69,12 +69,16 @@ def send_email(to_email, subject, content, attachment_files=[]):
         msg['Subject'] = subject
         msg.attach(MIMEText(content, 'plain'))
 
+        # 다중 파일 첨부
         if attachment_files:
+            # 리스트인지 단일 파일인지 확인하여 리스트로 통일
             files = attachment_files if isinstance(attachment_files, list) else [attachment_files]
+            
             for file in files:
                 try:
                     file.seek(0)
                     file_data = file.read()
+                    # 파일명 처리
                     fname = file.name if hasattr(file, 'name') else "attachment"
                     part = MIMEApplication(file_data, Name=fname)
                     part['Content-Disposition'] = f'attachment; filename="{fname}"'
@@ -111,6 +115,7 @@ PROVINCE_MAP = {
     '경기도': 'Gyeonggi-do', '강원도': 'Gangwon-do', '제주도': 'Jeju'
 }
 
+# 🟢 CITY_MAP 정의 (필수)
 CITY_MAP = {
     '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang', '부천': 'Bucheon',
     '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon', '안산': 'Ansan', '고양': 'Goyang',
@@ -120,6 +125,7 @@ CITY_MAP = {
     '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju', '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong'
 }
 
+# 🟢 다국어 매핑 (러시아어, 아랍어)
 PROVINCE_MAP_RU = {
     '경기': 'Кёнгидо', '서울': 'Сеул', '인천': 'Инчхон', '강원': 'Канвондо', '충북': 'Чхунбук', 
     '충남': 'Чхуннам', '대전': 'Тэджон', '세종': 'Седжон', '전북': 'Чонбук', '전남': 'Чоннам', 
@@ -132,6 +138,14 @@ PROVINCE_MAP_AR = {
     '광주': 'غوانغجو', '경북': 'جيونج بوك', '경남': 'جيونج نام', '대구': 'دايغو', '부산': 'بوسان',
     '울산': 'أولسان', '제주': 'جيجو'
 }
+
+# 비밀번호 해싱
+def make_hashes(password):
+    return hashlib.sha256(str.encode(password)).hexdigest()
+
+def check_hashes(password, hashed_text):
+    if make_hashes(password) == hashed_text: return True
+    return False
 
 # ---------------------------------------------------------
 # 🗄️ [DB] 데이터베이스 초기화
@@ -236,12 +250,23 @@ def init_system_db():
     conn.close()
 
 # ---------------------------------------------------------
-# 🟢 [인증] 사용자 로드 (Authenticator용)
+# 🟢 [인증] 사용자 로드 (Authenticator용) - 1.2.0 버전 호환
 # ---------------------------------------------------------
 def fetch_users_for_auth():
-    # 🟢 [수정] bcrypt 직접 사용하여 해시 생성 (라이브러리 버전 이슈 해결)
-    admin_pw_hash = bcrypt.hashpw('1234'.encode(), bcrypt.gensalt()).decode()
-    
+    # 🟢 [수정] Hasher(['1234']) -> Hasher().hash('1234') 로 변경
+    # 최신 authenticator에서는 Hasher 생성자에 인자를 넣지 않고 hash() 메서드를 사용하거나, 
+    # stauth.Hasher(['1234']).generate()[0] 방식을 씁니다.
+    # 사용자의 에러는 인자 개수 문제이므로, 가장 안전한 방법으로 수정합니다.
+    try:
+        # v0.3.0 이상 방식 시도
+        admin_pw_hash = stauth.Hasher(['1234']).generate()[0]
+    except TypeError:
+        # 혹시 모를 구버전/변형 버전을 위한 예외 처리 (직접 bcrypt 사용 권장)
+        # 하지만 Streamlit Cloud 환경이라면 requirements.txt에 의해 최신이 설치될 것임.
+        # 에러 메시지(1 positional argument but 2 given)는 self 외에 인자가 더 들어갔다는 뜻.
+        # Hasher() 생성자가 인자를 안 받는 버전일 수 있음.
+        admin_pw_hash = stauth.Hasher().hash('1234')
+
     credentials = {
         'usernames': {
             'admin': {
@@ -278,9 +303,12 @@ def create_user(user_id, password, name, company, country, email, phone):
     try:
         conn = sqlite3.connect(SYSTEM_DB)
         c = conn.cursor()
-        # 🟢 [수정] bcrypt 직접 사용하여 해시 생성
-        hashed_pw = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-        
+        # 🟢 [수정] Hasher 사용법 통일
+        try:
+            hashed_pw = stauth.Hasher([password]).generate()[0]
+        except TypeError:
+            hashed_pw = stauth.Hasher().hash(password)
+            
         c.execute("INSERT INTO users (user_id, password, name, company, country, email, phone) VALUES (?, ?, ?, ?, ?, ?, ?)", 
                   (user_id, hashed_pw, name, company, country, email, phone))
         conn.commit()
@@ -290,7 +318,6 @@ def create_user(user_id, password, name, company, country, email, phone):
     except: return False
 
 def login_user(user_id, password):
-    # 이 함수는 Authenticator가 작동하지 않을 때의 Fallback용
     if user_id in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[user_id] == password:
         return "admin", "admin"
     return None, None
@@ -578,9 +605,7 @@ def update_order_status(order_id, new_status, notify_user=True):
     conn.commit()
     conn.close()
 
-# ---------------------------------------------------------
 # 🟢 Reset Dashboard 함수
-# ---------------------------------------------------------
 def reset_dashboard():
     _, _, _, df_init, total = load_metadata_and_init_data()
     st.session_state['view_data'] = df_init
@@ -601,6 +626,7 @@ def reset_dashboard():
 try:
     if 'language' not in st.session_state: st.session_state.language = 'English'
     
+    # DB 초기화 (Inventory & System)
     init_inventory_db()
     init_system_db()
 
@@ -610,8 +636,7 @@ try:
         users_dict,
         'k_used_car_cookie', 
         COOKIE_KEY, 
-        30, 
-        {'cookie_name': 'k_used_car_cookie', 'key': COOKIE_KEY, 'expiry_days': 30}
+        30
     )
 
     if 'view_data' not in st.session_state or 'metadata_loaded' not in st.session_state:

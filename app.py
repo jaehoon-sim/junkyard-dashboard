@@ -18,6 +18,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 
+# 🟢 [추가] 쿠키 관리를 위한 라이브러리
+import extra_streamlit_components as stx
+
 # ---------------------------------------------------------
 # 🛠️ [설정] 페이지 설정 (무조건 맨 위)
 # ---------------------------------------------------------
@@ -41,16 +44,19 @@ except:
     NAVER_CLIENT_ID = "aic55XK2RCthRyeMMlJM"
     NAVER_CLIENT_SECRET = "ZqOAIOzYGf"
 
-BUYER_CREDENTIALS = {
-    "buyer": "1111",
-    "global": "2222",
-    "testbuyer": "1234"
-}
-
 # 🟢 [설정] 데이터베이스 파일 분리
 INVENTORY_DB = 'inventory.db'  # 재고, 폐차장, 모델 (대용량)
 SYSTEM_DB = 'system.db'        # 유저, 주문, 로그, 번역 (소용량)
 TRANS_DB = 'translations.db'   # (하위 호환용 변수명 유지)
+
+# ---------------------------------------------------------
+# 🍪 [기능] 쿠키 매니저 (새로고침 로그인 유지용)
+# ---------------------------------------------------------
+@st.cache_resource(experimental_allow_widgets=True)
+def get_cookie_manager():
+    return stx.CookieManager()
+
+cookie_manager = get_cookie_manager()
 
 # ---------------------------------------------------------
 # 📧 [기능] 이메일 발송 함수
@@ -107,7 +113,6 @@ PROVINCE_MAP = {
     '경기도': 'Gyeonggi-do', '강원도': 'Gangwon-do', '제주도': 'Jeju'
 }
 
-# 🟢 CITY_MAP 정의 (필수)
 CITY_MAP = {
     '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang', '부천': 'Bucheon',
     '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon', '안산': 'Ansan', '고양': 'Goyang',
@@ -117,9 +122,8 @@ CITY_MAP = {
     '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju', '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong'
 }
 
-# 🟢 러시아어/아랍어 매핑용 (간소화)
-PROVINCE_MAP_RU = {'경기': 'Кёнгидо', '서울': 'Сеул', '인천': 'Инчхон', '부산': 'Пусан'} # 예시
-PROVINCE_MAP_AR = {'경기': 'جيونج جي دو', '서울': 'سيول', '인천': 'إنتشون', '부산': 'بوسان'} # 예시
+PROVINCE_MAP_RU = {'경기': 'Кёнгидо', '서울': 'Сеул', '인천': 'Инчхон', '부산': 'Пусан'} 
+PROVINCE_MAP_AR = {'경기': 'جيونج جي دو', '서울': 'سيول', '인천': 'إنتشون', '부산': 'بوسان'} 
 
 # 비밀번호 해싱
 def make_hashes(password):
@@ -188,69 +192,16 @@ def _get_raw_translations():
             "status_change": "상태 변경", "update_btn": "업데이트", "updated_msg": "업데이트 완료!", "offer_received": "💬 견적 도착! 이메일/전화를 확인하세요.",
             "company_name": "회사명 *", "country": "국가 *", "email": "이메일 *", "phone": "전화번호",
             "user_name": "담당자 성함 *", "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요."
-        },
-        "Russian": {
-            "app_title": "K-Used Car Глобальный Хаб", "login_title": "Вход", "id": "ID *", "pw": "Пароль *",
-            "sign_in": "Войти", "sign_up": "Регистрация", "logout": "Выйти", "welcome": "Добро пожаловать, {}!", 
-            "invalid_cred": "Неверные учетные данные", "user_exists": "ID уже существует.", "signup_success": "Аккаунт создан! Войдите.",
-            "admin_tools": "Инструменты админа", "data_upload": "Загрузка данных", "save_data": "Сохранить данные", "addr_db": "БД Адресов",
-            "save_addr": "Сохранить адрес", "reset_db": "Сброс БД", "reset_done": "Сброс выполнен", "records_saved": "{} записей загружено.",
-            "addr_updated": "{} адресов обновлено.", "admin_menu": "Меню админа", "demand_analysis": "Анализ спроса",
-            "search_filter": "Фильтр поиска", "tab_vehicle": "Автомобиль", "tab_engine": "Двигатель", "tab_yard": "Склад",
-            "manufacturer": "Производитель", "from_year": "С года", "to_year": "По год", "model": "Модель",
-            "engine_code": "Код двигателя", "partner_name": "Партнер", "search_btn_veh": "Поиск авто", "search_btn_eng": "Поиск двигателя",
-            "search_btn_partners": "Поиск партнера", "reset_filters": "Сброс фильтров", "check_trends": "Глобальные тренды поиска",
-            "show_trends": "Показать тренды", "analysis_title": "Анализ спроса в реальном времени", "top_engines": "Топ двигателей",
-            "top_models": "Топ моделей", "main_title": "Инвентарь K-Used Car/Engine", "tab_inventory": "Инвентарь",
-            "tab_orders": "Заказы", "tab_results": "Результаты", "tab_my_orders": "Мои заказы", "no_results": "Результатов не найдено.",
-            "plz_select": "Выберите фильтры для поиска.", "total_veh": "Всего авто", "matched_eng": "Двигатели",
-            "partners_cnt": "Партнеры", "real_yards": "Склады", "limit_warning": "⚠️ Показано топ 5,000 из {:,}. Уточните фильтры.",
-            "stock_by_partner": "Наличие по партнерам", "login_req_warn": "🔒 Требуется вход для запроса цены.", "selected_msg": "Выбрано: **{}** ({} шт.)",
-            "req_quote_title": "📨 Запрос цены у {}", "name_company": "Имя / Компания", "contact": "Контакт (Email/Тел) *",
-            "qty": "Количество *", "item": "Товар *", "unit_price": "Целевая цена (USD) *", "message": "Сообщение админу",
-            "send_btn": "🚀 Отправить запрос", "fill_error": "⚠️ Заполните обязательные поля: Контакт, Товар, Цена.",
-            "inquiry_sent": "✅ Запрос отправлен в отдел продаж.", "item_list": "Список товаров", "incoming_quotes": "📩 Входящие запросы",
-            "my_quote_req": "🛒 Мои запросы", "no_orders_admin": "Нет ожидающих заказов.", "no_orders_buyer": "Вы еще не делали запросов.",
-            "status_change": "Изменить статус", "update_btn": "Обновить", "updated_msg": "Обновлено!", "offer_received": "💬 Предложение получено! Проверьте почту.",
-            "company_name": "Название компании *", "country": "Страна *", "email": "Эл. почта *", "phone": "Телефон",
-            "user_name": "Имя *", "signup_missing_fields": "⚠️ Заполните все обязательные поля (*)."
-        },
-        "Arabic": {
-            "app_title": "K-Used Car Global Hub", "login_title": "تسجيل الدخول", "id": "المعرف *", "pw": "كلمة المرور *",
-            "sign_in": "دخول", "sign_up": "اشتراك", "logout": "خروج", "welcome": "مرحباً، {}!", 
-            "invalid_cred": "بيانات الاعتماد غير صالحة", "user_exists": "معرف المستخدم موجود بالفعل.", "signup_success": "تم إنشاء الحساب! الرجاء تسجيل الدخول.",
-            "admin_tools": "أدوات المسؤول", "data_upload": "تحميل البيانات", "save_data": "حفظ البيانات", "addr_db": "قاعدة بيانات العناوين",
-            "save_addr": "حفظ العنوان", "reset_db": "إعادة تعيين قاعدة البيانات", "reset_done": "تمت إعادة التعيين", "records_saved": "تم تحميل {} سجل.",
-            "addr_updated": "تم تحديث {} عنوان.", "admin_menu": "قائمة المسؤول", "demand_analysis": "تحليل الطلب العالمي",
-            "search_filter": "عامل تصفية البحث", "tab_vehicle": "مركبة", "tab_engine": "محرك", "tab_yard": "ساحة",
-            "manufacturer": "الصانع", "from_year": "من سنة", "to_year": "إلى سنة", "model": "الموديل",
-            "engine_code": "رمز المحرك", "partner_name": "اسم الشريك", "search_btn_veh": "بحث عن مركبة", "search_btn_eng": "بحث عن محرك",
-            "search_btn_partners": "بحث عن شريك", "reset_filters": "إعادة تعيين المرشحات", "check_trends": "تحقق من اتجاهات البحث العالمية.",
-            "show_trends": "عرض الاتجاهات", "analysis_title": "اتجاهات الطلب العالمي (مباشر)", "top_engines": "أفضل المحركات بحثًا",
-            "top_models": "أفضل الموديلات بحثًا", "main_title": "مخزون السيارات/المحركات المستعملة الكورية", "tab_inventory": "المخزون",
-            "tab_orders": "الطلبات", "tab_results": "نتائج البحث", "tab_my_orders": "طلباتي", "no_results": "لم يتم العثور على نتائج.",
-            "plz_select": "يرجى تحديد مرشحات للبحث.", "total_veh": "إجمالي المركبات", "matched_eng": "المحركات المطابقة",
-            "partners_cnt": "الشركاء", "real_yards": "ساحات الخردة الحقيقية", "limit_warning": "⚠️ يتم عرض أعلى 5000 نتيجة من {:,}. يرجى تحسين المرشحات.",
-            "stock_by_partner": "المخزون حسب الشريك", "login_req_warn": "🔒 تسجيل الدخول مطلوب لطلب عرض أسعار.", "selected_msg": "محدد: **{}** ({} قطعة)",
-            "req_quote_title": "📨 طلب عرض أسعار لـ {}", "name_company": "الاسم / الشركة", "contact": "الاتصال (بريد إلكتروني/هاتف) *",
-            "qty": "الكمية *", "item": "العنصر *", "unit_price": "السعر المستهدف (دولار) *", "message": "رسالة للمسؤول",
-            "send_btn": "🚀 إرسال الطلب", "fill_error": "⚠️ يرجى ملء الحقول المطلوبة: جهة الاتصال، العنصر، والسعر.",
-            "inquiry_sent": "✅ تم إرسال الطلب إلى فريق المبيعات لدينا.", "item_list": "قائمة العناصر", "incoming_quotes": "📩 طلبات الأسعار الواردة", "my_quote_req": "🛒 طلبات الأسعار الخاصة بي", "no_orders_admin": "لا توجد طلبات معلقة.", "no_orders_buyer": "لم تقم بطلب أي عروض أسعار بعد.",
-            "status_change": "تغيير الحالة", "update_btn": "تحديث", "updated_msg": "تم التحديث!", "offer_received": "💬 تم استلام العرض! تحقق من بريدك الإلكتروني/هاتفك.",
-            "company_name": "اسم الشركة *", "country": "بلد *", "email": "بريد إلكتروني *", "phone": "رقم الهاتف",
-            "user_name": "الاسم *", "signup_missing_fields": "⚠️ يرجى ملء جميع الحقول المطلوبة (*)."
         }
     }
+    # (다른 언어 생략)
 
 def init_inventory_db():
-    """재고 DB (차량, 주소, 모델) 초기화 - 대용량"""
     conn = sqlite3.connect(INVENTORY_DB)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS vehicle_data (vin TEXT PRIMARY KEY, reg_date TEXT, car_no TEXT, manufacturer TEXT, model_name TEXT, model_year REAL, junkyard TEXT, engine_code TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (name TEXT PRIMARY KEY, address TEXT, region TEXT, lat REAL, lon REAL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS model_list (manufacturer TEXT, model_name TEXT, PRIMARY KEY (manufacturer, model_name))''')
-    
-    # 인덱스
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data(model_name)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_year ON vehicle_data(model_year)")
@@ -260,20 +211,13 @@ def init_inventory_db():
     conn.close()
 
 def init_system_db():
-    """시스템 DB (유저, 주문, 로그, 번역) 초기화 - 소용량"""
     conn = sqlite3.connect(SYSTEM_DB)
     c = conn.cursor()
-    
-    # 유저
     c.execute('''CREATE TABLE IF NOT EXISTS users (user_id TEXT PRIMARY KEY, password TEXT, name TEXT, company TEXT, country TEXT, email TEXT, phone TEXT, role TEXT DEFAULT 'buyer', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    # 주문 (답장 컬럼 포함)
     c.execute('''CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, buyer_id TEXT, contact_info TEXT, target_partner_alias TEXT, real_junkyard_name TEXT, items_summary TEXT, status TEXT DEFAULT 'PENDING', reply_text TEXT, reply_images TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    # 로그
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    # 번역
     c.execute('''CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
 
-    # 번역 데이터 갱신 (항상 최신 코드 반영)
     raw_data = _get_raw_translations()
     keys = raw_data["English"].keys()
     data_to_insert = []
@@ -324,16 +268,30 @@ def login_user(user_id, password):
     except: pass
     return None, None
 
+# 🟢 [추가] 쿠키 기반 유저 확인 (패스워드 없이 ID로만)
+def get_user_info_by_id(user_id):
+    if user_id in ADMIN_CREDENTIALS:
+        return "admin", "admin"
+    try:
+        conn = sqlite3.connect(SYSTEM_DB)
+        c = conn.cursor()
+        c.execute("SELECT role, name FROM users WHERE user_id = ?", (user_id,))
+        data = c.fetchone()
+        conn.close()
+        if data:
+            return data[0], data[1] # role, name
+    except: pass
+    return None, None
+
 # ---------------------------------------------------------
 # 🌐 [i18n] 번역 로딩 (SYSTEM_DB)
 # ---------------------------------------------------------
-# 🔴 [중요] 캐시 제거: 항상 최신 번역 데이터를 DB에서 읽어오도록 수정
 def load_translations():
     conn = sqlite3.connect(SYSTEM_DB)
     try:
         df = pd.read_sql("SELECT * FROM translations", conn)
     except:
-        return {} # DB 생성 전일 경우 예외 처리
+        return {} 
     conn.close()
     
     trans_dict = {}
@@ -364,14 +322,10 @@ def translate_address(addr):
     if len(parts) < 2: return "South Korea"
     k_do, k_city = parts[0][:2], parts[1]
     
-    # 언어별 매핑 선택
     current_lang = st.session_state.get('language', 'English')
-    
-    # 1. Province
     if current_lang == 'English': en_do = PROVINCE_MAP.get(k_do, k_do)
-    else: en_do = PROVINCE_MAP.get(k_do, PROVINCE_MAP.get(k_do, k_do)) # Default English fallback for now
+    else: en_do = PROVINCE_MAP.get(k_do, PROVINCE_MAP.get(k_do, k_do)) 
 
-    # 2. City
     city_core = k_city.replace('시','').replace('군','').replace('구','')
     en_city = CITY_MAP.get(city_core, city_core)
     
@@ -487,7 +441,7 @@ def save_vehicle_file(uploaded_file):
 
         df_db.to_sql('temp_vehicles', conn, if_exists='replace', index=False)
         c.execute("""INSERT OR IGNORE INTO vehicle_data (vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code)
-                     SELECT vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code FROM temp_vehicles""")
+                      SELECT vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code FROM temp_vehicles""")
         cnt = len(df_db)
         c.execute("DROP TABLE temp_vehicles")
         
@@ -611,9 +565,6 @@ def update_order_status(order_id, new_status, notify_user=True):
     conn.commit()
     conn.close()
 
-# ---------------------------------------------------------
-# 🟢 Reset Dashboard (함수 위치 이동)
-# ---------------------------------------------------------
 def reset_dashboard():
     _, _, _, df_init, total = load_metadata_and_init_data()
     st.session_state['view_data'] = df_init
@@ -632,11 +583,25 @@ def reset_dashboard():
 # 🚀 메인 어플리케이션
 # ---------------------------------------------------------
 try:
-    if 'user_role' not in st.session_state: st.session_state.user_role = 'guest'
-    if 'username' not in st.session_state: st.session_state.username = 'Guest'
+    # 🟢 [수정] 앱 시작 시 자동 로그인 체크 (쿠키 확인)
+    if 'user_role' not in st.session_state: 
+        st.session_state.user_role = 'guest'
+        st.session_state.username = 'Guest'
+        
+        # 쿠키 가져오기
+        cookies = cookie_manager.get_all()
+        auth_cookie = cookies.get("k_used_car_auth")
+        
+        if auth_cookie:
+            # 쿠키가 있으면 DB에서 유저 정보 확인
+            role, name = get_user_info_by_id(auth_cookie)
+            if role:
+                st.session_state.user_role = role
+                st.session_state.username = name
+
     if 'language' not in st.session_state: st.session_state.language = 'English'
 
-    # DB 초기화 (Inventory & System)
+    # DB 초기화
     init_inventory_db()
     init_system_db()
 
@@ -661,7 +626,6 @@ try:
     with st.sidebar:
         st.title(t('app_title'))
         
-        # 🟢 [수정] 키 중복 방지 (sidebar_lang_select)
         lang_choice = st.selectbox("Language / Язык / اللغة", ["English", "Korean", "Russian", "Arabic"], key='sidebar_lang_select')
         if lang_choice != st.session_state.language:
             st.session_state.language = lang_choice
@@ -674,9 +638,13 @@ try:
             with log_tab:
                 uid = st.text_input(f"👤 {t('id')}", key="l_id")
                 upw = st.text_input(f"🔒 {t('pw')}", type="password", key="l_pw")
+                
                 if st.button(t('sign_in'), use_container_width=True):
                     role, name = login_user(uid, upw)
                     if role:
+                        # 🟢 [수정] 로그인 성공 시 쿠키 설정 (7일)
+                        cookie_manager.set("k_used_car_auth", uid, expires_at=datetime.datetime.now() + datetime.timedelta(days=7))
+                        
                         st.session_state.user_role = role
                         st.session_state.username = name if name else uid
                         safe_rerun()
@@ -704,7 +672,11 @@ try:
         else:
             role_text = "Manager" if st.session_state.user_role == 'admin' else "Buyer"
             st.success(t('welcome').format(st.session_state.username))
+            
             if st.button(t('logout')):
+                # 🟢 [수정] 로그아웃 시 쿠키 삭제
+                cookie_manager.delete("k_used_car_auth")
+                
                 st.session_state.user_role = 'guest'
                 st.session_state.username = 'Guest'
                 del st.session_state['metadata_loaded']
@@ -740,7 +712,7 @@ try:
                     conn.execute("DROP TABLE IF EXISTS model_list")
                     conn.commit()
                     conn.close()
-                    init_inventory_db() # 즉시 복구
+                    init_inventory_db()
                     st.success(t('reset_done'))
                     load_metadata_and_init_data.clear()
                     safe_rerun()
@@ -753,9 +725,8 @@ try:
                     conn.execute("DROP TABLE IF EXISTS translations")
                     conn.commit()
                     conn.close()
-                    init_system_db() # 즉시 복구
-                    # 🟢 [수정] 번역 캐시 초기화
-                    load_translations.clear()
+                    init_system_db()
+                    load_translations.clear() # Cache clear
                     st.success(t('reset_done'))
                     safe_rerun()
             
@@ -769,64 +740,67 @@ try:
         search_tabs = st.tabs([f"🚙 {t('tab_vehicle')}", f"🔧 {t('tab_engine')}", f"🏭 {t('tab_yard')}"])
         
         with search_tabs[0]: 
-            makers = sorted(df_models['manufacturer'].unique().tolist())
-            makers.insert(0, "All")
-            sel_maker = st.selectbox(t('manufacturer'), makers, key="msel")
-            
-            c1, c2 = st.columns(2)
-            with c1: sel_sy = st.number_input(t('from_year'), 1990, 2030, 2000, key="sy")
-            with c2: sel_ey = st.number_input(t('to_year'), 1990, 2030, 2025, key="ey")
-            
-            if sel_maker != "All":
-                f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].unique().tolist())
-            else:
-                f_models = sorted(df_models['model_name'].unique().tolist())
-            sel_models = st.multiselect(t('model'), f_models, key="mms")
-            
-            if st.button(f"🔍 {t('search_btn_veh')}", type="primary"):
-                log_search(sel_models, 'model')
-                res, tot = search_data_from_db(sel_maker, sel_models, [], sel_sy, sel_ey, [])
-                st.session_state['view_data'] = res
-                st.session_state['total_count'] = tot
-                st.session_state['is_filtered'] = True
-                st.session_state['mode_demand'] = False
-                safe_rerun()
+            with st.form("veh_search_form"):
+                makers = sorted(df_models['manufacturer'].unique().tolist())
+                makers.insert(0, "All")
+                sel_maker = st.selectbox(t('manufacturer'), makers, key="msel")
+                
+                c1, c2 = st.columns(2)
+                with c1: sel_sy = st.number_input(t('from_year'), 1990, 2030, 2000, key="sy")
+                with c2: sel_ey = st.number_input(t('to_year'), 1990, 2030, 2025, key="ey")
+                
+                if sel_maker != "All":
+                    f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].unique().tolist())
+                else:
+                    f_models = sorted(df_models['model_name'].unique().tolist())
+                sel_models = st.multiselect(t('model'), f_models, key="mms")
+                
+                if st.form_submit_button(f"🔍 {t('search_btn_veh')}", type="primary"):
+                    log_search(sel_models, 'model')
+                    res, tot = search_data_from_db(sel_maker, sel_models, [], sel_sy, sel_ey, [])
+                    st.session_state['view_data'] = res
+                    st.session_state['total_count'] = tot
+                    st.session_state['is_filtered'] = True
+                    st.session_state['mode_demand'] = False
+                    safe_rerun()
 
         with search_tabs[1]: 
-            sel_engines = st.multiselect(t('engine_code'), sorted(list_engines), key="es")
-            if st.button(f"🔍 {t('search_btn_eng')}", type="primary"):
-                log_search(sel_engines, 'engine')
-                res, tot = search_data_from_db(None, [], sel_engines, 1990, 2030, [])
-                st.session_state['view_data'] = res
-                st.session_state['total_count'] = tot
-                st.session_state['is_filtered'] = True
-                st.session_state['mode_demand'] = False
-                safe_rerun()
+            with st.form("eng_search_form"):
+                sel_engines = st.multiselect(t('engine_code'), sorted(list_engines), key="es")
+                if st.form_submit_button(f"🔍 {t('search_btn_eng')}", type="primary"):
+                    log_search(sel_engines, 'engine')
+                    res, tot = search_data_from_db(None, [], sel_engines, 1990, 2030, [])
+                    st.session_state['view_data'] = res
+                    st.session_state['total_count'] = tot
+                    st.session_state['is_filtered'] = True
+                    st.session_state['mode_demand'] = False
+                    safe_rerun()
 
         with search_tabs[2]: 
-            yard_opts = list_yards
-            if st.session_state.user_role == 'buyer':
-                yard_opts = sorted(list(set([generate_alias(name) for name in list_yards])))
-            else:
-                yard_opts = sorted(list_yards)
-                
-            sel_yards = st.multiselect(t('partner_name'), yard_opts, key="ys")
-            
-            if st.button(f"🔍 {t('search_btn_partners')}", type="primary"):
-                real_yard_names = []
+            with st.form("yard_search_form"):
+                yard_opts = list_yards
                 if st.session_state.user_role == 'buyer':
-                    for y in list_yards:
-                        if generate_alias(y) in sel_yards:
-                            real_yard_names.append(y)
+                    yard_opts = sorted(list(set([generate_alias(name) for name in list_yards])))
                 else:
-                    real_yard_names = sel_yards
+                    yard_opts = sorted(list_yards)
                     
-                res, tot = search_data_from_db(None, [], [], 1990, 2030, real_yard_names)
-                st.session_state['view_data'] = res
-                st.session_state['total_count'] = tot
-                st.session_state['is_filtered'] = True
-                st.session_state['mode_demand'] = False
-                safe_rerun()
+                sel_yards = st.multiselect(t('partner_name'), yard_opts, key="ys")
+                
+                if st.form_submit_button(f"🔍 {t('search_btn_partners')}", type="primary"):
+                    real_yard_names = []
+                    if st.session_state.user_role == 'buyer':
+                        for y in list_yards:
+                            if generate_alias(y) in sel_yards:
+                                real_yard_names.append(y)
+                    else:
+                        real_yard_names = sel_yards
+                        
+                    res, tot = search_data_from_db(None, [], [], 1990, 2030, real_yard_names)
+                    st.session_state['view_data'] = res
+                    st.session_state['total_count'] = tot
+                    st.session_state['is_filtered'] = True
+                    st.session_state['mode_demand'] = False
+                    safe_rerun()
 
         if st.button(f"🔄 {t('reset_filters')}", use_container_width=True, on_click=reset_dashboard):
             pass
@@ -890,7 +864,6 @@ try:
                 stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
                 selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
                 
-                # 견적 요청 폼
                 if len(selection.selection.rows) > 0:
                     sel_idx = selection.selection.rows[0]
                     sel_row = stock_summary.iloc[sel_idx]
@@ -910,7 +883,6 @@ try:
                                 contact = st.text_input(t('contact'))
                                 req_qty = st.number_input(t('qty'), min_value=1, value=1)
                             with c_b:
-                                # 자동 품목 완성
                                 s_maker = st.session_state.get('msel', 'All')
                                 s_models = st.session_state.get('mms', [])
                                 s_engines = st.session_state.get('es', [])
@@ -949,11 +921,11 @@ try:
                                     
                                     if "EMAIL" in st.secrets:
                                         admin_email = st.secrets["EMAIL"]["admin_email"]
-                                        send_email(admin_email, f"[K-Used Car] New Quote Request from {buyer_name}",
+                                        send_email(admin_email, f"[K-Used Car] New Quote Request from {buyer_name}", 
                                                    f"Buyer: {buyer_name}\nContact: {contact}\nItem: {item}\nQty: {req_qty}\nPrice: {offer}\nMessage: {msg}")
 
                                     summary = f"Qty: {req_qty} (Total Stock: {stock_cnt}), Item: {item}, Price: {offer}, Msg: {msg}"
-                                    cur.execute("INSERT INTO orders (buyer_id, contact_info, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?, ?)",
+                                    cur.execute("INSERT INTO orders (buyer_id, contact_info, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?, ?)", 
                                                 (buyer_name, contact, target_partner, real_name, summary, 'PENDING'))
                                     conn.commit()
                                     conn.close()
@@ -994,11 +966,12 @@ try:
                                     if sent:
                                         img_list = []
                                         if reply_files:
-                                            for f in reply_files:
+                                            files = reply_files if isinstance(reply_files, list) else [reply_files]
+                                            for f in files:
                                                 f.seek(0)
                                                 b64_str = base64.b64encode(f.read()).decode('utf-8')
                                                 img_list.append(b64_str)
-                                        
+                                            
                                         conn_up = sqlite3.connect(SYSTEM_DB)
                                         conn_up.execute("UPDATE orders SET status = 'QUOTED', reply_text = ?, reply_images = ? WHERE id = ?", 
                                                         (f"Price: {reply_price}\n\n{reply_msg}", json.dumps(img_list), row['id']))

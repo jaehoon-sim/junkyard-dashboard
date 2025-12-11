@@ -31,12 +31,15 @@ def safe_rerun():
         st.experimental_rerun()
 
 # ---------------------------------------------------------
-# 🔐 [보안] 계정 설정
+# 🔐 [보안] 계정 설정 (수정됨)
 # ---------------------------------------------------------
+# 코드 내 하드코딩된 비밀번호 제거. 
+# 반드시 .streamlit/secrets.toml 파일에 [ADMIN_CREDENTIALS] 섹션을 설정해야 함.
 try:
     ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
-except:
-    ADMIN_CREDENTIALS = {"admin": "1234"}
+except Exception:
+    # 시크릿 파일이 없거나 설정되지 않은 경우, 어드민 로그인 비활성화
+    ADMIN_CREDENTIALS = {}
 
 # 🟢 [설정] 데이터베이스 파일 분리
 INVENTORY_DB = 'inventory.db'  # 재고 (대용량)
@@ -250,6 +253,7 @@ def create_user(user_id, password, name, company, country, email, phone):
     except: return False
 
 def login_user(user_id, password):
+    # Secrets에서 Admin 정보 확인 (fallback 없음)
     if user_id in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[user_id] == password:
         return "admin", "admin"
     

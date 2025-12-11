@@ -43,6 +43,21 @@ INVENTORY_DB = 'inventory.db'  # 재고 (대용량)
 SYSTEM_DB = 'system.db'        # 시스템 (유저, 세션, 로그)
 
 # ---------------------------------------------------------
+# 🕒 [기능] 서울 시간 변환 헬퍼
+# ---------------------------------------------------------
+def apply_kst(df, col_name='created_at'):
+    """데이터프레임의 특정 컬럼(UTC)을 한국 시간(KST, UTC+9)으로 변환"""
+    if not df.empty and col_name in df.columns:
+        try:
+            # datetime 변환 후 9시간 더하기
+            df[col_name] = pd.to_datetime(df[col_name]) + pd.Timedelta(hours=9)
+            # 가독성을 위해 포맷팅 (선택사항)
+            # df[col_name] = df[col_name].dt.strftime('%Y-%m-%d %H:%M:%S') 
+        except Exception:
+            pass
+    return df
+
+# ---------------------------------------------------------
 # 📧 [기능] 이메일 발송 함수
 # ---------------------------------------------------------
 def send_email(to_email, subject, content, attachment_files=[]):
@@ -566,6 +581,8 @@ def load_metadata_and_init_data():
     if not df_init.empty:
         df_init['model_year'] = pd.to_numeric(df_init['model_year'], errors='coerce').fillna(0)
         df_init['reg_date'] = pd.to_datetime(df_init['reg_date'], errors='coerce')
+        # 🟢 [수정] 재고 목록 시간 변환 (KST)
+        df_init = apply_kst(df_init, 'created_at')
         
     return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), df_init, total_cnt
 
@@ -853,7 +870,6 @@ try:
         df_display = mask_dataframe(df_view, st.session_state.user_role)
         
         if st.session_state.user_role == 'admin':
-            # 🟢 [수정] 어드민용 탭 확장 (User Management 추가)
             main_tabs = st.tabs([f"📊 {t('tab_inventory')}", f"📩 {t('tab_orders')}", f"👥 {t('tab_users')}"])
         else:
             main_tabs = st.tabs([f"📊 {t('tab_results')}", f"🛒 {t('tab_my_orders')}"])
@@ -965,6 +981,9 @@ try:
                 orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
                 conn.close()
                 
+                # 🟢 [수정] 주문 목록 시간 변환 (KST)
+                orders = apply_kst(orders, 'created_at')
+                
                 if not orders.empty:
                     for idx, row in orders.iterrows():
                         with st.expander(f"[{row['status']}] {row['created_at']} | From: {row['buyer_id']}"):
@@ -1024,18 +1043,18 @@ try:
                 else:
                     st.info(t('no_orders_admin'))
             
-            # 🟢 [추가] 회원 관리 탭 구현
             with main_tabs[2]:
                 st.subheader(f"👥 {t('tab_users')}")
                 conn = sqlite3.connect(SYSTEM_DB)
-                # 비밀번호는 보안상 제외하고 조회
                 users_df = pd.read_sql("SELECT user_id, name, company, country, email, phone, role, created_at FROM users", conn)
                 conn.close()
+                
+                # 🟢 [수정] 회원 목록 시간 변환 (KST)
+                users_df = apply_kst(users_df, 'created_at')
                 
                 st.dataframe(users_df, use_container_width=True)
                 
                 st.divider()
-                # 간단한 회원 삭제 UI (선택사항)
                 with st.expander(f"⚠️ {t('delete_user')}"):
                     del_user_id = st.text_input(f"{t('id')} to delete")
                     if st.button(t('delete_user'), type="primary"):
@@ -1061,6 +1080,9 @@ try:
                 except:
                     my_orders = pd.DataFrame()
                 conn.close()
+                
+                # 🟢 [수정] 주문 목록 시간 변환 (KST)
+                my_orders = apply_kst(my_orders, 'created_at')
 
                 if not my_orders.empty:
                     for idx, row in my_orders.iterrows():

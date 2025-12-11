@@ -578,7 +578,7 @@ def load_metadata_and_init_data():
     if not df_init.empty:
         df_init['model_year'] = pd.to_numeric(df_init['model_year'], errors='coerce').fillna(0)
         df_init['reg_date'] = pd.to_datetime(df_init['reg_date'], errors='coerce')
-        # 🟢 [수정] 재고 목록 시간 변환 (KST)
+        # KST 변환
         df_init = apply_kst(df_init, 'created_at')
         
     return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), df_init, total_cnt
@@ -612,8 +612,32 @@ def reset_dashboard():
     if 'es' in st.session_state: st.session_state['es'] = []
     if 'ys' in st.session_state: st.session_state['ys'] = []
 
+# 🟢 [기능] Admin 뱃지 카운트 쿼리
+def get_pending_count():
+    try:
+        conn = sqlite3.connect(SYSTEM_DB)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM orders WHERE status='PENDING'")
+        cnt = cur.fetchone()[0]
+        conn.close()
+        return cnt
+    except:
+        return 0
+
+# 🟢 [추가] Buyer 뱃지 카운트 쿼리
+def get_quoted_count(user_id):
+    try:
+        conn = sqlite3.connect(SYSTEM_DB)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM orders WHERE buyer_id=? AND status='QUOTED'", (user_id,))
+        cnt = cur.fetchone()[0]
+        conn.close()
+        return cnt
+    except:
+        return 0
+
 # ---------------------------------------------------------
-# 🟢 [기능] Admin 주문 목록 Fragment (자동 갱신)
+# 🟢 [기능] Admin 주문 목록 Fragment (자동 갱신 + 토스트 알림)
 # ---------------------------------------------------------
 @st.fragment(run_every=30)
 def show_admin_orders_fragment():
@@ -624,6 +648,19 @@ def show_admin_orders_fragment():
     
     # KST 시간 적용
     orders = apply_kst(orders, 'created_at')
+    
+    # 토스트 알림 로직 (Admin)
+    pending_df = orders[orders['status'] == 'PENDING']
+    current_cnt = len(pending_df)
+    
+    if 'admin_last_cnt' not in st.session_state:
+        st.session_state.admin_last_cnt = current_cnt
+    
+    if current_cnt > st.session_state.admin_last_cnt:
+        diff = current_cnt - st.session_state.admin_last_cnt
+        st.toast(f"🔔 {diff} New orders received!", icon="🔥")
+    
+    st.session_state.admin_last_cnt = current_cnt
     
     if not orders.empty:
         for idx, row in orders.iterrows():
@@ -662,7 +699,6 @@ def show_admin_orders_fragment():
                             conn_up.close()
                             st.success("Reply sent and status updated to QUOTED!")
                             time.sleep(1)
-                            # st.rerun() # Fragment 안에서는 rerun보다 UI 갱신이 자연스러움
                         else:
                             st.error("Failed to send email. Check SMTP settings.")
 
@@ -680,12 +716,11 @@ def show_admin_orders_fragment():
                         update_order_status(row['id'], new_status)
                         st.success(t('updated_msg'))
                         time.sleep(0.5)
-                        # st.rerun() 
     else:
         st.info(t('no_orders_admin'))
 
 # ---------------------------------------------------------
-# 🟢 [기능] Buyer 주문 목록 Fragment (자동 갱신)
+# 🟢 [기능] Buyer 주문 목록 Fragment (자동 갱신 + 토스트 알림)
 # ---------------------------------------------------------
 @st.fragment(run_every=30)
 def show_buyer_orders_fragment():
@@ -699,6 +734,18 @@ def show_buyer_orders_fragment():
     
     # KST 시간 적용
     my_orders = apply_kst(my_orders, 'created_at')
+
+    # 토스트 알림 로직 (Buyer - 견적 도착 알림)
+    if not my_orders.empty:
+        quoted_cnt = len(my_orders[my_orders['status'] == 'QUOTED'])
+        
+        if 'buyer_last_cnt' not in st.session_state:
+            st.session_state.buyer_last_cnt = quoted_cnt
+            
+        if quoted_cnt > st.session_state.buyer_last_cnt:
+            st.toast("📬 New Quote Received! Check your orders.", icon="💰")
+            
+        st.session_state.buyer_last_cnt = quoted_cnt
 
     if not my_orders.empty:
         for idx, row in my_orders.iterrows():
@@ -984,9 +1031,17 @@ try:
         df_display = mask_dataframe(df_view, st.session_state.user_role)
         
         if st.session_state.user_role == 'admin':
-            main_tabs = st.tabs([f"📊 {t('tab_inventory')}", f"📩 {t('tab_orders')}", f"👥 {t('tab_users')}"])
+            # 탭 라벨에 뱃지(Badge) 추가
+            pending_cnt = get_pending_count()
+            order_tab_label = f"📩 {t('tab_orders')} (🔴 {pending_cnt})" if pending_cnt > 0 else f"📩 {t('tab_orders')}"
+            
+            main_tabs = st.tabs([f"📊 {t('tab_inventory')}", order_tab_label, f"👥 {t('tab_users')}"])
         else:
-            main_tabs = st.tabs([f"📊 {t('tab_results')}", f"🛒 {t('tab_my_orders')}"])
+            # 🟢 [수정] 바이어 탭 라벨에 뱃지(Badge) 추가
+            quoted_cnt = get_quoted_count(st.session_state.username)
+            my_order_tab_label = f"🛒 {t('tab_my_orders')} (🟢 {quoted_cnt})" if quoted_cnt > 0 else f"🛒 {t('tab_my_orders')}"
+            
+            main_tabs = st.tabs([f"📊 {t('tab_results')}", my_order_tab_label])
 
         with main_tabs[0]:
             if df_display.empty:
@@ -1090,7 +1145,6 @@ try:
 
         if st.session_state.user_role == 'admin':
             with main_tabs[1]:
-                # 🟢 [수정] Fragment 호출 (자동 갱신)
                 show_admin_orders_fragment()
             
             with main_tabs[2]:
@@ -1122,7 +1176,6 @@ try:
 
         if st.session_state.user_role == 'buyer':
             with main_tabs[1]: 
-                # 🟢 [수정] Fragment 호출 (자동 갱신)
                 show_buyer_orders_fragment()
 
 except Exception as e:

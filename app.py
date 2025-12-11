@@ -49,10 +49,7 @@ def apply_kst(df, col_name='created_at'):
     """데이터프레임의 특정 컬럼(UTC)을 한국 시간(KST, UTC+9)으로 변환"""
     if not df.empty and col_name in df.columns:
         try:
-            # datetime 변환 후 9시간 더하기
             df[col_name] = pd.to_datetime(df[col_name]) + pd.Timedelta(hours=9)
-            # 가독성을 위해 포맷팅 (선택사항)
-            # df[col_name] = df[col_name].dt.strftime('%Y-%m-%d %H:%M:%S') 
         except Exception:
             pass
     return df
@@ -616,6 +613,123 @@ def reset_dashboard():
     if 'ys' in st.session_state: st.session_state['ys'] = []
 
 # ---------------------------------------------------------
+# 🟢 [기능] Admin 주문 목록 Fragment (자동 갱신)
+# ---------------------------------------------------------
+@st.fragment(run_every=30)
+def show_admin_orders_fragment():
+    st.subheader(f"{t('incoming_quotes')}")
+    conn = sqlite3.connect(SYSTEM_DB)
+    orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
+    conn.close()
+    
+    # KST 시간 적용
+    orders = apply_kst(orders, 'created_at')
+    
+    if not orders.empty:
+        for idx, row in orders.iterrows():
+            with st.expander(f"[{row['status']}] {row['created_at']} | From: {row['buyer_id']}"):
+                st.write(f"**Contact:** {row['contact_info']}")
+                st.write(f"**Target:** {row['real_junkyard_name']} ({row['target_partner_alias']})")
+                st.info(f"**Request:** {row['items_summary']}")
+                
+                st.markdown("### ✍️ Reply & Quote")
+                with st.form(f"reply_form_{row['id']}"):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        reply_price = st.text_input("Final Quote Price (USD)", placeholder="$000")
+                    with c2:
+                        reply_files = st.file_uploader("Attach Images (Max 5)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
+                    
+                    reply_msg = st.text_area("Message to Buyer", value=f"Dear {row['buyer_id']},\n\nThank you for your inquiry. We are pleased to offer:\n\n", height=150)
+                    
+                    if st.form_submit_button("Send Reply & Set to QUOTED"):
+                        email_content = f"{reply_msg}\n\n[Quote Price]: {reply_price}"
+                        sent = send_email(row['contact_info'], f"[K-Used Car] Quote for your request #{row['id']}", email_content, reply_files)
+                        
+                        if sent:
+                            img_list = []
+                            if reply_files:
+                                files = reply_files if isinstance(reply_files, list) else [reply_files]
+                                for f in files:
+                                    f.seek(0)
+                                    b64_str = base64.b64encode(f.read()).decode('utf-8')
+                                    img_list.append(b64_str)
+                                
+                            conn_up = sqlite3.connect(SYSTEM_DB)
+                            conn_up.execute("UPDATE orders SET status = 'QUOTED', reply_text = ?, reply_images = ? WHERE id = ?", 
+                                            (f"Price: {reply_price}\n\n{reply_msg}", json.dumps(img_list), row['id']))
+                            conn_up.commit()
+                            conn_up.close()
+                            st.success("Reply sent and status updated to QUOTED!")
+                            time.sleep(1)
+                            # st.rerun() # Fragment 안에서는 rerun보다 UI 갱신이 자연스러움
+                        else:
+                            st.error("Failed to send email. Check SMTP settings.")
+
+                st.divider()
+                c1, c2 = st.columns([3, 1])
+                with c1:
+                    new_status = st.selectbox(t('status_change'), 
+                                              ["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"],
+                                              index=["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"].index(row['status']),
+                                              key=f"st_{row['id']}")
+                with c2:
+                    st.write("")
+                    st.write("")
+                    if st.button(t('update_btn'), key=f"btn_{row['id']}"):
+                        update_order_status(row['id'], new_status)
+                        st.success(t('updated_msg'))
+                        time.sleep(0.5)
+                        # st.rerun() 
+    else:
+        st.info(t('no_orders_admin'))
+
+# ---------------------------------------------------------
+# 🟢 [기능] Buyer 주문 목록 Fragment (자동 갱신)
+# ---------------------------------------------------------
+@st.fragment(run_every=30)
+def show_buyer_orders_fragment():
+    st.subheader(f"{t('my_quote_req')}")
+    conn = sqlite3.connect(SYSTEM_DB)
+    try:
+        my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
+    except:
+        my_orders = pd.DataFrame()
+    conn.close()
+    
+    # KST 시간 적용
+    my_orders = apply_kst(my_orders, 'created_at')
+
+    if not my_orders.empty:
+        for idx, row in my_orders.iterrows():
+            status_color = "green" if row['status'] == 'DONE' else "orange" if row['status'] == 'PENDING' else "blue"
+            with st.expander(f"[{row['created_at']}] {row['target_partner_alias']} ({row['status']})"):
+                st.caption(f"Status: :{status_color}[{row['status']}]")
+                st.write(f"**Request Details:** {row['items_summary']}")
+                
+                if row['status'] == 'QUOTED' or row.get('reply_text'):
+                    st.divider()
+                    st.info("📬 Admin Reply:")
+                    if row.get('reply_text'):
+                        st.text(row['reply_text'])
+                    
+                    if row.get('reply_images'):
+                        try:
+                            img_data = json.loads(row['reply_images'])
+                            if img_data:
+                                st.write("**Attached Images:**")
+                                cols = st.columns(len(img_data))
+                                for i, b64_img in enumerate(img_data):
+                                    with cols[i]:
+                                        st.image(base64.b64decode(b64_img), use_container_width=True)
+                        except: pass
+                
+                if row['status'] == 'QUOTED':
+                    st.success(t('offer_received'))
+    else:
+        st.info(t('no_orders_buyer'))
+
+# ---------------------------------------------------------
 # 🚀 메인 어플리케이션
 # ---------------------------------------------------------
 try:
@@ -976,72 +1090,8 @@ try:
 
         if st.session_state.user_role == 'admin':
             with main_tabs[1]:
-                st.subheader(f"{t('incoming_quotes')}")
-                conn = sqlite3.connect(SYSTEM_DB)
-                orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
-                conn.close()
-                
-                # 🟢 [수정] 주문 목록 시간 변환 (KST)
-                orders = apply_kst(orders, 'created_at')
-                
-                if not orders.empty:
-                    for idx, row in orders.iterrows():
-                        with st.expander(f"[{row['status']}] {row['created_at']} | From: {row['buyer_id']}"):
-                            st.write(f"**Contact:** {row['contact_info']}")
-                            st.write(f"**Target:** {row['real_junkyard_name']} ({row['target_partner_alias']})")
-                            st.info(f"**Request:** {row['items_summary']}")
-                            
-                            st.markdown("### ✍️ Reply & Quote")
-                            with st.form(f"reply_form_{row['id']}"):
-                                c1, c2 = st.columns(2)
-                                with c1:
-                                    reply_price = st.text_input("Final Quote Price (USD)", placeholder="$000")
-                                with c2:
-                                    reply_files = st.file_uploader("Attach Images (Max 5)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
-                                
-                                reply_msg = st.text_area("Message to Buyer", value=f"Dear {row['buyer_id']},\n\nThank you for your inquiry. We are pleased to offer:\n\n", height=150)
-                                
-                                if st.form_submit_button("Send Reply & Set to QUOTED"):
-                                    email_content = f"{reply_msg}\n\n[Quote Price]: {reply_price}"
-                                    sent = send_email(row['contact_info'], f"[K-Used Car] Quote for your request #{row['id']}", email_content, reply_files)
-                                    
-                                    if sent:
-                                        img_list = []
-                                        if reply_files:
-                                            files = reply_files if isinstance(reply_files, list) else [reply_files]
-                                            for f in files:
-                                                f.seek(0)
-                                                b64_str = base64.b64encode(f.read()).decode('utf-8')
-                                                img_list.append(b64_str)
-                                            
-                                        conn_up = sqlite3.connect(SYSTEM_DB)
-                                        conn_up.execute("UPDATE orders SET status = 'QUOTED', reply_text = ?, reply_images = ? WHERE id = ?", 
-                                                        (f"Price: {reply_price}\n\n{reply_msg}", json.dumps(img_list), row['id']))
-                                        conn_up.commit()
-                                        conn_up.close()
-                                        st.success("Reply sent and status updated to QUOTED!")
-                                        time.sleep(1)
-                                        safe_rerun()
-                                    else:
-                                        st.error("Failed to send email. Check SMTP settings.")
-
-                            st.divider()
-                            c1, c2 = st.columns([3, 1])
-                            with c1:
-                                new_status = st.selectbox(t('status_change'), 
-                                                          ["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"],
-                                                          index=["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"].index(row['status']),
-                                                          key=f"st_{row['id']}")
-                            with c2:
-                                st.write("")
-                                st.write("")
-                                if st.button(t('update_btn'), key=f"btn_{row['id']}"):
-                                    update_order_status(row['id'], new_status)
-                                    st.success(t('updated_msg'))
-                                    time.sleep(0.5)
-                                    safe_rerun()
-                else:
-                    st.info(t('no_orders_admin'))
+                # 🟢 [수정] Fragment 호출 (자동 갱신)
+                show_admin_orders_fragment()
             
             with main_tabs[2]:
                 st.subheader(f"👥 {t('tab_users')}")
@@ -1049,7 +1099,6 @@ try:
                 users_df = pd.read_sql("SELECT user_id, name, company, country, email, phone, role, created_at FROM users", conn)
                 conn.close()
                 
-                # 🟢 [수정] 회원 목록 시간 변환 (KST)
                 users_df = apply_kst(users_df, 'created_at')
                 
                 st.dataframe(users_df, use_container_width=True)
@@ -1073,45 +1122,8 @@ try:
 
         if st.session_state.user_role == 'buyer':
             with main_tabs[1]: 
-                st.subheader(f"{t('my_quote_req')}")
-                conn = sqlite3.connect(SYSTEM_DB)
-                try:
-                    my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
-                except:
-                    my_orders = pd.DataFrame()
-                conn.close()
-                
-                # 🟢 [수정] 주문 목록 시간 변환 (KST)
-                my_orders = apply_kst(my_orders, 'created_at')
-
-                if not my_orders.empty:
-                    for idx, row in my_orders.iterrows():
-                        status_color = "green" if row['status'] == 'DONE' else "orange" if row['status'] == 'PENDING' else "blue"
-                        with st.expander(f"[{row['created_at']}] {row['target_partner_alias']} ({row['status']})"):
-                            st.caption(f"Status: :{status_color}[{row['status']}]")
-                            st.write(f"**Request Details:** {row['items_summary']}")
-                            
-                            if row['status'] == 'QUOTED' or row.get('reply_text'):
-                                st.divider()
-                                st.info("📬 Admin Reply:")
-                                if row.get('reply_text'):
-                                    st.text(row['reply_text'])
-                                
-                                if row.get('reply_images'):
-                                    try:
-                                        img_data = json.loads(row['reply_images'])
-                                        if img_data:
-                                            st.write("**Attached Images:**")
-                                            cols = st.columns(len(img_data))
-                                            for i, b64_img in enumerate(img_data):
-                                                with cols[i]:
-                                                    st.image(base64.b64decode(b64_img), use_container_width=True)
-                                    except: pass
-                            
-                            if row['status'] == 'QUOTED':
-                                st.success(t('offer_received'))
-                else:
-                    st.info(t('no_orders_buyer'))
+                # 🟢 [수정] Fragment 호출 (자동 갱신)
+                show_buyer_orders_fragment()
 
 except Exception as e:
     st.error("⛔ 앱 실행 중 문제가 발생했습니다.")

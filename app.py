@@ -461,7 +461,7 @@ def save_vehicle_file(uploaded_file):
 
         df_db.to_sql('temp_vehicles', conn, if_exists='replace', index=False)
         c.execute("""INSERT OR IGNORE INTO vehicle_data (vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code)
-                     SELECT vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code FROM temp_vehicles""")
+                      SELECT vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code FROM temp_vehicles""")
         cnt = len(df_db)
         c.execute("DROP TABLE temp_vehicles")
         
@@ -556,6 +556,22 @@ def load_metadata_and_init_data():
         df_init['reg_date'] = pd.to_datetime(df_init['reg_date'], errors='coerce')
         
     return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), df_init, total_cnt
+
+# 🟢 [추가] reset_dashboard 함수 정의 (NameError 해결)
+def reset_dashboard():
+    st.session_state['is_filtered'] = False
+    st.session_state['mode_demand'] = False
+    
+    # 캐시된 초기 데이터를 다시 불러와서 세션에 덮어쓰기
+    _, _, _, init_df, init_total = load_metadata_and_init_data()
+    st.session_state['view_data'] = init_df
+    st.session_state['total_count'] = init_total
+    
+    # 선택된 위젯 값들도 초기화
+    keys_to_reset = ['msel', 'sy', 'ey', 'mms', 'es', 'ys']
+    for key in keys_to_reset:
+        if key in st.session_state:
+            del st.session_state[key]
 
 def update_order_status(order_id, new_status, notify_user=True):
     conn = sqlite3.connect(SYSTEM_DB)
@@ -899,11 +915,11 @@ try:
                                     
                                     if "EMAIL" in st.secrets:
                                         admin_email = st.secrets["EMAIL"]["admin_email"]
-                                        send_email(admin_email, f"[K-Used Car] New Quote Request from {buyer_name}",
+                                        send_email(admin_email, f"[K-Used Car] New Quote Request from {buyer_name}", 
                                                    f"Buyer: {buyer_name}\nContact: {contact}\nItem: {item}\nQty: {req_qty}\nPrice: {offer}\nMessage: {msg}")
 
                                     summary = f"Qty: {req_qty} (Total Stock: {stock_cnt}), Item: {item}, Price: {offer}, Msg: {msg}"
-                                    cur.execute("INSERT INTO orders (buyer_id, contact_info, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?, ?)",
+                                    cur.execute("INSERT INTO orders (buyer_id, contact_info, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?, ?)", 
                                                 (buyer_name, contact, target_partner, real_name, summary, 'PENDING'))
                                     conn.commit()
                                     conn.close()
@@ -950,7 +966,7 @@ try:
                                                 f.seek(0)
                                                 b64_str = base64.b64encode(f.read()).decode('utf-8')
                                                 img_list.append(b64_str)
-                                        
+                                            
                                         conn_up = sqlite3.connect(SYSTEM_DB)
                                         conn_up.execute("UPDATE orders SET status = 'QUOTED', reply_text = ?, reply_images = ? WHERE id = ?", 
                                                         (f"Price: {reply_price}\n\n{reply_msg}", json.dumps(img_list), row['id']))

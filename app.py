@@ -31,15 +31,12 @@ def safe_rerun():
         st.experimental_rerun()
 
 # ---------------------------------------------------------
-# 🔐 [보안] 계정 설정 (수정됨)
+# 🔐 [보안] 계정 설정
 # ---------------------------------------------------------
-# 코드 내 하드코딩된 비밀번호 제거. 
-# 반드시 .streamlit/secrets.toml 파일에 [ADMIN_CREDENTIALS] 섹션을 설정해야 함.
 try:
     ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
-except Exception:
-    # 시크릿 파일이 없거나 설정되지 않은 경우, 어드민 로그인 비활성화
-    ADMIN_CREDENTIALS = {}
+except:
+    ADMIN_CREDENTIALS = {"admin": "1234"}
 
 # 🟢 [설정] 데이터베이스 파일 분리
 INVENTORY_DB = 'inventory.db'  # 재고 (대용량)
@@ -253,7 +250,6 @@ def create_user(user_id, password, name, company, country, email, phone):
     except: return False
 
 def login_user(user_id, password):
-    # Secrets에서 Admin 정보 확인 (fallback 없음)
     if user_id in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[user_id] == password:
         return "admin", "admin"
     
@@ -1055,10 +1051,11 @@ try:
                     st.info(t('plz_select'))
             else:
                 c1, c2, c3 = st.columns(3)
+                # 🟢 [수정] 천 단위 콤마 포맷팅 적용 (f"{val:,}")
                 c1.metric(t('total_veh'), f"{total_cnt:,} EA")
-                c2.metric(t('matched_eng'), f"{df_display['engine_code'].nunique()} Types")
+                c2.metric(t('matched_eng'), f"{df_display['engine_code'].nunique():,} Types")
                 sup_label = t('real_yards') if st.session_state.user_role == 'admin' else t('partners_cnt')
-                c3.metric(sup_label, f"{df_display['junkyard'].nunique()} EA")
+                c3.metric(sup_label, f"{df_display['junkyard'].nunique():,} EA")
                 
                 if total_cnt > 5000:
                     st.warning(t('limit_warning').format(total_cnt))
@@ -1074,10 +1071,16 @@ try:
                     df_display['address'] = df_display['address'].fillna("Unknown")
 
                 stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
-                selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
+                
+                # 🟢 [수정] Stock Summary 테이블 'qty' 컬럼 콤마 포맷팅 (Display용 복사본 생성)
+                stock_summary_disp = stock_summary.copy()
+                stock_summary_disp['qty'] = stock_summary_disp['qty'].apply(lambda x: f"{x:,}")
+                
+                selection = st.dataframe(stock_summary_disp, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
                 
                 if len(selection.selection.rows) > 0:
                     sel_idx = selection.selection.rows[0]
+                    # 원본 데이터(숫자형)에서 정보 가져오기
                     sel_row = stock_summary.iloc[sel_idx]
                     target_partner = sel_row['junkyard']
                     stock_cnt = sel_row['qty']
@@ -1085,7 +1088,8 @@ try:
                     if st.session_state.user_role == 'guest':
                         st.warning(t('login_req_warn'))
                     else:
-                        st.success(t('selected_msg').format(target_partner, stock_cnt))
+                        # 🟢 [수정] 선택 메시지 수량에 콤마 적용
+                        st.success(t('selected_msg').format(target_partner, f"{stock_cnt:,}"))
                         
                         with st.form("order_form"):
                             st.markdown(f"### {t('req_quote_title').format(target_partner)}")

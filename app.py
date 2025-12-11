@@ -133,7 +133,7 @@ def send_email(to_email, subject, content, attachment_files=[]):
         return False
 
 # ---------------------------------------------------------
-# 🗄️ [DB] 데이터베이스 초기화
+# 🗄️ [DB] 데이터베이스 초기화 (⚡ 최적화: cache_resource 적용)
 # ---------------------------------------------------------
 def _get_raw_translations():
     return {
@@ -195,6 +195,7 @@ def _get_raw_translations():
     }
     # (다른 언어는 생략, 자동 생성 시 영어 기반으로 채워짐)
 
+@st.cache_resource
 def init_inventory_db():
     conn = sqlite3.connect(INVENTORY_DB)
     c = conn.cursor()
@@ -209,6 +210,7 @@ def init_inventory_db():
     conn.commit()
     conn.close()
 
+@st.cache_resource
 def init_system_db():
     conn = sqlite3.connect(SYSTEM_DB)
     c = conn.cursor()
@@ -235,8 +237,9 @@ def init_system_db():
     conn.close()
 
 # ---------------------------------------------------------
-# 🟢 [인증] 사용자 로드 (Authenticator용) - 최신 문법 적용
+# 🟢 [인증] 사용자 로드 (⚡ 최적화: cache_data 적용)
 # ---------------------------------------------------------
+@st.cache_data(ttl=600)  # 10분 캐시 (새로고침 시 로그인 유지의 핵심)
 def fetch_users_for_auth():
     # 🟢 [수정] stauth.Hasher(['1234']).generate()[0] 문법 사용
     # 라이브러리 버전에 따라 인자 개수 에러가 날 수 있으므로 예외 처리
@@ -292,6 +295,10 @@ def create_user(user_id, password, name, company, country, email, phone):
                   (user_id, hashed_pw, name, company, country, email, phone))
         conn.commit()
         conn.close()
+        
+        # 🟢 [중요] 회원가입 시 캐시 초기화 (그래야 바로 로그인 가능)
+        fetch_users_for_auth.clear()
+        
         return True
     except sqlite3.IntegrityError: return False
     except: return False
@@ -591,11 +598,14 @@ def update_order_status(order_id, new_status, notify_user=True):
 try:
     if 'language' not in st.session_state: st.session_state.language = 'English'
     
+    # ⚡ [최적화] 캐시가 적용된 함수라, 이미 실행되었다면 순식간에 지나감
     init_inventory_db()
     init_system_db()
 
     # 🟢 [인증] Authenticator 초기화
+    # ⚡ [최적화] DB에서 유저 정보를 매번 긁어오지 않고 캐시에서 즉시 가져옴 (로그인 유지 핵심)
     users_dict = fetch_users_for_auth()
+    
     authenticator = stauth.Authenticate(
         users_dict,
         'k_used_car_cookie', 
@@ -704,6 +714,8 @@ try:
                     conn.execute("DROP TABLE IF EXISTS model_list")
                     conn.commit()
                     conn.close()
+                    # 캐시 무효화 및 다시 초기화
+                    init_inventory_db.clear()
                     init_inventory_db()
                     st.success(t('reset_done'))
                     load_metadata_and_init_data.clear()
@@ -717,8 +729,11 @@ try:
                     conn.execute("DROP TABLE IF EXISTS translations")
                     conn.commit()
                     conn.close()
+                    # 캐시 무효화 및 다시 초기화
+                    init_system_db.clear()
                     init_system_db()
                     load_translations.clear()
+                    fetch_users_for_auth.clear()
                     st.success(t('reset_done'))
                     safe_rerun()
             

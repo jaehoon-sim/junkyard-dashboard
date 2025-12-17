@@ -17,14 +17,13 @@ import base64
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
-
-# 🟢 [라이브러리] 인증
 import streamlit_authenticator as stauth
 import yaml
 from yaml.loader import SafeLoader
+# bcrypt 임포트 제거 (라이브러리 의존성 최소화)
 
 # ---------------------------------------------------------
-# 🛠️ [설정] 페이지 설정 (무조건 맨 위)
+# 🛠️ [설정] 페이지 설정
 # ---------------------------------------------------------
 st.set_page_config(page_title="K-Used Car Global Hub", layout="wide")
 
@@ -35,7 +34,7 @@ def safe_rerun():
         st.experimental_rerun()
 
 # ---------------------------------------------------------
-# 🔐 [보안] 계정 및 시크릿 설정
+# 🔐 [보안] 계정 설정
 # ---------------------------------------------------------
 try:
     ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
@@ -44,16 +43,12 @@ except:
     ADMIN_CREDENTIALS = {"admin": "1234"}
     COOKIE_KEY = "some_random_secret_key_123"
 
-# ---------------------------------------------------------
-# 📂 [설정] 데이터베이스 경로 수정 (data 폴더 적용)
-# ---------------------------------------------------------
-# data 폴더가 없으면 생성 (배포 환경 대비)
+# 📂 [설정] 데이터베이스 경로
 if not os.path.exists('data'):
     os.makedirs('data')
 
-INVENTORY_DB = 'data/inventory.db'  # 재고, 폐차장, 모델 (대용량)
-SYSTEM_DB = 'data/system.db'        # 유저, 주문, 로그, 번역 (소용량)
-TRANS_DB = 'data/translations.db'   # (init_system_db 내부 로직용)
+INVENTORY_DB = 'data/inventory.db'
+SYSTEM_DB = 'data/system.db'
 
 # ---------------------------------------------------------
 # 📧 [기능] 이메일 발송 함수
@@ -74,10 +69,8 @@ def send_email(to_email, subject, content, attachment_files=[]):
         msg['Subject'] = subject
         msg.attach(MIMEText(content, 'plain'))
 
-        # 다중 파일 첨부
         if attachment_files:
             files = attachment_files if isinstance(attachment_files, list) else [attachment_files]
-            
             for file in files:
                 try:
                     file.seek(0)
@@ -86,18 +79,14 @@ def send_email(to_email, subject, content, attachment_files=[]):
                     part = MIMEApplication(file_data, Name=fname)
                     part['Content-Disposition'] = f'attachment; filename="{fname}"'
                     msg.attach(part)
-                except Exception as e:
-                    print(f"File attach error: {e}")
-                    continue
+                except: continue
 
         with smtplib.SMTP(smtp_server, smtp_port) as server:
             server.starttls()
             server.login(sender_email, sender_password)
             server.send_message(msg)
         return True
-    except Exception as e:
-        print(f"Email send error: {e}")
-        return False
+    except: return False
 
 # ---------------------------------------------------------
 # 🌍 [설정] 데이터 (국가, 주소 매핑)
@@ -140,21 +129,13 @@ PROVINCE_MAP_AR = {
     '울산': 'أولسان', '제주': 'جيجو'
 }
 
-# 비밀번호 해싱
-def make_hashes(password):
-    return hashlib.sha256(str.encode(password)).hexdigest()
-
-def check_hashes(password, hashed_text):
-    if make_hashes(password) == hashed_text: return True
-    return False
-
 # ---------------------------------------------------------
-# 🗄️ [DB] 데이터베이스 초기화
+# 🗄️ [DB] 데이터베이스 초기화 및 번역 데이터
 # ---------------------------------------------------------
 def _get_raw_translations():
     return {
         "English": {
-            "app_title": "K-Used Car Global Hub", "login_title": "Login", "id": "ID *", "pw": "Password *",
+            "app_title": "K-Used Car Global Hub", "login_title": "Login", "id": "ID", "pw": "Password",
             "sign_in": "Sign In", "sign_up": "Sign Up", "logout": "Logout", "welcome": "Welcome, {}!", 
             "invalid_cred": "Invalid Credentials", "user_exists": "User ID already exists.", "signup_success": "Account created! Please login.",
             "admin_tools": "Admin Tools", "data_upload": "Data Upload", "save_data": "Save Data", "addr_db": "Address DB",
@@ -178,12 +159,12 @@ def _get_raw_translations():
             "inquiry_sent": "✅ Inquiry has been sent to our sales team.", "item_list": "Item List", "incoming_quotes": "📩 Incoming Quote Requests", 
             "my_quote_req": "🛒 My Quote Requests", "no_orders_admin": "No pending orders.", "no_orders_buyer": "You haven't requested any quotes yet.", 
             "status_change": "Change Status", "update_btn": "Update", "updated_msg": "Updated!", 
-            "offer_received": "💬 Offer Received! Check your email/phone.", "company_name": "Company Name *", 
-            "country": "Country *", "email": "Email *", "phone": "Phone Number", "user_name": "Name (Person) *", 
+            "offer_received": "💬 Offer Received! Check your email/phone.", "company_name": "Company Name", 
+            "country": "Country", "email": "Email", "phone": "Phone Number", "user_name": "Name (Person)", 
             "signup_missing_fields": "⚠️ Please fill in all required fields (marked with *)."
         },
         "Korean": {
-            "app_title": "K-Used Car 글로벌 허브", "login_title": "로그인", "id": "아이디 *", "pw": "비밀번호 *",
+            "app_title": "K-Used Car 글로벌 허브", "login_title": "로그인", "id": "아이디", "pw": "비밀번호",
             "sign_in": "로그인", "sign_up": "회원가입", "logout": "로그아웃", "welcome": "환영합니다, {}님!", 
             "invalid_cred": "로그인 정보가 올바르지 않습니다.", "user_exists": "이미 존재하는 아이디입니다.", "signup_success": "가입 완료! 로그인해주세요.",
             "admin_tools": "관리자 도구", "data_upload": "데이터 업로드", "save_data": "데이터 저장", "addr_db": "주소 DB",
@@ -205,11 +186,61 @@ def _get_raw_translations():
             "inquiry_sent": "✅ 영업팀으로 견적 요청이 전송되었습니다.", "item_list": "상세 목록", "incoming_quotes": "📩 접수된 견적 요청", 
             "my_quote_req": "🛒 나의 견적 요청 내역", "no_orders_admin": "대기 중인 주문이 없습니다.", "no_orders_buyer": "아직 요청한 내역이 없습니다.", 
             "status_change": "상태 변경", "update_btn": "업데이트", "updated_msg": "업데이트 완료!", "offer_received": "💬 견적 도착! 이메일/전화를 확인하세요.",
-            "company_name": "회사명 *", "country": "국가 *", "email": "이메일 *", "phone": "전화번호",
-            "user_name": "담당자 성함 *", "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요."
+            "company_name": "회사명", "country": "국가", "email": "이메일", "phone": "전화번호",
+            "user_name": "담당자 성함", "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요."
+        },
+        "Russian": {
+            "app_title": "K-Used Car Глобальный Хаб", "login_title": "Вход", "id": "ID", "pw": "Пароль",
+            "sign_in": "Войти", "sign_up": "Регистрация", "logout": "Выйти", "welcome": "Добро пожаловать, {}!", 
+            "invalid_cred": "Неверные учетные данные", "user_exists": "ID уже существует.", "signup_success": "Аккаунт создан! Войдите.",
+            "admin_tools": "Инструменты админа", "data_upload": "Загрузка данных", "save_data": "Сохранить данные", "addr_db": "БД Адресов",
+            "save_addr": "Сохранить адрес", "reset_db": "Сброс БД", "reset_done": "Сброс выполнен", "records_saved": "{} записей загружено.",
+            "addr_updated": "{} адресов обновлено.", "admin_menu": "Меню админа", "demand_analysis": "Анализ спроса",
+            "search_filter": "Фильтр поиска", "tab_vehicle": "Автомобиль", "tab_engine": "Двигатель", "tab_yard": "Склад",
+            "manufacturer": "Производитель", "from_year": "С года", "to_year": "По год", "model": "Модель",
+            "engine_code": "Код двигателя", "partner_name": "Партнер", "search_btn_veh": "Поиск авто", "search_btn_eng": "Поиск двигателя",
+            "search_btn_partners": "Поиск партнера", "reset_filters": "Сброс фильтров", "check_trends": "Глобальные тренды поиска",
+            "show_trends": "Показать тренды", "analysis_title": "Анализ спроса в реальном времени", "top_engines": "Топ двигателей",
+            "top_models": "Топ моделей", "main_title": "Инвентарь K-Used Car/Engine", "tab_inventory": "Инвентарь",
+            "tab_orders": "Заказы", "tab_results": "Результаты", "tab_my_orders": "Мои заказы", "no_results": "Результатов не найдено.",
+            "plz_select": "Выберите фильтры для поиска.", "total_veh": "Всего авто", "matched_eng": "Двигатели",
+            "partners_cnt": "Партнеры", "real_yards": "Склады", "limit_warning": "⚠️ Показано топ 5,000 из {:,}. Уточните фильтры.",
+            "stock_by_partner": "Наличие по партнерам", "login_req_warn": "🔒 Требуется вход для запроса цены.", "selected_msg": "Выбрано: **{}** ({} шт.)",
+            "req_quote_title": "📨 Запрос цены у {}", "name_company": "Имя / Компания", "contact": "Контакт (Email/Тел) *",
+            "qty": "Количество *", "item": "Товар *", "unit_price": "Целевая цена (USD) *", "message": "Сообщение админу",
+            "send_btn": "🚀 Отправить запрос", "fill_error": "⚠️ Заполните обязательные поля: Контакт, Товар, Цена.",
+            "inquiry_sent": "✅ Запрос отправлен в отдел продаж.", "item_list": "Список товаров", "incoming_quotes": "📩 Входящие запросы",
+            "my_quote_req": "🛒 Мои запросы", "no_orders_admin": "Нет ожидающих заказов.", "no_orders_buyer": "Вы еще не делали запросов.",
+            "status_change": "Изменить статус", "update_btn": "Обновить", "updated_msg": "Обновлено!", "offer_received": "💬 Предложение получено! Проверьте почту.",
+            "company_name": "Название компании", "country": "Страна", "email": "Эл. почта", "phone": "Телефон",
+            "user_name": "Имя", "signup_missing_fields": "⚠️ Заполните все обязательные поля (*)."
+        },
+        "Arabic": {
+            "app_title": "K-Used Car Global Hub", "login_title": "تسجيل الدخول", "id": "المعرف", "pw": "كلمة المرور",
+            "sign_in": "دخول", "sign_up": "اشتراك", "logout": "خروج", "welcome": "مرحباً، {}!", 
+            "invalid_cred": "بيانات الاعتماد غير صالحة", "user_exists": "معرف المستخدم موجود بالفعل.", "signup_success": "تم إنشاء الحساب! الرجاء تسجيل الدخول.",
+            "admin_tools": "أدوات المسؤول", "data_upload": "تحميل البيانات", "save_data": "حفظ البيانات", "addr_db": "قاعدة بيانات العناوين",
+            "save_addr": "حفظ العنوان", "reset_db": "إعادة تعيين قاعدة البيانات", "reset_done": "تمت إعادة التعيين", "records_saved": "تم تحميل {} سجل.",
+            "addr_updated": "تم تحديث {} عنوان.", "admin_menu": "قائمة المسؤول", "demand_analysis": "تحليل الطلب العالمي",
+            "search_filter": "عامل تصفية البحث", "tab_vehicle": "مركبة", "tab_engine": "محرك", "tab_yard": "ساحة",
+            "manufacturer": "الصانع", "from_year": "من سنة", "to_year": "إلى سنة", "model": "الموديل",
+            "engine_code": "رمز المحرك", "partner_name": "اسم الشريك", "search_btn_veh": "بحث عن مركبة", "search_btn_eng": "بحث عن محرك",
+            "search_btn_partners": "بحث عن شريك", "reset_filters": "إعادة تعيين المرشحات", "check_trends": "تحقق من اتجاهات البحث العالمية.",
+            "show_trends": "عرض الاتجاهات", "analysis_title": "اتجاهات الطلب العالمي (مباشر)", "top_engines": "أفضل المحركات بحثًا",
+            "top_models": "أفضل الموديلات بحثًا", "main_title": "مخزون السيارات/المحركات المستعملة الكورية", "tab_inventory": "المخزون",
+            "tab_orders": "الطلبات", "tab_results": "نتائج البحث", "tab_my_orders": "طلباتي", "no_results": "لم يتم العثور على نتائج.",
+            "plz_select": "يرجى تحديد مرشحات للبحث.", "total_veh": "إجمالي المركبات", "matched_eng": "المحركات المطابقة",
+            "partners_cnt": "الشركاء", "real_yards": "ساحات الخردة الحقيقية", "limit_warning": "⚠️ يتم عرض أعلى 5000 نتيجة من {:,}. يرجى تحسين المرشحات.",
+            "stock_by_partner": "المخزون حسب الشريك", "login_req_warn": "🔒 تسجيل الدخول مطلوب لطلب عرض أسعار.", "selected_msg": "محدد: **{}** ({} قطعة)",
+            "req_quote_title": "📨 طلب عرض أسعار لـ {}", "name_company": "الاسم / الشركة", "contact": "الاتصال (بريد إلكتروني/هاتف) *",
+            "qty": "الكمية *", "item": "العنصر *", "unit_price": "السعر المستهدف (دولار) *", "message": "رسالة للمسؤول",
+            "send_btn": "🚀 إرسال الطلب", "fill_error": "⚠️ يرجى ملء الحقول المطلوبة: جهة الاتصال، العنصر، والسعر.",
+            "inquiry_sent": "✅ تم إرسال الطلب إلى فريق المبيعات لدينا.", "item_list": "قائمة العناصر", "incoming_quotes": "📩 طلبات الأسعار الواردة", "my_quote_req": "🛒 طلبات الأسعار الخاصة بي", "no_orders_admin": "لا توجد طلبات معلقة.", "no_orders_buyer": "لم تقم بطلب أي عروض أسعار بعد.",
+            "status_change": "تغيير الحالة", "update_btn": "تحديث", "updated_msg": "تم التحديث!", "offer_received": "💬 تم استلام العرض! تحقق من بريدك الإلكتروني/هاتفك.",
+            "company_name": "اسم الشركة", "country": "بلد", "email": "بريد إلكتروني", "phone": "رقم الهاتف",
+            "user_name": "الاسم", "signup_missing_fields": "⚠️ يرجى ملء جميع الحقول المطلوبة (*)."
         }
     }
-    # (다른 언어는 생략)
 
 def init_inventory_db():
     conn = sqlite3.connect(INVENTORY_DB)
@@ -232,8 +263,8 @@ def init_system_db():
     c.execute('''CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, buyer_id TEXT, contact_info TEXT, target_partner_alias TEXT, real_junkyard_name TEXT, items_summary TEXT, status TEXT DEFAULT 'PENDING', reply_text TEXT, reply_images TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
-
-    # 번역 데이터 갱신 (항상 최신 코드 반영)
+    
+    # 🟢 [수정] 번역 데이터 강제 업데이트 로직 추가
     raw_data = _get_raw_translations()
     keys = raw_data["English"].keys()
     data_to_insert = []
@@ -246,16 +277,16 @@ def init_system_db():
             raw_data.get("Arabic", {}).get(k, k)
         )
         data_to_insert.append(row)
+    # REPLACE를 사용하여 기존 데이터를 덮어쓰기
     c.executemany("INSERT OR REPLACE INTO translations VALUES (?, ?, ?, ?, ?)", data_to_insert)
-    
-    # Admin 계정 자동 생성 (DB에 고정)
+
+    # Admin 계정 생성
     admin_check = c.execute("SELECT * FROM users WHERE user_id = 'admin'").fetchone()
     if not admin_check:
         try:
             admin_hash = stauth.Hasher(['1234']).generate()[0]
         except:
             admin_hash = stauth.Hasher().hash('1234')
-            
         c.execute("INSERT INTO users (user_id, password, name, role) VALUES (?, ?, ?, ?)", 
                   ('admin', admin_hash, 'Administrator', 'admin'))
     
@@ -263,7 +294,7 @@ def init_system_db():
     conn.close()
 
 # ---------------------------------------------------------
-# 🟢 [인증] 사용자 로드 (Authenticator용)
+# 🟢 [인증] 사용자 로드
 # ---------------------------------------------------------
 def fetch_users_for_auth():
     try:
@@ -281,14 +312,12 @@ def fetch_users_for_auth():
             }
         }
     }
-    
     try:
         conn = sqlite3.connect(SYSTEM_DB)
         c = conn.cursor()
         c.execute("SELECT user_id, password, name, email, role FROM users")
         rows = c.fetchall()
         conn.close()
-        
         for row in rows:
             uid, pw, name, email, role = row
             credentials['usernames'][uid] = {
@@ -301,7 +330,7 @@ def fetch_users_for_auth():
     return credentials
 
 # ---------------------------------------------------------
-# 👥 [User] 회원가입 (DB 저장)
+# 👥 [User] 회원가입
 # ---------------------------------------------------------
 def create_user(user_id, password, name, company, country, email, phone):
     try:
@@ -311,7 +340,6 @@ def create_user(user_id, password, name, company, country, email, phone):
             hashed_pw = stauth.Hasher([password]).generate()[0]
         except:
             hashed_pw = stauth.Hasher().hash(password)
-            
         c.execute("INSERT INTO users (user_id, password, name, company, country, email, phone) VALUES (?, ?, ?, ?, ?, ?, ?)", 
                   (user_id, hashed_pw, name, company, country, email, phone))
         conn.commit()
@@ -320,20 +348,18 @@ def create_user(user_id, password, name, company, country, email, phone):
     except sqlite3.IntegrityError: return False
     except: return False
 
-def login_user(user_id, password):
-    if user_id in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[user_id] == password:
-        return "admin", "admin"
-    return None, None
-
 # ---------------------------------------------------------
-# 🌐 [i18n] 번역 로딩
+# 🌐 [i18n] 번역 로딩 (캐시 제거)
 # ---------------------------------------------------------
 def load_translations():
+    # DB 연결 시도
     conn = sqlite3.connect(SYSTEM_DB)
     try:
         df = pd.read_sql("SELECT * FROM translations", conn)
-    except: return {}
-    conn.close()
+    except: 
+        return {}
+    finally:
+        conn.close()
     
     trans_dict = {}
     if not df.empty:
@@ -345,8 +371,9 @@ def load_translations():
 def t(key):
     translations = load_translations()
     lang = st.session_state.get('language', 'English')
+    # fallback
     lang_dict = translations.get(lang, translations.get('English', {}))
-    return lang_dict.get(key, key)
+    return lang_dict.get(key, key) # 없으면 key 리턴
 
 # ---------------------------------------------------------
 # 🕵️ [Data] 데이터 처리 함수들
@@ -534,46 +561,33 @@ def search_data_from_db(maker, models, engines, sy, ey, yards):
         conn = sqlite3.connect(INVENTORY_DB)
         base_cond = "1=1"
         params = []
-        
         if maker and maker != "All":
             base_cond += " AND v.manufacturer = ?"
             params.append(maker)
-        
         base_cond += " AND v.model_year >= ? AND v.model_year <= ?"
         params.extend([sy, ey])
-        
         if models:
             placeholders = ','.join(['?'] * len(models))
             base_cond += f" AND v.model_name IN ({placeholders})"
             params.extend(models)
-            
         if engines:
             placeholders = ','.join(['?'] * len(engines))
             base_cond += f" AND v.engine_code IN ({placeholders})"
             params.extend(engines)
-            
         if yards:
             placeholders = ','.join(['?'] * len(yards))
             base_cond += f" AND v.junkyard IN ({placeholders})"
             params.extend(yards)
-            
+        
         count_q = f"SELECT COUNT(*) FROM vehicle_data v WHERE {base_cond}"
         total_count = conn.execute(count_q, params).fetchone()[0]
-        
-        data_q = f"""
-            SELECT v.*, j.region, j.address 
-            FROM vehicle_data v 
-            LEFT JOIN junkyard_info j ON v.junkyard = j.name
-            WHERE {base_cond}
-            ORDER BY v.reg_date DESC LIMIT 5000
-        """
+        data_q = f"SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name WHERE {base_cond} ORDER BY v.reg_date DESC LIMIT 5000"
         df = pd.read_sql(data_q, conn, params=params)
         conn.close()
         
         if not df.empty:
             df['model_year'] = pd.to_numeric(df['model_year'], errors='coerce').fillna(0)
             df['reg_date'] = pd.to_datetime(df['reg_date'], errors='coerce')
-            
         return df, total_count
     except Exception as e: return pd.DataFrame(), 0
 
@@ -586,44 +600,35 @@ def load_metadata_and_init_data():
     total_cnt = conn.execute("SELECT COUNT(*) FROM vehicle_data").fetchone()[0]
     df_init = pd.read_sql("SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name ORDER BY v.reg_date DESC LIMIT 5000", conn)
     conn.close()
-    
     if not df_init.empty:
         df_init['model_year'] = pd.to_numeric(df_init['model_year'], errors='coerce').fillna(0)
         df_init['reg_date'] = pd.to_datetime(df_init['reg_date'], errors='coerce')
-        
     return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), df_init, total_cnt
 
 def update_order_status(order_id, new_status, notify_user=True):
     conn = sqlite3.connect(SYSTEM_DB)
     conn.execute("UPDATE orders SET status = ? WHERE id = ?", (new_status, order_id))
-    
     if notify_user:
         cursor = conn.cursor()
         cursor.execute("SELECT contact_info FROM orders WHERE id = ?", (order_id,))
         data = cursor.fetchone()
         if data:
-            contact_email = data[0]
-            send_email(contact_email, f"[K-Used Car] Order Status Update: {new_status}", 
-                       f"Your order status has been updated to: {new_status}.\nPlease check your dashboard for details.")
+            send_email(data[0], f"[K-Used Car] Status Update: {new_status}", f"Order status: {new_status}")
     conn.commit()
     conn.close()
 
-# ---------------------------------------------------------
-# 🟢 Reset Dashboard 함수
-# ---------------------------------------------------------
 def reset_dashboard():
     _, _, _, df_init, total = load_metadata_and_init_data()
     st.session_state['view_data'] = df_init
     st.session_state['total_count'] = total
     st.session_state['is_filtered'] = False
     st.session_state['mode_demand'] = False
-    
-    if 'msel' in st.session_state: st.session_state['msel'] = "All"
-    if 'sy' in st.session_state: st.session_state['sy'] = 2000
-    if 'ey' in st.session_state: st.session_state['ey'] = datetime.datetime.now().year
-    if 'mms' in st.session_state: st.session_state['mms'] = []
-    if 'es' in st.session_state: st.session_state['es'] = []
-    if 'ys' in st.session_state: st.session_state['ys'] = []
+    st.session_state['msel'] = "All"
+    st.session_state['sy'] = 2000
+    st.session_state['ey'] = datetime.datetime.now().year
+    st.session_state['mms'] = []
+    st.session_state['es'] = []
+    st.session_state['ys'] = []
 
 # ---------------------------------------------------------
 # 🚀 메인 어플리케이션
@@ -631,7 +636,7 @@ def reset_dashboard():
 try:
     if 'language' not in st.session_state: st.session_state.language = 'English'
     
-    # DB 초기화 (Inventory & System)
+    # 🟢 [핵심] DB 초기화 강제 실행 (번역 데이터 주입)
     init_inventory_db()
     init_system_db()
 
@@ -641,7 +646,8 @@ try:
         users_dict,
         'k_used_car_cookie', 
         COOKIE_KEY, 
-        30
+        30, 
+        {'cookie_name': 'k_used_car_cookie', 'key': COOKIE_KEY, 'expiry_days': 30}
     )
 
     if 'view_data' not in st.session_state or 'metadata_loaded' not in st.session_state:
@@ -672,7 +678,7 @@ try:
 
         st.divider()
 
-        # 로그인 위젯 (자동 세션 처리)
+        # 로그인 위젯
         authenticator.login()
 
         if st.session_state["authentication_status"]:
@@ -695,7 +701,6 @@ try:
             st.session_state.user_role = 'guest'
             st.session_state.username = 'Guest'
             
-            # 🟢 [회원가입]
             with st.expander(f"📝 {t('sign_up')}"):
                 new_id = st.text_input(f"👤 {t('id')}", key="s_id")
                 new_pw = st.text_input(f"🔒 {t('pw')}", type="password", key="s_pw")
@@ -759,7 +764,6 @@ try:
                     conn.commit()
                     conn.close()
                     init_system_db()
-                    # 캐시 클리어 (함수명 수정 없이 그대로 사용 가능)
                     load_translations.clear()
                     st.success(t('reset_done'))
                     safe_rerun()
@@ -918,7 +922,6 @@ try:
                                 contact = st.text_input(t('contact'))
                                 req_qty = st.number_input(t('qty'), min_value=1, value=1)
                             with c_b:
-                                # 자동 품목 완성
                                 s_maker = st.session_state.get('msel', 'All')
                                 s_models = st.session_state.get('mms', [])
                                 s_engines = st.session_state.get('es', [])
@@ -1002,7 +1005,6 @@ try:
                                     if sent:
                                         img_list = []
                                         if reply_files:
-                                            # 리스트 변환 (업로드 파일이 하나여도 리스트로 처리)
                                             files = reply_files if isinstance(reply_files, list) else [reply_files]
                                             for f in files:
                                                 f.seek(0)

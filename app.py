@@ -161,7 +161,7 @@ def check_hashes(password, hashed_text):
 def _get_raw_translations():
     return {
         "English": {
-            "app_title": "K-Used Car Global Hub", "login_title": "Login", "id": "ID *", "pw": "Password *",
+            "app_title": "K-Used Car Global Hub", "login_title": "Login", "id": "ID", "pw": "Password",
             "sign_in": "Sign In", "sign_up": "Sign Up", "logout": "Logout", "welcome": "Welcome, {}!", 
             "invalid_cred": "Invalid Credentials", "user_exists": "User ID already exists.", "signup_success": "Account created! Please login.",
             "admin_tools": "Admin Tools", "data_upload": "Data Upload", "save_data": "Save Data", "addr_db": "Address DB",
@@ -185,12 +185,38 @@ def _get_raw_translations():
             "inquiry_sent": "✅ Inquiry has been sent to our sales team.", "item_list": "Item List", "incoming_quotes": "📩 Incoming Quote Requests", 
             "my_quote_req": "🛒 My Quote Requests", "no_orders_admin": "No pending orders.", "no_orders_buyer": "You haven't requested any quotes yet.", 
             "status_change": "Change Status", "update_btn": "Update", "updated_msg": "Updated!", 
-            "offer_received": "💬 Offer Received! Check your email/phone.", "company_name": "Company Name *", 
-            "country": "Country *", "email": "Email *", "phone": "Phone Number", "user_name": "Name (Person) *", 
+            "offer_received": "💬 Offer Received! Check your email/phone.", "company_name": "Company Name", 
+            "country": "Country", "email": "Email", "phone": "Phone Number", "user_name": "Name (Person)", 
             "signup_missing_fields": "⚠️ Please fill in all required fields (marked with *)."
+        },
+        "Korean": {
+            "app_title": "K-Used Car 글로벌 허브", "login_title": "로그인", "id": "아이디", "pw": "비밀번호",
+            "sign_in": "로그인", "sign_up": "회원가입", "logout": "로그아웃", "welcome": "환영합니다, {}님!", 
+            "invalid_cred": "로그인 정보가 올바르지 않습니다.", "user_exists": "이미 존재하는 아이디입니다.", "signup_success": "가입 완료! 로그인해주세요.",
+            "admin_tools": "관리자 도구", "data_upload": "데이터 업로드", "save_data": "데이터 저장", "addr_db": "주소 DB",
+            "save_addr": "주소 저장", "reset_db": "시스템 DB 초기화", "reset_inv": "재고 DB 초기화", "reset_done": "초기화 완료",
+            "records_saved": "{}건 저장 완료.", "addr_updated": "{}곳 주소 업데이트 완료.", "admin_menu": "관리자 메뉴", 
+            "demand_analysis": "글로벌 수요 분석", "search_filter": "검색 필터", "tab_vehicle": "차량", "tab_engine": "엔진", 
+            "tab_yard": "업체", "manufacturer": "제조사", "from_year": "시작 연식", "to_year": "종료 연식", "model": "모델명", 
+            "engine_code": "엔진코드", "partner_name": "파트너명", "search_btn_veh": "차량 검색", "search_btn_eng": "엔진 검색", 
+            "search_btn_partners": "파트너 검색", "reset_filters": "필터 초기화", "check_trends": "글로벌 검색 트렌드 확인", 
+            "show_trends": "트렌드 보기", "analysis_title": "글로벌 실시간 수요 분석", "top_engines": "인기 검색 엔진", 
+            "top_models": "인기 검색 차종", "main_title": "K-Used Car/Engine 재고 현황", "tab_inventory": "재고 조회", 
+            "tab_orders": "주문 관리", "tab_results": "검색 결과", "tab_my_orders": "내 주문 내역", "no_results": "검색 결과가 없습니다.", 
+            "plz_select": "사이드바에서 필터를 선택하여 검색하세요.", "total_veh": "총 차량", "matched_eng": "매칭 엔진", 
+            "partners_cnt": "파트너 수", "real_yards": "실제 폐차장", "limit_warning": "⚠️ 총 {:,}건 중 상위 5,000건만 표시됩니다. 필터를 상세 조정하세요.", 
+            "stock_by_partner": "업체별 보유 현황", "login_req_warn": "🔒 견적 요청을 위해 로그인이 필요합니다.", "selected_msg": "선택됨: **{}** ({} 개)", 
+            "req_quote_title": "📨 {}에 견적 요청", "name_company": "이름 / 회사명", "contact": "연락처 (이메일/전화) *", 
+            "qty": "요청 수량 *", "item": "품목 *", "unit_price": "희망 단가 (USD) *", "message": "메시지", 
+            "send_btn": "🚀 견적 요청 전송", "fill_error": "⚠️ 필수 입력 항목(연락처, 품목, 단가)을 입력해주세요.", 
+            "inquiry_sent": "✅ 영업팀으로 견적 요청이 전송되었습니다.", "item_list": "상세 목록", "incoming_quotes": "📩 접수된 견적 요청", 
+            "my_quote_req": "🛒 나의 견적 요청 내역", "no_orders_admin": "대기 중인 주문이 없습니다.", "no_orders_buyer": "아직 요청한 내역이 없습니다.", 
+            "status_change": "상태 변경", "update_btn": "업데이트", "updated_msg": "업데이트 완료!", "offer_received": "💬 견적 도착! 이메일/전화를 확인하세요.",
+            "company_name": "회사명", "country": "국가", "email": "이메일", "phone": "전화번호", "user_name": "담당자 성함", 
+            "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요."
         }
     }
-    # (다른 언어 생략 - 자동 주입됨)
+    # (다른 언어 생략)
 
 def init_inventory_db():
     conn = sqlite3.connect(INVENTORY_DB)
@@ -321,7 +347,6 @@ def login_user(user_id, password):
         return "admin", "admin"
     return None, None
 
-# 🟢 [신규] 사용자 관리 함수 (조회, 삭제, 역할변경)
 def fetch_all_users():
     conn = sqlite3.connect(SYSTEM_DB)
     df = pd.read_sql("SELECT user_id, name, company, country, email, phone, role, created_at FROM users", conn)
@@ -748,7 +773,8 @@ try:
                     conn.commit()
                     conn.close()
                     init_system_db()
-                    load_translations.clear()
+                    # 캐시만 지우고 함수 호출은 안함
+                    # load_translations.clear()
                     st.success(t('reset_done'))
                     safe_rerun()
             

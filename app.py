@@ -14,13 +14,17 @@ import numpy as np
 import smtplib
 import json
 import base64
-import uuid
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 
+# 🟢 [라이브러리] 인증
+import streamlit_authenticator as stauth
+import yaml
+from yaml.loader import SafeLoader
+
 # ---------------------------------------------------------
-# 🛠️ [설정] 페이지 설정
+# 🛠️ [설정] 페이지 설정 (무조건 맨 위)
 # ---------------------------------------------------------
 st.set_page_config(page_title="K-Used Car Global Hub", layout="wide")
 
@@ -31,28 +35,25 @@ def safe_rerun():
         st.experimental_rerun()
 
 # ---------------------------------------------------------
-# 🔐 [보안] 계정 설정
+# 🔐 [보안] 계정 및 시크릿 설정
 # ---------------------------------------------------------
 try:
     ADMIN_CREDENTIALS = st.secrets["ADMIN_CREDENTIALS"]
+    COOKIE_KEY = st.secrets.get("COOKIE_KEY", "some_random_secret_key_123")
 except:
     ADMIN_CREDENTIALS = {"admin": "1234"}
-
-# 🟢 [설정] 데이터베이스 파일 분리
-INVENTORY_DB = 'inventory.db'  # 재고 (대용량)
-SYSTEM_DB = 'system.db'        # 시스템 (유저, 세션, 로그)
+    COOKIE_KEY = "some_random_secret_key_123"
 
 # ---------------------------------------------------------
-# 🕒 [기능] 서울 시간 변환 헬퍼
+# 📂 [설정] 데이터베이스 경로 수정 (data 폴더 적용)
 # ---------------------------------------------------------
-def apply_kst(df, col_name='created_at'):
-    """데이터프레임의 특정 컬럼(UTC)을 한국 시간(KST, UTC+9)으로 변환"""
-    if not df.empty and col_name in df.columns:
-        try:
-            df[col_name] = pd.to_datetime(df[col_name]) + pd.Timedelta(hours=9)
-        except Exception:
-            pass
-    return df
+# data 폴더가 없으면 생성 (배포 환경 대비)
+if not os.path.exists('data'):
+    os.makedirs('data')
+
+INVENTORY_DB = 'data/inventory.db'  # 재고, 폐차장, 모델 (대용량)
+SYSTEM_DB = 'data/system.db'        # 유저, 주문, 로그, 번역 (소용량)
+TRANS_DB = 'data/translations.db'   # (init_system_db 내부 로직용)
 
 # ---------------------------------------------------------
 # 📧 [기능] 이메일 발송 함수
@@ -73,22 +74,30 @@ def send_email(to_email, subject, content, attachment_files=[]):
         msg['Subject'] = subject
         msg.attach(MIMEText(content, 'plain'))
 
+        # 다중 파일 첨부
         if attachment_files:
-            for file in attachment_files:
+            files = attachment_files if isinstance(attachment_files, list) else [attachment_files]
+            
+            for file in files:
                 try:
                     file.seek(0)
                     file_data = file.read()
-                    part = MIMEApplication(file_data, Name=file.name)
-                    part['Content-Disposition'] = f'attachment; filename="{file.name}"'
+                    fname = file.name if hasattr(file, 'name') else "attachment"
+                    part = MIMEApplication(file_data, Name=fname)
+                    part['Content-Disposition'] = f'attachment; filename="{fname}"'
                     msg.attach(part)
-                except: continue
+                except Exception as e:
+                    print(f"File attach error: {e}")
+                    continue
 
         with smtplib.SMTP(smtp_server, smtp_port) as server:
             server.starttls()
             server.login(sender_email, sender_password)
             server.send_message(msg)
         return True
-    except: return False
+    except Exception as e:
+        print(f"Email send error: {e}")
+        return False
 
 # ---------------------------------------------------------
 # 🌍 [설정] 데이터 (국가, 주소 매핑)
@@ -118,9 +127,20 @@ CITY_MAP = {
     '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju', '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong'
 }
 
-PROVINCE_MAP_RU = {'경기': 'Кёнгидо', '서울': 'Сеул', '인천': 'Инчхон', '부산': 'Пусан'} 
-PROVINCE_MAP_AR = {'경기': 'جيونج جي دو', '서울': 'سيول', '인천': 'إنتشون', '부산': 'بوسان'} 
+PROVINCE_MAP_RU = {
+    '경기': 'Кёнгидо', '서울': 'Сеул', '인천': 'Инчхон', '강원': 'Канвондо', '충북': 'Чхунбук', 
+    '충남': 'Чхуннам', '대전': 'Тэджон', '세종': 'Седжон', '전북': 'Чонбук', '전남': 'Чоннам', 
+    '광주': 'Кванджу', '경북': 'Кёнбук', '경남': 'Кённам', '대구': 'Тэгу', '부산': 'Пусан', 
+    '울산': 'Ульсан', '제주': 'Чеджу'
+}
+PROVINCE_MAP_AR = {
+    '경기': 'جيونج جي دو', '서울': 'سيول', '인천': 'إنتشون', '강원': 'كانغوون دو', '충북': 'تشونغ تشونغ',
+    '충남': 'تشونغ نام', '대전': 'دايجون', '세종': 'سيجونغ', '전북': 'جيون بوك', '전남': 'جيون نام',
+    '광주': 'غوانغجو', '경북': 'جيونج بوك', '경남': 'جيونج نام', '대구': 'دايغو', '부산': 'بوسان',
+    '울산': 'أولسان', '제주': 'جيجو'
+}
 
+# 비밀번호 해싱
 def make_hashes(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
@@ -160,8 +180,7 @@ def _get_raw_translations():
             "status_change": "Change Status", "update_btn": "Update", "updated_msg": "Updated!", 
             "offer_received": "💬 Offer Received! Check your email/phone.", "company_name": "Company Name *", 
             "country": "Country *", "email": "Email *", "phone": "Phone Number", "user_name": "Name (Person) *", 
-            "signup_missing_fields": "⚠️ Please fill in all required fields (marked with *).",
-            "tab_users": "User Management", "delete_user": "Delete User", "user_deleted": "User {} deleted."
+            "signup_missing_fields": "⚠️ Please fill in all required fields (marked with *)."
         },
         "Korean": {
             "app_title": "K-Used Car 글로벌 허브", "login_title": "로그인", "id": "아이디 *", "pw": "비밀번호 *",
@@ -187,11 +206,10 @@ def _get_raw_translations():
             "my_quote_req": "🛒 나의 견적 요청 내역", "no_orders_admin": "대기 중인 주문이 없습니다.", "no_orders_buyer": "아직 요청한 내역이 없습니다.", 
             "status_change": "상태 변경", "update_btn": "업데이트", "updated_msg": "업데이트 완료!", "offer_received": "💬 견적 도착! 이메일/전화를 확인하세요.",
             "company_name": "회사명 *", "country": "국가 *", "email": "이메일 *", "phone": "전화번호",
-            "user_name": "담당자 성함 *", "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요.",
-            "tab_users": "회원 관리", "delete_user": "회원 삭제", "user_deleted": "{} 회원이 삭제되었습니다."
+            "user_name": "담당자 성함 *", "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요."
         }
     }
-    # (다른 언어는 생략, 자동 생성 시 영어/한국어 기반으로 채워짐)
+    # (다른 언어는 생략)
 
 def init_inventory_db():
     conn = sqlite3.connect(INVENTORY_DB)
@@ -214,8 +232,8 @@ def init_system_db():
     c.execute('''CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, buyer_id TEXT, contact_info TEXT, target_partner_alias TEXT, real_junkyard_name TEXT, items_summary TEXT, status TEXT DEFAULT 'PENDING', reply_text TEXT, reply_images TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS user_sessions (token TEXT PRIMARY KEY, user_id TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
 
+    # 번역 데이터 갱신 (항상 최신 코드 반영)
     raw_data = _get_raw_translations()
     keys = raw_data["English"].keys()
     data_to_insert = []
@@ -230,17 +248,70 @@ def init_system_db():
         data_to_insert.append(row)
     c.executemany("INSERT OR REPLACE INTO translations VALUES (?, ?, ?, ?, ?)", data_to_insert)
     
+    # Admin 계정 자동 생성 (DB에 고정)
+    admin_check = c.execute("SELECT * FROM users WHERE user_id = 'admin'").fetchone()
+    if not admin_check:
+        try:
+            admin_hash = stauth.Hasher(['1234']).generate()[0]
+        except:
+            admin_hash = stauth.Hasher().hash('1234')
+            
+        c.execute("INSERT INTO users (user_id, password, name, role) VALUES (?, ?, ?, ?)", 
+                  ('admin', admin_hash, 'Administrator', 'admin'))
+    
     conn.commit()
     conn.close()
 
 # ---------------------------------------------------------
-# 👥 [User] 인증 및 세션 관리
+# 🟢 [인증] 사용자 로드 (Authenticator용)
+# ---------------------------------------------------------
+def fetch_users_for_auth():
+    try:
+        admin_pw_hash = stauth.Hasher(['1234']).generate()[0]
+    except:
+        admin_pw_hash = stauth.Hasher().hash('1234')
+
+    credentials = {
+        'usernames': {
+            'admin': {
+                'name': 'Administrator',
+                'password': admin_pw_hash,
+                'email': 'admin@example.com',
+                'role': 'admin'
+            }
+        }
+    }
+    
+    try:
+        conn = sqlite3.connect(SYSTEM_DB)
+        c = conn.cursor()
+        c.execute("SELECT user_id, password, name, email, role FROM users")
+        rows = c.fetchall()
+        conn.close()
+        
+        for row in rows:
+            uid, pw, name, email, role = row
+            credentials['usernames'][uid] = {
+                'name': name if name else uid,
+                'password': pw,
+                'email': email if email else '',
+                'role': role
+            }
+    except: pass
+    return credentials
+
+# ---------------------------------------------------------
+# 👥 [User] 회원가입 (DB 저장)
 # ---------------------------------------------------------
 def create_user(user_id, password, name, company, country, email, phone):
     try:
         conn = sqlite3.connect(SYSTEM_DB)
         c = conn.cursor()
-        hashed_pw = make_hashes(password)
+        try:
+            hashed_pw = stauth.Hasher([password]).generate()[0]
+        except:
+            hashed_pw = stauth.Hasher().hash(password)
+            
         c.execute("INSERT INTO users (user_id, password, name, company, country, email, phone) VALUES (?, ?, ?, ?, ?, ?, ?)", 
                   (user_id, hashed_pw, name, company, country, email, phone))
         conn.commit()
@@ -252,63 +323,7 @@ def create_user(user_id, password, name, company, country, email, phone):
 def login_user(user_id, password):
     if user_id in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[user_id] == password:
         return "admin", "admin"
-    
-    try:
-        conn = sqlite3.connect(SYSTEM_DB)
-        c = conn.cursor()
-        c.execute("SELECT password, role, name FROM users WHERE user_id = ?", (user_id,))
-        data = c.fetchone()
-        conn.close()
-        if data:
-            db_pw, role, name = data
-            if check_hashes(password, db_pw):
-                return role, name
-    except: pass
     return None, None
-
-def create_session(user_id):
-    token = str(uuid.uuid4())
-    conn = sqlite3.connect(SYSTEM_DB)
-    c = conn.cursor()
-    c.execute("INSERT INTO user_sessions (token, user_id) VALUES (?, ?)", (token, user_id))
-    conn.commit()
-    conn.close()
-    return token
-
-def verify_session(token):
-    if not token: return None, None
-    try:
-        conn = sqlite3.connect(SYSTEM_DB)
-        c = conn.cursor()
-        c.execute("SELECT user_id FROM user_sessions WHERE token = ?", (token,))
-        data = c.fetchone()
-        
-        user_id = None
-        role, name = None, None
-        
-        if data:
-            user_id = data[0]
-            
-        if user_id:
-            if user_id == "admin":
-                role, name = "admin", "admin"
-            else:
-                c.execute("SELECT role, name FROM users WHERE user_id = ?", (user_id,))
-                user_data = c.fetchone()
-                if user_data:
-                    role, name = user_data[0], user_data[1]
-                    
-        conn.close()
-        return role, name
-    except: return None, None
-
-def delete_session(token):
-    try:
-        conn = sqlite3.connect(SYSTEM_DB)
-        conn.execute("DELETE FROM user_sessions WHERE token = ?", (token,))
-        conn.commit()
-        conn.close()
-    except: pass
 
 # ---------------------------------------------------------
 # 🌐 [i18n] 번역 로딩
@@ -317,8 +332,7 @@ def load_translations():
     conn = sqlite3.connect(SYSTEM_DB)
     try:
         df = pd.read_sql("SELECT * FROM translations", conn)
-    except:
-        return {} 
+    except: return {}
     conn.close()
     
     trans_dict = {}
@@ -326,10 +340,6 @@ def load_translations():
         for lang in ['English', 'Korean', 'Russian', 'Arabic']:
             if lang in df.columns:
                 trans_dict[lang] = dict(zip(df['key'], df[lang]))
-    
-    if not trans_dict:
-        return _get_raw_translations()
-        
     return trans_dict
 
 def t(key):
@@ -354,11 +364,13 @@ def translate_address(addr):
     k_do, k_city = parts[0][:2], parts[1]
     
     current_lang = st.session_state.get('language', 'English')
-    if current_lang == 'English': en_do = PROVINCE_MAP.get(k_do, k_do)
-    else: en_do = PROVINCE_MAP.get(k_do, PROVINCE_MAP.get(k_do, k_do)) 
+    if current_lang == 'Russian': pmap, cmap = PROVINCE_MAP_RU, CITY_MAP 
+    elif current_lang == 'Arabic': pmap, cmap = PROVINCE_MAP_AR, CITY_MAP 
+    else: pmap, cmap = PROVINCE_MAP, CITY_MAP
 
+    en_do = pmap.get(k_do, PROVINCE_MAP.get(k_do, k_do))
     city_core = k_city.replace('시','').replace('군','').replace('구','')
-    en_city = CITY_MAP.get(city_core, city_core)
+    en_city = cmap.get(city_core, CITY_MAP.get(city_core, city_core))
     
     if en_do in ['Seoul', 'Incheon', 'Busan', 'Daegu', 'Daejeon', 'Gwangju', 'Ulsan']:
         return f"{en_do}, Korea"
@@ -472,7 +484,7 @@ def save_vehicle_file(uploaded_file):
 
         df_db.to_sql('temp_vehicles', conn, if_exists='replace', index=False)
         c.execute("""INSERT OR IGNORE INTO vehicle_data (vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code)
-                      SELECT vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code FROM temp_vehicles""")
+                     SELECT vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code FROM temp_vehicles""")
         cnt = len(df_db)
         c.execute("DROP TABLE temp_vehicles")
         
@@ -578,8 +590,6 @@ def load_metadata_and_init_data():
     if not df_init.empty:
         df_init['model_year'] = pd.to_numeric(df_init['model_year'], errors='coerce').fillna(0)
         df_init['reg_date'] = pd.to_datetime(df_init['reg_date'], errors='coerce')
-        # KST 변환
-        df_init = apply_kst(df_init, 'created_at')
         
     return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), df_init, total_cnt
 
@@ -598,6 +608,9 @@ def update_order_status(order_id, new_status, notify_user=True):
     conn.commit()
     conn.close()
 
+# ---------------------------------------------------------
+# 🟢 Reset Dashboard 함수
+# ---------------------------------------------------------
 def reset_dashboard():
     _, _, _, df_init, total = load_metadata_and_init_data()
     st.session_state['view_data'] = df_init
@@ -612,192 +625,24 @@ def reset_dashboard():
     if 'es' in st.session_state: st.session_state['es'] = []
     if 'ys' in st.session_state: st.session_state['ys'] = []
 
-# 🟢 [기능] Admin 뱃지 카운트 쿼리
-def get_pending_count():
-    try:
-        conn = sqlite3.connect(SYSTEM_DB)
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM orders WHERE status='PENDING'")
-        cnt = cur.fetchone()[0]
-        conn.close()
-        return cnt
-    except:
-        return 0
-
-# 🟢 [추가] Buyer 뱃지 카운트 쿼리
-def get_quoted_count(user_id):
-    try:
-        conn = sqlite3.connect(SYSTEM_DB)
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM orders WHERE buyer_id=? AND status='QUOTED'", (user_id,))
-        cnt = cur.fetchone()[0]
-        conn.close()
-        return cnt
-    except:
-        return 0
-
-# ---------------------------------------------------------
-# 🟢 [기능] Admin 주문 목록 Fragment (자동 갱신 + 토스트 알림)
-# ---------------------------------------------------------
-@st.fragment(run_every=30)
-def show_admin_orders_fragment():
-    st.subheader(f"{t('incoming_quotes')}")
-    conn = sqlite3.connect(SYSTEM_DB)
-    orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
-    conn.close()
-    
-    # KST 시간 적용
-    orders = apply_kst(orders, 'created_at')
-    
-    # 토스트 알림 로직 (Admin)
-    pending_df = orders[orders['status'] == 'PENDING']
-    current_cnt = len(pending_df)
-    
-    if 'admin_last_cnt' not in st.session_state:
-        st.session_state.admin_last_cnt = current_cnt
-    
-    if current_cnt > st.session_state.admin_last_cnt:
-        diff = current_cnt - st.session_state.admin_last_cnt
-        st.toast(f"🔔 {diff} New orders received!", icon="🔥")
-    
-    st.session_state.admin_last_cnt = current_cnt
-    
-    if not orders.empty:
-        for idx, row in orders.iterrows():
-            with st.expander(f"[{row['status']}] {row['created_at']} | From: {row['buyer_id']}"):
-                st.write(f"**Contact:** {row['contact_info']}")
-                st.write(f"**Target:** {row['real_junkyard_name']} ({row['target_partner_alias']})")
-                st.info(f"**Request:** {row['items_summary']}")
-                
-                st.markdown("### ✍️ Reply & Quote")
-                with st.form(f"reply_form_{row['id']}"):
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        reply_price = st.text_input("Final Quote Price (USD)", placeholder="$000")
-                    with c2:
-                        reply_files = st.file_uploader("Attach Images (Max 5)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
-                    
-                    reply_msg = st.text_area("Message to Buyer", value=f"Dear {row['buyer_id']},\n\nThank you for your inquiry. We are pleased to offer:\n\n", height=150)
-                    
-                    if st.form_submit_button("Send Reply & Set to QUOTED"):
-                        email_content = f"{reply_msg}\n\n[Quote Price]: {reply_price}"
-                        sent = send_email(row['contact_info'], f"[K-Used Car] Quote for your request #{row['id']}", email_content, reply_files)
-                        
-                        if sent:
-                            img_list = []
-                            if reply_files:
-                                files = reply_files if isinstance(reply_files, list) else [reply_files]
-                                for f in files:
-                                    f.seek(0)
-                                    b64_str = base64.b64encode(f.read()).decode('utf-8')
-                                    img_list.append(b64_str)
-                                
-                            conn_up = sqlite3.connect(SYSTEM_DB)
-                            conn_up.execute("UPDATE orders SET status = 'QUOTED', reply_text = ?, reply_images = ? WHERE id = ?", 
-                                            (f"Price: {reply_price}\n\n{reply_msg}", json.dumps(img_list), row['id']))
-                            conn_up.commit()
-                            conn_up.close()
-                            st.success("Reply sent and status updated to QUOTED!")
-                            time.sleep(1)
-                        else:
-                            st.error("Failed to send email. Check SMTP settings.")
-
-                st.divider()
-                c1, c2 = st.columns([3, 1])
-                with c1:
-                    new_status = st.selectbox(t('status_change'), 
-                                              ["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"],
-                                              index=["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"].index(row['status']),
-                                              key=f"st_{row['id']}")
-                with c2:
-                    st.write("")
-                    st.write("")
-                    if st.button(t('update_btn'), key=f"btn_{row['id']}"):
-                        update_order_status(row['id'], new_status)
-                        st.success(t('updated_msg'))
-                        time.sleep(0.5)
-    else:
-        st.info(t('no_orders_admin'))
-
-# ---------------------------------------------------------
-# 🟢 [기능] Buyer 주문 목록 Fragment (자동 갱신 + 토스트 알림)
-# ---------------------------------------------------------
-@st.fragment(run_every=30)
-def show_buyer_orders_fragment():
-    st.subheader(f"{t('my_quote_req')}")
-    conn = sqlite3.connect(SYSTEM_DB)
-    try:
-        my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
-    except:
-        my_orders = pd.DataFrame()
-    conn.close()
-    
-    # KST 시간 적용
-    my_orders = apply_kst(my_orders, 'created_at')
-
-    # 토스트 알림 로직 (Buyer - 견적 도착 알림)
-    if not my_orders.empty:
-        quoted_cnt = len(my_orders[my_orders['status'] == 'QUOTED'])
-        
-        if 'buyer_last_cnt' not in st.session_state:
-            st.session_state.buyer_last_cnt = quoted_cnt
-            
-        if quoted_cnt > st.session_state.buyer_last_cnt:
-            st.toast("📬 New Quote Received! Check your orders.", icon="💰")
-            
-        st.session_state.buyer_last_cnt = quoted_cnt
-
-    if not my_orders.empty:
-        for idx, row in my_orders.iterrows():
-            status_color = "green" if row['status'] == 'DONE' else "orange" if row['status'] == 'PENDING' else "blue"
-            with st.expander(f"[{row['created_at']}] {row['target_partner_alias']} ({row['status']})"):
-                st.caption(f"Status: :{status_color}[{row['status']}]")
-                st.write(f"**Request Details:** {row['items_summary']}")
-                
-                if row['status'] == 'QUOTED' or row.get('reply_text'):
-                    st.divider()
-                    st.info("📬 Admin Reply:")
-                    if row.get('reply_text'):
-                        st.text(row['reply_text'])
-                    
-                    if row.get('reply_images'):
-                        try:
-                            img_data = json.loads(row['reply_images'])
-                            if img_data:
-                                st.write("**Attached Images:**")
-                                cols = st.columns(len(img_data))
-                                for i, b64_img in enumerate(img_data):
-                                    with cols[i]:
-                                        st.image(base64.b64decode(b64_img), use_container_width=True)
-                        except: pass
-                
-                if row['status'] == 'QUOTED':
-                    st.success(t('offer_received'))
-    else:
-        st.info(t('no_orders_buyer'))
-
 # ---------------------------------------------------------
 # 🚀 메인 어플리케이션
 # ---------------------------------------------------------
 try:
+    if 'language' not in st.session_state: st.session_state.language = 'English'
+    
+    # DB 초기화 (Inventory & System)
     init_inventory_db()
     init_system_db()
 
-    # 앱 실행 시 URL 토큰 체크 (자동 로그인)
-    if 'user_role' not in st.session_state:
-        st.session_state.user_role = 'guest'
-        st.session_state.username = 'Guest'
-        
-        query_params = st.query_params
-        token = query_params.get("token")
-        
-        if token:
-            role, name = verify_session(token)
-            if role:
-                st.session_state.user_role = role
-                st.session_state.username = name
-    
-    if 'language' not in st.session_state: st.session_state.language = 'English'
+    # 🟢 [인증] Authenticator 초기화
+    users_dict = fetch_users_for_auth()
+    authenticator = stauth.Authenticate(
+        users_dict,
+        'k_used_car_cookie', 
+        COOKIE_KEY, 
+        30
+    )
 
     if 'view_data' not in st.session_state or 'metadata_loaded' not in st.session_state:
         m_df, m_eng, m_yards, init_df, init_total = load_metadata_and_init_data()
@@ -827,26 +672,31 @@ try:
 
         st.divider()
 
-        # 로그인/회원가입
-        if st.session_state.user_role == 'guest':
-            log_tab, sign_tab = st.tabs([t('login_title'), t('sign_up')])
-            with log_tab:
-                uid = st.text_input(f"👤 {t('id')}", key="l_id")
-                upw = st.text_input(f"🔒 {t('pw')}", type="password", key="l_pw")
-                
-                if st.button(t('sign_in'), use_container_width=True):
-                    role, name = login_user(uid, upw)
-                    if role:
-                        token = create_session(uid)
-                        st.query_params["token"] = token
-                        
-                        st.session_state.user_role = role
-                        st.session_state.username = name if name else uid
-                        safe_rerun()
-                    else:
-                        st.error(t('invalid_cred'))
-                        
-            with sign_tab:
+        # 로그인 위젯 (자동 세션 처리)
+        authenticator.login()
+
+        if st.session_state["authentication_status"]:
+            username = st.session_state["username"]
+            if username == 'admin':
+                st.session_state.user_role = 'admin'
+            else:
+                role = users_dict['usernames'].get(username, {}).get('role', 'buyer')
+                st.session_state.user_role = role
+            
+            st.session_state.username = username
+            st.success(t('welcome').format(st.session_state.username))
+            authenticator.logout(t('logout'), 'sidebar')
+            
+        elif st.session_state["authentication_status"] is False:
+            st.error(t('invalid_cred'))
+            st.session_state.user_role = 'guest'
+            st.session_state.username = 'Guest'
+        elif st.session_state["authentication_status"] is None:
+            st.session_state.user_role = 'guest'
+            st.session_state.username = 'Guest'
+            
+            # 🟢 [회원가입]
+            with st.expander(f"📝 {t('sign_up')}"):
                 new_id = st.text_input(f"👤 {t('id')}", key="s_id")
                 new_pw = st.text_input(f"🔒 {t('pw')}", type="password", key="s_pw")
                 new_name = st.text_input(f"📛 {t('user_name')}", key="s_name")
@@ -863,19 +713,6 @@ try:
                             st.success(t('signup_success'))
                         else:
                             st.error(t('user_exists'))
-
-        else:
-            st.success(t('welcome').format(st.session_state.username))
-            if st.button(t('logout')):
-                current_token = st.query_params.get("token")
-                if current_token:
-                    delete_session(current_token)
-                st.query_params.clear()
-                
-                st.session_state.user_role = 'guest'
-                st.session_state.username = 'Guest'
-                del st.session_state['metadata_loaded']
-                safe_rerun()
 
         st.divider()
 
@@ -908,7 +745,6 @@ try:
                     conn.execute("DROP TABLE IF EXISTS model_list")
                     conn.commit()
                     conn.close()
-                    init_inventory_db.clear()
                     init_inventory_db()
                     st.success(t('reset_done'))
                     load_metadata_and_init_data.clear()
@@ -920,11 +756,10 @@ try:
                     conn.execute("DROP TABLE IF EXISTS orders")
                     conn.execute("DROP TABLE IF EXISTS search_logs_v2")
                     conn.execute("DROP TABLE IF EXISTS translations")
-                    conn.execute("DROP TABLE IF EXISTS user_sessions")
                     conn.commit()
                     conn.close()
-                    init_system_db.clear()
                     init_system_db()
+                    # 캐시 클리어 (함수명 수정 없이 그대로 사용 가능)
                     load_translations.clear()
                     st.success(t('reset_done'))
                     safe_rerun()
@@ -940,67 +775,64 @@ try:
         search_tabs = st.tabs([f"🚙 {t('tab_vehicle')}", f"🔧 {t('tab_engine')}", f"🏭 {t('tab_yard')}"])
         
         with search_tabs[0]: 
-            with st.form("veh_search_form"):
-                makers = sorted(df_models['manufacturer'].unique().tolist())
-                makers.insert(0, "All")
-                sel_maker = st.selectbox(t('manufacturer'), makers, key="msel")
-                
-                c1, c2 = st.columns(2)
-                with c1: sel_sy = st.number_input(t('from_year'), 1990, 2030, 2000, key="sy")
-                with c2: sel_ey = st.number_input(t('to_year'), 1990, 2030, 2025, key="ey")
-                
-                if sel_maker != "All":
-                    f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].unique().tolist())
-                else:
-                    f_models = sorted(df_models['model_name'].unique().tolist())
-                sel_models = st.multiselect(t('model'), f_models, key="mms")
-                
-                if st.form_submit_button(f"🔍 {t('search_btn_veh')}", type="primary"):
-                    log_search(sel_models, 'model')
-                    res, tot = search_data_from_db(sel_maker, sel_models, [], sel_sy, sel_ey, [])
-                    st.session_state['view_data'] = res
-                    st.session_state['total_count'] = tot
-                    st.session_state['is_filtered'] = True
-                    st.session_state['mode_demand'] = False
-                    safe_rerun()
+            makers = sorted(df_models['manufacturer'].unique().tolist())
+            makers.insert(0, "All")
+            sel_maker = st.selectbox(t('manufacturer'), makers, key="msel")
+            
+            c1, c2 = st.columns(2)
+            with c1: sel_sy = st.number_input(t('from_year'), 1990, 2030, 2000, key="sy")
+            with c2: sel_ey = st.number_input(t('to_year'), 1990, 2030, 2025, key="ey")
+            
+            if sel_maker != "All":
+                f_models = sorted(df_models[df_models['manufacturer'] == sel_maker]['model_name'].unique().tolist())
+            else:
+                f_models = sorted(df_models['model_name'].unique().tolist())
+            sel_models = st.multiselect(t('model'), f_models, key="mms")
+            
+            if st.button(f"🔍 {t('search_btn_veh')}", type="primary"):
+                log_search(sel_models, 'model')
+                res, tot = search_data_from_db(sel_maker, sel_models, [], sel_sy, sel_ey, [])
+                st.session_state['view_data'] = res
+                st.session_state['total_count'] = tot
+                st.session_state['is_filtered'] = True
+                st.session_state['mode_demand'] = False
+                safe_rerun()
 
         with search_tabs[1]: 
-            with st.form("eng_search_form"):
-                sel_engines = st.multiselect(t('engine_code'), sorted(list_engines), key="es")
-                if st.form_submit_button(f"🔍 {t('search_btn_eng')}", type="primary"):
-                    log_search(sel_engines, 'engine')
-                    res, tot = search_data_from_db(None, [], sel_engines, 1990, 2030, [])
-                    st.session_state['view_data'] = res
-                    st.session_state['total_count'] = tot
-                    st.session_state['is_filtered'] = True
-                    st.session_state['mode_demand'] = False
-                    safe_rerun()
+            sel_engines = st.multiselect(t('engine_code'), sorted(list_engines), key="es")
+            if st.button(f"🔍 {t('search_btn_eng')}", type="primary"):
+                log_search(sel_engines, 'engine')
+                res, tot = search_data_from_db(None, [], sel_engines, 1990, 2030, [])
+                st.session_state['view_data'] = res
+                st.session_state['total_count'] = tot
+                st.session_state['is_filtered'] = True
+                st.session_state['mode_demand'] = False
+                safe_rerun()
 
         with search_tabs[2]: 
-            with st.form("yard_search_form"):
-                yard_opts = list_yards
-                if st.session_state.user_role == 'buyer':
-                    yard_opts = sorted(list(set([generate_alias(name) for name in list_yards])))
-                else:
-                    yard_opts = sorted(list_yards)
-                    
-                sel_yards = st.multiselect(t('partner_name'), yard_opts, key="ys")
+            yard_opts = list_yards
+            if st.session_state.user_role == 'buyer':
+                yard_opts = sorted(list(set([generate_alias(name) for name in list_yards])))
+            else:
+                yard_opts = sorted(list_yards)
                 
-                if st.form_submit_button(f"🔍 {t('search_btn_partners')}", type="primary"):
-                    real_yard_names = []
-                    if st.session_state.user_role == 'buyer':
-                        for y in list_yards:
-                            if generate_alias(y) in sel_yards:
-                                real_yard_names.append(y)
-                    else:
-                        real_yard_names = sel_yards
-                        
-                    res, tot = search_data_from_db(None, [], [], 1990, 2030, real_yard_names)
-                    st.session_state['view_data'] = res
-                    st.session_state['total_count'] = tot
-                    st.session_state['is_filtered'] = True
-                    st.session_state['mode_demand'] = False
-                    safe_rerun()
+            sel_yards = st.multiselect(t('partner_name'), yard_opts, key="ys")
+            
+            if st.button(f"🔍 {t('search_btn_partners')}", type="primary"):
+                real_yard_names = []
+                if st.session_state.user_role == 'buyer':
+                    for y in list_yards:
+                        if generate_alias(y) in sel_yards:
+                            real_yard_names.append(y)
+                else:
+                    real_yard_names = sel_yards
+                    
+                res, tot = search_data_from_db(None, [], [], 1990, 2030, real_yard_names)
+                st.session_state['view_data'] = res
+                st.session_state['total_count'] = tot
+                st.session_state['is_filtered'] = True
+                st.session_state['mode_demand'] = False
+                safe_rerun()
 
         if st.button(f"🔄 {t('reset_filters')}", use_container_width=True, on_click=reset_dashboard):
             pass
@@ -1025,23 +857,18 @@ try:
     else:
         st.title(t('main_title'))
         
+        if 'view_data' not in st.session_state:
+            reset_dashboard()
+            
         df_view = st.session_state['view_data']
-        total_cnt = st.session_state['total_count']
+        total_cnt = st.session_state.get('total_count', 0)
         
         df_display = mask_dataframe(df_view, st.session_state.user_role)
         
         if st.session_state.user_role == 'admin':
-            # 탭 라벨에 뱃지(Badge) 추가
-            pending_cnt = get_pending_count()
-            order_tab_label = f"📩 {t('tab_orders')} (🔴 {pending_cnt})" if pending_cnt > 0 else f"📩 {t('tab_orders')}"
-            
-            main_tabs = st.tabs([f"📊 {t('tab_inventory')}", order_tab_label, f"👥 {t('tab_users')}"])
+            main_tabs = st.tabs([f"📊 {t('tab_inventory')}", f"📩 {t('tab_orders')}"])
         else:
-            # 🟢 [수정] 바이어 탭 라벨에 뱃지(Badge) 추가
-            quoted_cnt = get_quoted_count(st.session_state.username)
-            my_order_tab_label = f"🛒 {t('tab_my_orders')} (🟢 {quoted_cnt})" if quoted_cnt > 0 else f"🛒 {t('tab_my_orders')}"
-            
-            main_tabs = st.tabs([f"📊 {t('tab_results')}", my_order_tab_label])
+            main_tabs = st.tabs([f"📊 {t('tab_results')}", f"🛒 {t('tab_my_orders')}"])
 
         with main_tabs[0]:
             if df_display.empty:
@@ -1051,11 +878,10 @@ try:
                     st.info(t('plz_select'))
             else:
                 c1, c2, c3 = st.columns(3)
-                # 🟢 [수정] 천 단위 콤마 포맷팅 적용 (f"{val:,}")
                 c1.metric(t('total_veh'), f"{total_cnt:,} EA")
-                c2.metric(t('matched_eng'), f"{df_display['engine_code'].nunique():,} Types")
+                c2.metric(t('matched_eng'), f"{df_display['engine_code'].nunique()} Types")
                 sup_label = t('real_yards') if st.session_state.user_role == 'admin' else t('partners_cnt')
-                c3.metric(sup_label, f"{df_display['junkyard'].nunique():,} EA")
+                c3.metric(sup_label, f"{df_display['junkyard'].nunique()} EA")
                 
                 if total_cnt > 5000:
                     st.warning(t('limit_warning').format(total_cnt))
@@ -1071,16 +897,10 @@ try:
                     df_display['address'] = df_display['address'].fillna("Unknown")
 
                 stock_summary = df_display.groupby(grp_cols).size().reset_index(name='qty').sort_values('qty', ascending=False)
-                
-                # 🟢 [수정] Stock Summary 테이블 'qty' 컬럼 콤마 포맷팅 (Display용 복사본 생성)
-                stock_summary_disp = stock_summary.copy()
-                stock_summary_disp['qty'] = stock_summary_disp['qty'].apply(lambda x: f"{x:,}")
-                
-                selection = st.dataframe(stock_summary_disp, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
+                selection = st.dataframe(stock_summary, use_container_width=True, hide_index=True, selection_mode="single-row", on_select="rerun")
                 
                 if len(selection.selection.rows) > 0:
                     sel_idx = selection.selection.rows[0]
-                    # 원본 데이터(숫자형)에서 정보 가져오기
                     sel_row = stock_summary.iloc[sel_idx]
                     target_partner = sel_row['junkyard']
                     stock_cnt = sel_row['qty']
@@ -1088,8 +908,7 @@ try:
                     if st.session_state.user_role == 'guest':
                         st.warning(t('login_req_warn'))
                     else:
-                        # 🟢 [수정] 선택 메시지 수량에 콤마 적용
-                        st.success(t('selected_msg').format(target_partner, f"{stock_cnt:,}"))
+                        st.success(t('selected_msg').format(target_partner, stock_cnt))
                         
                         with st.form("order_form"):
                             st.markdown(f"### {t('req_quote_title').format(target_partner)}")
@@ -1099,6 +918,7 @@ try:
                                 contact = st.text_input(t('contact'))
                                 req_qty = st.number_input(t('qty'), min_value=1, value=1)
                             with c_b:
+                                # 자동 품목 완성
                                 s_maker = st.session_state.get('msel', 'All')
                                 s_models = st.session_state.get('mms', [])
                                 s_engines = st.session_state.get('es', [])
@@ -1137,11 +957,11 @@ try:
                                     
                                     if "EMAIL" in st.secrets:
                                         admin_email = st.secrets["EMAIL"]["admin_email"]
-                                        send_email(admin_email, f"[K-Used Car] New Quote Request from {buyer_name}", 
+                                        send_email(admin_email, f"[K-Used Car] New Quote Request from {buyer_name}",
                                                    f"Buyer: {buyer_name}\nContact: {contact}\nItem: {item}\nQty: {req_qty}\nPrice: {offer}\nMessage: {msg}")
 
                                     summary = f"Qty: {req_qty} (Total Stock: {stock_cnt}), Item: {item}, Price: {offer}, Msg: {msg}"
-                                    cur.execute("INSERT INTO orders (buyer_id, contact_info, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?, ?)", 
+                                    cur.execute("INSERT INTO orders (buyer_id, contact_info, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?, ?)",
                                                 (buyer_name, contact, target_partner, real_name, summary, 'PENDING'))
                                     conn.commit()
                                     conn.close()
@@ -1153,38 +973,109 @@ try:
 
         if st.session_state.user_role == 'admin':
             with main_tabs[1]:
-                show_admin_orders_fragment()
-            
-            with main_tabs[2]:
-                st.subheader(f"👥 {t('tab_users')}")
+                st.subheader(f"{t('incoming_quotes')}")
                 conn = sqlite3.connect(SYSTEM_DB)
-                users_df = pd.read_sql("SELECT user_id, name, company, country, email, phone, role, created_at FROM users", conn)
+                orders = pd.read_sql("SELECT * FROM orders ORDER BY created_at DESC", conn)
                 conn.close()
                 
-                users_df = apply_kst(users_df, 'created_at')
-                
-                st.dataframe(users_df, use_container_width=True)
-                
-                st.divider()
-                with st.expander(f"⚠️ {t('delete_user')}"):
-                    del_user_id = st.text_input(f"{t('id')} to delete")
-                    if st.button(t('delete_user'), type="primary"):
-                        if del_user_id:
-                            conn = sqlite3.connect(SYSTEM_DB)
-                            try:
-                                conn.execute("DELETE FROM users WHERE user_id = ?", (del_user_id,))
-                                conn.commit()
-                                st.success(t('user_deleted').format(del_user_id))
-                                time.sleep(1)
-                                safe_rerun()
-                            except Exception as e:
-                                st.error(f"Error: {e}")
-                            finally:
-                                conn.close()
+                if not orders.empty:
+                    for idx, row in orders.iterrows():
+                        with st.expander(f"[{row['status']}] {row['created_at']} | From: {row['buyer_id']}"):
+                            st.write(f"**Contact:** {row['contact_info']}")
+                            st.write(f"**Target:** {row['real_junkyard_name']} ({row['target_partner_alias']})")
+                            st.info(f"**Request:** {row['items_summary']}")
+                            
+                            st.markdown("### ✍️ Reply & Quote")
+                            with st.form(f"reply_form_{row['id']}"):
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    reply_price = st.text_input("Final Quote Price (USD)", placeholder="$000")
+                                with c2:
+                                    reply_files = st.file_uploader("Attach Images (Max 5)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
+                                
+                                reply_msg = st.text_area("Message to Buyer", value=f"Dear {row['buyer_id']},\n\nThank you for your inquiry. We are pleased to offer:\n\n", height=150)
+                                
+                                if st.form_submit_button("Send Reply & Set to QUOTED"):
+                                    email_content = f"{reply_msg}\n\n[Quote Price]: {reply_price}"
+                                    sent = send_email(row['contact_info'], f"[K-Used Car] Quote for your request #{row['id']}", email_content, reply_files)
+                                    
+                                    if sent:
+                                        img_list = []
+                                        if reply_files:
+                                            # 리스트 변환 (업로드 파일이 하나여도 리스트로 처리)
+                                            files = reply_files if isinstance(reply_files, list) else [reply_files]
+                                            for f in files:
+                                                f.seek(0)
+                                                b64_str = base64.b64encode(f.read()).decode('utf-8')
+                                                img_list.append(b64_str)
+                                        
+                                        conn_up = sqlite3.connect(SYSTEM_DB)
+                                        conn_up.execute("UPDATE orders SET status = 'QUOTED', reply_text = ?, reply_images = ? WHERE id = ?", 
+                                                        (f"Price: {reply_price}\n\n{reply_msg}", json.dumps(img_list), row['id']))
+                                        conn_up.commit()
+                                        conn_up.close()
+                                        st.success("Reply sent and status updated to QUOTED!")
+                                        time.sleep(1)
+                                        safe_rerun()
+                                    else:
+                                        st.error("Failed to send email. Check SMTP settings.")
+
+                            st.divider()
+                            c1, c2 = st.columns([3, 1])
+                            with c1:
+                                new_status = st.selectbox(t('status_change'), 
+                                                          ["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"],
+                                                          index=["PENDING", "QUOTED", "PAID", "PROCESSING", "SHIPPING", "DONE", "CANCELLED"].index(row['status']),
+                                                          key=f"st_{row['id']}")
+                            with c2:
+                                st.write("")
+                                st.write("")
+                                if st.button(t('update_btn'), key=f"btn_{row['id']}"):
+                                    update_order_status(row['id'], new_status)
+                                    st.success(t('updated_msg'))
+                                    time.sleep(0.5)
+                                    safe_rerun()
+                else:
+                    st.info(t('no_orders_admin'))
 
         if st.session_state.user_role == 'buyer':
             with main_tabs[1]: 
-                show_buyer_orders_fragment()
+                st.subheader(f"{t('my_quote_req')}")
+                conn = sqlite3.connect(SYSTEM_DB)
+                try:
+                    my_orders = pd.read_sql("SELECT * FROM orders WHERE buyer_id = ? ORDER BY created_at DESC", conn, params=(st.session_state.username,))
+                except:
+                    my_orders = pd.DataFrame()
+                conn.close()
+
+                if not my_orders.empty:
+                    for idx, row in my_orders.iterrows():
+                        status_color = "green" if row['status'] == 'DONE' else "orange" if row['status'] == 'PENDING' else "blue"
+                        with st.expander(f"[{row['created_at']}] {row['target_partner_alias']} ({row['status']})"):
+                            st.caption(f"Status: :{status_color}[{row['status']}]")
+                            st.write(f"**Request Details:** {row['items_summary']}")
+                            
+                            if row['status'] == 'QUOTED' or row.get('reply_text'):
+                                st.divider()
+                                st.info("📬 Admin Reply:")
+                                if row.get('reply_text'):
+                                    st.text(row['reply_text'])
+                                
+                                if row.get('reply_images'):
+                                    try:
+                                        img_data = json.loads(row['reply_images'])
+                                        if img_data:
+                                            st.write("**Attached Images:**")
+                                            cols = st.columns(len(img_data))
+                                            for i, b64_img in enumerate(img_data):
+                                                with cols[i]:
+                                                    st.image(base64.b64decode(b64_img), use_container_width=True)
+                                    except: pass
+                            
+                            if row['status'] == 'QUOTED':
+                                st.success(t('offer_received'))
+                else:
+                    st.info(t('no_orders_buyer'))
 
 except Exception as e:
     st.error("⛔ 앱 실행 중 문제가 발생했습니다.")

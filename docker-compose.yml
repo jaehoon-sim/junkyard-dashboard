@@ -1,0 +1,14 @@
+version: '3'
+
+services:
+  streamlit-app:
+    build: .
+    container_name: k-usedcar-hub
+    ports:
+      - "8501:8501"
+    volumes:
+      # 호스트의 data 폴더를 컨테이너 내부와 연결하여 DB 파일 영구 보존
+      - ./data:/app/data
+      # secrets.toml 파일을 외부에서 주입 (보안)
+      - ./.streamlit/secrets.toml:/app/.streamlit/secrets.toml
+    restart: always

@@ -214,9 +214,64 @@ def _get_raw_translations():
             "status_change": "상태 변경", "update_btn": "업데이트", "updated_msg": "업데이트 완료!", "offer_received": "💬 견적 도착! 이메일/전화를 확인하세요.",
             "company_name": "회사명", "country": "국가", "email": "이메일", "phone": "전화번호", "user_name": "담당자 성함", 
             "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요."
+        },
+        "Russian": {
+            "app_title": "K-Used Car Глобальный Хаб", "login_title": "Вход", "id": "ID", "pw": "Пароль",
+            "sign_in": "Войти", "sign_up": "Регистрация", "logout": "Выйти", "welcome": "Добро пожаловать, {}!", 
+            "invalid_cred": "Неверные учетные данные", "user_exists": "ID уже существует.", "signup_success": "Аккаунт создан! Войдите.",
+            "admin_tools": "Инструменты админа", "data_upload": "Загрузка данных", "save_data": "Сохранить данные", "addr_db": "БД Адресов",
+            "save_addr": "Сохранить адрес", "reset_db": "Сброс БД системы", "reset_inv": "Сброс БД инвентаря", "reset_done": "Сброс выполнен",
+            "records_saved": "{} записей загружено.", "addr_updated": "{} адресов обновлено.", "admin_menu": "Меню админа", 
+            "demand_analysis": "Анализ спроса", "search_filter": "Фильтр поиска", "tab_vehicle": "Автомобиль", 
+            "tab_engine": "Двигатель", "tab_yard": "Склад", "manufacturer": "Производитель", "from_year": "С года", 
+            "to_year": "По год", "model": "Модель", "engine_code": "Код двигателя", "partner_name": "Партнер", 
+            "search_btn_veh": "Поиск авто", "search_btn_eng": "Поиск двигателя", "search_btn_partners": "Поиск партнера", 
+            "reset_filters": "Сброс фильтров", "check_trends": "Глобальные тренды поиска", "show_trends": "Показать тренды", 
+            "analysis_title": "Анализ спроса в реальном времени", "top_engines": "Топ двигателей", 
+            "top_models": "Топ моделей", "main_title": "Инвентарь K-Used Car/Engine", "tab_inventory": "Инвентарь", 
+            "tab_orders": "Заказы", "tab_results": "Результаты", "tab_my_orders": "Мои заказы", "no_results": "Результатов не найдено.", 
+            "plz_select": "Выберите фильтры для поиска.", "total_veh": "Всего авто", "matched_eng": "Двигатели", 
+            "partners_cnt": "Партнеры", "real_yards": "Склады", "limit_warning": "⚠️ Показано топ 5,000 из {:,}. Уточните фильтры.", 
+            "stock_by_partner": "Наличие по партнерам", "login_req_warn": "🔒 Требуется вход для запроса цены.", "selected_msg": "Выбрано: **{}** ({} шт.)", 
+            "req_quote_title": "📨 Запрос цены у {}", "name_company": "Имя / Компания", "contact": "Контакт (Email/Тел) *", 
+            "qty": "Количество *", "item": "Товар *", "unit_price": "Целевая цена (USD) *", "message": "Сообщение админу", 
+            "send_btn": "🚀 Отправить запрос", "fill_error": "⚠️ Заполните обязательные поля: Контакт, Товар, Цена.", 
+            "inquiry_sent": "✅ Запрос отправлен в отдел продаж.", "item_list": "Список товаров", "incoming_quotes": "📩 Входящие запросы", 
+            "my_quote_req": "🛒 Мои запросы", "no_orders_admin": "Нет ожидающих заказов.", "no_orders_buyer": "Вы еще не делали запросов.", 
+            "status_change": "Изменить статус", "update_btn": "Обновить", "updated_msg": "Обновлено!", 
+            "offer_received": "💬 Предложение получено! Проверьте почту.", "company_name": "Название компании", 
+            "country": "Страна", "email": "Эл. почта", "phone": "Телефон", "user_name": "Имя", 
+            "signup_missing_fields": "⚠️ Заполните все обязательные поля (*)."
+        },
+        "Arabic": {
+            "app_title": "K-Used Car Global Hub", "login_title": "تسجيل الدخول", "id": "المعرف", "pw": "كلمة المرور",
+            "sign_in": "دخول", "sign_up": "اشتراك", "logout": "خروج", "welcome": "مرحباً، {}!", 
+            "invalid_cred": "بيانات الاعتماد غير صالحة", "user_exists": "معرف المستخدم موجود بالفعل.", "signup_success": "تم إنشاء الحساب! الرجاء تسجيل الدخول.",
+            "admin_tools": "أدوات المسؤول", "data_upload": "تحميل البيانات", "save_data": "حفظ البيانات", "addr_db": "قاعدة بيانات العناوين",
+            "save_addr": "حفظ العنوان", "reset_db": "إعادة تعيين قاعدة البيانات", "reset_inv": "إعادة تعيين المخزون", "reset_done": "تمت إعادة التعيين",
+            "records_saved": "تم تحميل {} سجل.", "addr_updated": "تم تحديث {} عنوان.", "admin_menu": "قائمة المسؤول", 
+            "demand_analysis": "تحليل الطلب العالمي", "search_filter": "عامل تصفية البحث", "tab_vehicle": "مركبة", 
+            "tab_engine": "محرك", "tab_yard": "ساحة", "manufacturer": "الصانع", "from_year": "من سنة", 
+            "to_year": "إلى سنة", "model": "الموديل", "engine_code": "رمز المحرك", "partner_name": "اسم الشريك", 
+            "search_btn_veh": "بحث عن مركبة", "search_btn_eng": "بحث عن محرك", "search_btn_partners": "بحث عن شريك", 
+            "reset_filters": "إعادة تعيين المرشحات", "check_trends": "تحقق من اتجاهات البحث العالمية.", "show_trends": "عرض الاتجاهات", 
+            "analysis_title": "اتجاهات الطلب العالمي (مباشر)", "top_engines": "أفضل المحركات بحثًا", 
+            "top_models": "أفضل الموديلات بحثًا", "main_title": "مخزون السيارات/المحركات المستعملة الكورية", "tab_inventory": "المخزون", 
+            "tab_orders": "الطلبات", "tab_results": "نتائج البحث", "tab_my_orders": "طلباتي", "no_results": "لم يتم العثور على نتائج.", 
+            "plz_select": "يرجى تحديد مرشحات للبحث.", "total_veh": "إجمالي المركبات", "matched_eng": "المحركات المطابقة", 
+            "partners_cnt": "الشركاء", "real_yards": "ساحات الخردة الحقيقية", "limit_warning": "⚠️ يتم عرض أعلى 5000 نتيجة من {:,}. يرجى تحسين المرشحات.", 
+            "stock_by_partner": "المخزون حسب الشريك", "login_req_warn": "🔒 تسجيل الدخول مطلوب لطلب عرض أسعار.", "selected_msg": "محدد: **{}** ({} قطعة)", 
+            "req_quote_title": "📨 طلب عرض أسعار لـ {}", "name_company": "الاسم / الشركة", "contact": "الاتصال (بريد إلكتروني/هاتف) *", 
+            "qty": "الكمية *", "item": "العنصر *", "unit_price": "السعر المستهدف (دولار) *", "message": "رسالة للمسؤول", 
+            "send_btn": "🚀 إرسال الطلب", "fill_error": "⚠️ يرجى ملء الحقول المطلوبة: جهة الاتصال، العنصر، والسعر.", 
+            "inquiry_sent": "✅ تم إرسال الطلب إلى فريق المبيعات لدينا.", "item_list": "قائمة العناصر", "incoming_quotes": "📩 طلبات الأسعار الواردة", 
+            "my_quote_req": "🛒 طلبات الأسعار الخاصة بي", "no_orders_admin": "لا توجد طلبات معلقة.", "no_orders_buyer": "لم تقم بطلب أي عروض أسعار بعد.", 
+            "status_change": "تغيير الحالة", "update_btn": "تحديث", "updated_msg": "تم التحديث!", 
+            "offer_received": "💬 تم استلام العرض! تحقق من بريدك الإلكتروني/هاتفك.", "company_name": "اسم الشركة", 
+            "country": "بلد", "email": "بريد إلكتروني", "phone": "رقم الهاتف", "user_name": "الاسم", 
+            "signup_missing_fields": "⚠️ يرجى ملء جميع الحقول المطلوبة (*)."
         }
     }
-    # (다른 언어 생략)
 
 def init_inventory_db():
     conn = sqlite3.connect(INVENTORY_DB)
@@ -238,7 +293,10 @@ def init_system_db():
     c.execute('''CREATE TABLE IF NOT EXISTS users (user_id TEXT PRIMARY KEY, password TEXT, name TEXT, company TEXT, country TEXT, email TEXT, phone TEXT, role TEXT DEFAULT 'buyer', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY AUTOINCREMENT, buyer_id TEXT, contact_info TEXT, target_partner_alias TEXT, real_junkyard_name TEXT, items_summary TEXT, status TEXT DEFAULT 'PENDING', reply_text TEXT, reply_images TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, country TEXT, city TEXT, lat REAL, lon REAL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
+    
+    # 🔴 [핵심 수정] 번역 테이블 스키마 불일치 해결을 위해 기존 테이블 삭제 후 재생성 (강제 업데이트)
+    c.execute("DROP TABLE IF EXISTS translations") 
+    c.execute('''CREATE TABLE translations (key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
 
     # 번역 데이터 갱신
     raw_data = _get_raw_translations()
@@ -253,8 +311,8 @@ def init_system_db():
             raw_data.get("Arabic", {}).get(k, k)
         )
         data_to_insert.append(row)
-    c.executemany("INSERT OR REPLACE INTO translations VALUES (?, ?, ?, ?, ?)", data_to_insert)
-
+    c.executemany("INSERT INTO translations VALUES (?, ?, ?, ?, ?)", data_to_insert)
+    
     # Admin 계정 생성
     if not c.execute("SELECT * FROM users WHERE user_id = 'admin'").fetchone():
         try:
@@ -404,8 +462,8 @@ def translate_address(addr):
     k_do, k_city = parts[0][:2], parts[1]
     
     current_lang = st.session_state.get('language', 'English')
-    if current_lang == 'Russian': pmap, cmap = PROVINCE_MAP_RU, CITY_MAP 
-    elif current_lang == 'Arabic': pmap, cmap = PROVINCE_MAP_AR, CITY_MAP 
+    if current_lang == 'Russian': pmap, cmap = PROVINCE_MAP_RU, CITY_MAP_RU 
+    elif current_lang == 'Arabic': pmap, cmap = PROVINCE_MAP_AR, CITY_MAP_AR 
     else: pmap, cmap = PROVINCE_MAP, CITY_MAP
 
     en_do = pmap.get(k_do, PROVINCE_MAP.get(k_do, k_do))
@@ -769,12 +827,11 @@ try:
                     conn.execute("DROP TABLE IF EXISTS users")
                     conn.execute("DROP TABLE IF EXISTS orders")
                     conn.execute("DROP TABLE IF EXISTS search_logs_v2")
+                    # 번역은 유지하거나 재생성되므로 드롭해도 무방
                     conn.execute("DROP TABLE IF EXISTS translations")
                     conn.commit()
                     conn.close()
                     init_system_db()
-                    # 캐시만 지우고 함수 호출은 안함
-                    # load_translations.clear()
                     st.success(t('reset_done'))
                     safe_rerun()
             
@@ -893,7 +950,6 @@ try:
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("### 🛠️ Edit Role")
-                    # Admin 계정 제외하고 리스트업
                     user_list = users_df[users_df['user_id'] != 'admin']['user_id'].tolist()
                     target_user = st.selectbox("Select User", user_list, key="role_user_sel")
                     new_role = st.selectbox("New Role", ["buyer", "partner", "admin"], key="role_val_sel")
@@ -917,7 +973,7 @@ try:
         else:
             main_tabs = st.tabs([f"📊 {t('tab_results')}", f"🛒 {t('tab_my_orders')}"])
 
-        # 🟢 공통: 재고 리스트 탭 (모든 역할이 봄)
+        # 🟢 공통: 재고 리스트 탭
         with main_tabs[0]:
             if df_display.empty:
                 if st.session_state['is_filtered']:

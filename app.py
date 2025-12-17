@@ -220,16 +220,60 @@ else:
                                 st.rerun()
         else: st.info(t('no_results'))
 
-    # 3. Users (Admin Only)
+# 3. Users (Admin Only)
     if st.session_state.user_role == 'admin':
         with main_tabs[2]:
+            st.subheader("👤 User Management")
+            
+            # 최신 사용자 데이터 로드
             udf = db.fetch_all_users()
-            st.dataframe(udf)
-            with st.form("u_mgmt"):
-                uid = st.selectbox("Select User", udf['user_id'].tolist())
-                role = st.selectbox("New Role", ['buyer','partner','admin'])
-                c1, c2 = st.columns(2)
-                if c1.form_submit_button("Update Role"):
-                    db.update_user_role(uid, role); st.success("Updated"); st.rerun()
-                if c2.form_submit_button("Delete User"):
-                    db.delete_user(uid); st.warning("Deleted"); st.rerun()
+            st.dataframe(udf, use_container_width=True)
+            
+            st.divider()
+            
+            # [Step 1] 수정할 사용자 선택 (폼 외부에서 선택해야 즉시 데이터가 로드됨)
+            user_list = udf['user_id'].tolist()
+            target_uid = st.selectbox("Select User to Edit", user_list)
+            
+            # 선택된 사용자의 현재 정보 가져오기
+            if target_uid:
+                current_row = udf[udf['user_id'] == target_uid].iloc[0]
+                cur_role = current_row['role']
+                # None 값을 빈 문자열로 처리
+                cur_email = current_row['email'] if current_row['email'] else ""
+                cur_phone = current_row['phone'] if current_row['phone'] else ""
+                cur_company = current_row['company'] if current_row['company'] else ""
+
+                # [Step 2] 정보 수정 폼
+                with st.form("admin_update_user"):
+                    st.write(f"**Edit Info: {target_uid}**")
+                    
+                    c1, c2, c3 = st.columns(3)
+                    new_role = c1.selectbox("Role", ['buyer', 'partner', 'admin'], index=['buyer', 'partner', 'admin'].index(cur_role))
+                    new_email = c2.text_input("Email", value=cur_email)
+                    new_phone = c3.text_input("Phone", value=cur_phone)
+                    
+                    # (선택) 회사명도 수정하고 싶다면 아래 주석 해제
+                    # new_company = st.text_input("Company", value=cur_company)
+
+                    c_btn1, c_btn2 = st.columns([1, 4])
+                    
+                    # 업데이트 버튼
+                    if c_btn1.form_submit_button("💾 Update Info"):
+                        # 1. 권한 업데이트
+                        db.update_user_role(target_uid, new_role)
+                        # 2. 정보(이메일/폰) 업데이트
+                        db.update_user_info(target_uid, new_email, new_phone)
+                        
+                        st.success(f"User '{target_uid}' updated successfully!")
+                        time.sleep(1)
+                        st.rerun()
+
+                # [Step 3] 사용자 삭제 (별도 버튼으로 분리하여 안전성 확보)
+                with st.expander(f"🗑️ Delete User '{target_uid}'"):
+                    st.warning("This action cannot be undone.")
+                    if st.button("Delete User Permanently"):
+                        db.delete_user(target_uid)
+                        st.error(f"User '{target_uid}' deleted.")
+                        time.sleep(1)
+                        st.rerun()

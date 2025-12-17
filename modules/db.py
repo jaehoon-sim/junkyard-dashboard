@@ -12,20 +12,63 @@ INVENTORY_DB = 'data/inventory.db'
 SYSTEM_DB = 'data/system.db'
 
 # ---------------------------------------------------------
+# 0. 데이터 표준화 규칙 (Mapping Rules)
+# ---------------------------------------------------------
+BRAND_MAP = {
+    '현대': 'Hyundai', '현대자동차': 'Hyundai', 'HYUNDAI': 'Hyundai',
+    '기아': 'Kia', '기아자동차': 'Kia', 'KIA': 'Kia',
+    '제네시스': 'Genesis', 'GENESIS': 'Genesis',
+    '르노삼성': 'Renault Korea', '르노코리아': 'Renault Korea',
+    '쉐보레': 'Chevrolet', '지엠대우': 'Chevrolet',
+    '쌍용': 'KGM', 'KG모빌리티': 'KGM', 'SsangYong': 'KGM',
+    '벤츠': 'Mercedes-Benz', '메르세데스벤츠': 'Mercedes-Benz', 'Benz': 'Mercedes-Benz',
+    '비엠더블유': 'BMW', '아우디': 'Audi', '폭스바겐': 'Volkswagen'
+}
+
+# 모델명 분리 규칙 (입력값 -> [표준모델명, 세부모델])
+MODEL_MAP = {
+    # Hyundai
+    '그랜저': ['Grandeur', ''], '그랜저HG': ['Grandeur', 'HG'], '그랜저IG': ['Grandeur', 'IG'], '더뉴그랜저': ['Grandeur', 'The New'],
+    '쏘나타': ['Sonata', ''], '쏘나타DN8': ['Sonata', 'DN8'], 'LF쏘나타': ['Sonata', 'LF'],
+    '아반떼': ['Avante', ''], '아반떼CN7': ['Avante', 'CN7'], '아반떼AD': ['Avante', 'AD'],
+    '싼타페': ['Santa Fe', ''], '싼타페TM': ['Santa Fe', 'TM'], '팰리세이드': ['Palisade', ''], 
+    '투싼': ['Tucson', ''], '스타렉스': ['Starex', ''], '스타리아': ['Staria', ''],
+    # Kia
+    'K5': ['K5', ''], 'K7': ['K7', ''], 'K8': ['K8', ''], 'K9': ['K9', ''],
+    '쏘렌토': ['Sorento', ''], '쏘렌토MQ4': ['Sorento', 'MQ4'], '카니발': ['Carnival', ''], 
+    '더뉴카니발': ['Carnival', 'The New'], '카니발KA4': ['Carnival', 'KA4'], '스포티지': ['Sportage', ''],
+    # Genesis
+    'G80': ['G80', ''], 'G90': ['G90', ''], 'GV80': ['GV80', ''], 'GV70': ['GV70', ''],
+    # Imports
+    'S클래스': ['S-Class', ''], 'E클래스': ['E-Class', ''], 'C클래스': ['C-Class', ''],
+    '5시리즈': ['5 Series', ''], '3시리즈': ['3 Series', ''], '7시리즈': ['7 Series', ''],
+}
+
+BRAND_REMOVE_REGEX = r"^(현대|기아|제네시스|르노|쉐보레|쌍용|벤츠|메르세데스|비엠|아우디|폭스바겐|HYUNDAI|KIA|GENESIS|BENZ|BMW|AUDI)\s*"
+
+# ---------------------------------------------------------
 # 1. 초기화 및 유틸리티
 # ---------------------------------------------------------
 
 def init_dbs():
     if not os.path.exists('data'): os.makedirs('data')
     
-    # Inventory DB (차량, 폐차장, 모델 데이터)
+    # Inventory DB
     conn = sqlite3.connect(INVENTORY_DB)
     c = conn.cursor()
+    
+    # 테이블 생성 (model_detail 컬럼 포함)
     c.execute('''CREATE TABLE IF NOT EXISTS vehicle_data (
         vin TEXT PRIMARY KEY, reg_date TEXT, car_no TEXT, manufacturer TEXT, 
-        model_name TEXT, model_year REAL, junkyard TEXT, engine_code TEXT, 
+        model_name TEXT, model_detail TEXT, model_year REAL, junkyard TEXT, engine_code TEXT, 
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
+    # 기존 테이블에 model_detail 컬럼이 없는 경우 추가 (Migration)
+    try:
+        c.execute("ALTER TABLE vehicle_data ADD COLUMN model_detail TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass # 이미 존재함
+
     c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (
         name TEXT PRIMARY KEY, address TEXT, region TEXT, lat REAL, lon REAL, 
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
@@ -33,16 +76,13 @@ def init_dbs():
     c.execute('''CREATE TABLE IF NOT EXISTS model_list (
         manufacturer TEXT, model_name TEXT, PRIMARY KEY (manufacturer, model_name))''')
     
-    # 인덱스 생성
+    # 인덱스
     c.execute("CREATE INDEX IF NOT EXISTS idx_mfr ON vehicle_data(manufacturer)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_year ON vehicle_data(model_year)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_yard ON vehicle_data(junkyard)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_engine ON vehicle_data(engine_code)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_model ON vehicle_data(model_name)")
     conn.commit()
     conn.close()
 
-    # System DB (사용자, 주문, 로그, 번역)
+    # System DB
     conn = sqlite3.connect(SYSTEM_DB)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users (
@@ -58,10 +98,9 @@ def init_dbs():
     
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (
         id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, 
-        country TEXT, city TEXT, lat REAL, lon REAL, 
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
-    # 번역 데이터 초기화
+    # 번역 데이터
     c.execute("DROP TABLE IF EXISTS translations")
     c.execute('''CREATE TABLE translations (
         key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
@@ -75,40 +114,22 @@ def init_dbs():
         data_to_insert.append(row)
     c.executemany("INSERT INTO translations VALUES (?, ?, ?, ?, ?)", data_to_insert)
 
-    # Admin 계정 생성
+    # Admin 생성
     if not c.execute("SELECT * FROM users WHERE user_id = 'admin'").fetchone():
         try: admin_hash = stauth.Hasher(['1234']).generate()[0]
         except: admin_hash = stauth.Hasher().hash('1234')
         c.execute("INSERT INTO users (user_id, password, name, role) VALUES (?, ?, ?, ?)", 
                   ('admin', admin_hash, 'Administrator', 'admin'))
     
-    # 기존 폐차장 정보를 바탕으로 파트너 계정 자동생성
-    try:
-        conn_inv = sqlite3.connect(INVENTORY_DB)
-        junkyards = pd.read_sql("SELECT name FROM junkyard_info", conn_inv)['name'].unique()
-        conn_inv.close()
-        
-        try: partner_pw = stauth.Hasher(['1234']).generate()[0]
-        except: partner_pw = stauth.Hasher().hash('1234')
-        
-        for yard in junkyards:
-            if yard and len(yard) > 1:
-                if not c.execute("SELECT * FROM users WHERE user_id = ?", (yard,)).fetchone():
-                    c.execute("INSERT INTO users (user_id, password, name, company, role) VALUES (?, ?, ?, ?, ?)",
-                              (yard, partner_pw, "Partner Manager", yard, 'partner'))
-    except: pass
-
     conn.commit()
     conn.close()
 
 # ---------------------------------------------------------
-# 2. 파일 처리 (업로드 및 스마트 파싱)
+# 2. 파일 처리 및 데이터 표준화
 # ---------------------------------------------------------
 
 def read_file_smart(uploaded_file):
-    """확장자에 따라 적절한 엔진과 인코딩을 사용하여 데이터프레임으로 변환"""
     file_ext = uploaded_file.name.split('.')[-1].lower()
-    
     if file_ext == 'csv':
         try:
             uploaded_file.seek(0)
@@ -116,142 +137,143 @@ def read_file_smart(uploaded_file):
         except UnicodeDecodeError:
             uploaded_file.seek(0)
             return pd.read_csv(uploaded_file, encoding='cp949', dtype=str)
-    
     elif file_ext in ['xls', 'xlsx', 'xlsm']:
         engine = 'openpyxl' if file_ext in ['xlsx', 'xlsm'] else 'xlrd'
         try:
             uploaded_file.seek(0)
             return pd.read_excel(uploaded_file, engine=engine, dtype=str)
-        except Exception:
+        except:
             try:
-                alt_engine = 'xlrd' if engine == 'openpyxl' else 'openpyxl'
                 uploaded_file.seek(0)
-                return pd.read_excel(uploaded_file, engine=alt_engine, dtype=str)
-            except:
-                return None
+                eng = 'xlrd' if engine == 'openpyxl' else 'openpyxl'
+                return pd.read_excel(uploaded_file, engine=eng, dtype=str)
+            except: return None
     return None
 
-def find_header_row(df, keywords=['차대번호', 'vin', '차량번호']):
-    """데이터프레임 상단에서 키워드가 포함된 행(Header)을 찾음"""
-    # 1. 현재 컬럼명 검사
+def find_header_row(df, keywords=['차대번호', 'vin']):
     for col in df.columns:
-        if any(k in str(col).lower() for k in keywords):
-            return 0, df
-
-    # 2. 상위 10개 행 검사
+        if any(k in str(col).lower() for k in keywords): return 0, df
     for i, row in df.head(10).iterrows():
-        row_str = " ".join([str(x).lower() for x in row.values])
-        if any(k in row_str for k in keywords):
+        if any(k in " ".join([str(x).lower() for x in row.values]) for k in keywords):
             return i + 1, None
-            
     return -1, None
+
+def normalize_row(row):
+    """행 단위 데이터 표준화 (브랜드/모델/세부모델 분리)"""
+    raw_mfr = str(row.get('manufacturer', '')).strip()
+    raw_model = str(row.get('model_name', '')).strip()
+    
+    # 1. 브랜드 표준화
+    std_mfr = BRAND_MAP.get(raw_mfr, raw_mfr)
+    if std_mfr == '현대': std_mfr = 'Hyundai' # 안전장치
+    
+    # 2. 모델명 정리 (브랜드명 제거)
+    clean_model = re.sub(BRAND_REMOVE_REGEX, "", raw_model, flags=re.IGNORECASE).strip()
+    
+    # 3. 모델/세부모델 분리
+    if clean_model in MODEL_MAP:
+        std_model = MODEL_MAP[clean_model][0]
+        std_detail = MODEL_MAP[clean_model][1]
+    else:
+        parts = clean_model.split()
+        if len(parts) >= 2:
+            std_model = parts[0]
+            std_detail = " ".join(parts[1:])
+        else:
+            std_model = clean_model
+            std_detail = ""
+            
+    return std_mfr, std_model, std_detail
 
 def save_vehicle_file(uploaded_file):
     try:
-        # 1. 파일 읽기
         df = read_file_smart(uploaded_file)
         if df is None: return 0
 
-        # 2. 헤더 찾기
-        header_row_idx, clean_df = find_header_row(df, keywords=['차대번호', 'vin'])
-        
+        header_idx, clean_df = find_header_row(df)
         if clean_df is None:
-            if header_row_idx != -1:
+            if header_idx != -1:
                 uploaded_file.seek(0)
                 file_ext = uploaded_file.name.split('.')[-1].lower()
-                read_params = {'header': header_row_idx, 'dtype': str}
-                
+                p = {'header': header_idx, 'dtype': str}
                 if file_ext == 'csv':
-                    try: df = pd.read_csv(uploaded_file, **read_params)
-                    except: df = pd.read_csv(uploaded_file, encoding='cp949', **read_params)
+                    try: df = pd.read_csv(uploaded_file, **p)
+                    except: df = pd.read_csv(uploaded_file, encoding='cp949', **p)
                 else:
-                    eng = 'openpyxl' if file_ext in ['xlsx', 'xlsm'] else 'xlrd'
-                    df = pd.read_excel(uploaded_file, engine=eng, **read_params)
-            else:
-                return 0 # 헤더 못 찾음
-        else:
-            df = clean_df
+                    e = 'openpyxl' if file_ext in ['xlsx'] else 'xlrd'
+                    df = pd.read_excel(uploaded_file, engine=e, **p)
+            else: return 0
+        else: df = clean_df
 
-        # 3. 데이터 정제
         df.columns = [str(c).strip() for c in df.columns]
-        
-        # 필수 컬럼 확인 (VIN)
         if '차대번호' not in df.columns and 'VIN' not in df.columns:
-            col_map = {'VIN': '차대번호', 'vin': '차대번호'}
-            df.rename(columns=col_map, inplace=True)
+            df.rename(columns={'VIN': '차대번호', 'vin': '차대번호'}, inplace=True)
             if '차대번호' not in df.columns: return 0
+
+        # 데이터 프레임 표준화 적용
+        db_rows = []
+        for _, row in df.iterrows():
+            mfr = row.get('제조사', '').strip()
+            mod = row.get('차량명', row.get('모델명', '')).strip()
+            std_mfr, std_mod, std_det = normalize_row({'manufacturer': mfr, 'model_name': mod})
+            
+            vin = row.get('차대번호', '').strip()
+            reg = row.get('등록일자', '').strip()
+            no = row.get('차량번호', '').strip()
+            yard = row.get('회원사', row.get('업체명', '')).strip()
+            eng = row.get('원동기형식', row.get('엔진코드', '')).strip()
+            
+            # 연식 파싱
+            try: year = float(re.findall(r"[\d\.]+", str(row.get('연식', 0)))[0])
+            except: year = 0.0
+            
+            db_rows.append((vin, reg, no, std_mfr, std_mod, std_det, year, yard, eng))
 
         conn = sqlite3.connect(INVENTORY_DB)
         c = conn.cursor()
         
-        df_db = pd.DataFrame()
-        df_db['vin'] = df.get('차대번호', df.get('VIN', '')).fillna('').astype(str).str.strip()
-        df_db['reg_date'] = df.get('등록일자', '').fillna('').astype(str)
-        df_db['car_no'] = df.get('차량번호', '').fillna('').astype(str)
-        df_db['manufacturer'] = df.get('제조사', '').fillna('').astype(str)
-        df_db['model_name'] = df.get('차량명', df.get('모델명', '')).fillna('').astype(str)
-        df_db['junkyard'] = df.get('회원사', df.get('업체명', '')).fillna('').astype(str)
-        df_db['engine_code'] = df.get('원동기형식', df.get('엔진코드', '')).fillna('').astype(str)
-        
-        def parse_year(x):
-            try: return float(re.findall(r"[\d\.]+", str(x))[0])
-            except: return 0.0
-        
-        if '연식' in df.columns: df_db['model_year'] = df['연식'].apply(parse_year)
-        else: df_db['model_year'] = 0.0
-        
-        # 임시 테이블을 통한 병합 (Upsert)
-        df_db.to_sql('temp_vehicles', conn, if_exists='replace', index=False)
-        c.execute('''INSERT OR IGNORE INTO vehicle_data 
-                     (vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code) 
-                     SELECT vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code 
-                     FROM temp_vehicles''')
-        c.execute("DROP TABLE temp_vehicles")
+        # Temp 테이블 없이 executemany로 직접 삽입 (성능 최적화)
+        c.executemany('''INSERT OR REPLACE INTO vehicle_data 
+                         (vin, reg_date, car_no, manufacturer, model_name, model_detail, model_year, junkyard, engine_code) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', db_rows)
         
         # 모델 목록 업데이트
         c.execute("INSERT OR IGNORE INTO model_list (manufacturer, model_name) SELECT DISTINCT manufacturer, model_name FROM vehicle_data")
-            
+        
         # 폐차장 정보 저장
-        yards = df_db['junkyard'].unique().tolist()
+        yards = set([r[7] for r in db_rows if r[7] and len(r[7]) > 1])
         for y in yards:
-            if y and len(str(y)) > 1:
-                c.execute("INSERT OR IGNORE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (y, '검색실패', '기타'))
+            c.execute("INSERT OR IGNORE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (y, '검색실패', '기타'))
         conn.commit()
         conn.close()
         
-        # Partner 계정 자동 생성
+        # 파트너 계정 생성
         conn_sys = sqlite3.connect(SYSTEM_DB)
         try: pw = stauth.Hasher(['1234']).generate()[0]
         except: pw = stauth.Hasher().hash('1234')
         for y in yards:
-            if y and len(str(y)) > 1:
-                if not conn_sys.execute("SELECT * FROM users WHERE user_id = ?", (y,)).fetchone():
-                    conn_sys.execute("INSERT INTO users (user_id, password, name, company, role) VALUES (?, ?, ?, ?, ?)", 
-                                     (y, pw, "Partner", y, 'partner'))
+            if not conn_sys.execute("SELECT * FROM users WHERE user_id = ?", (y,)).fetchone():
+                conn_sys.execute("INSERT INTO users (user_id, password, name, company, role) VALUES (?, ?, ?, ?, ?)", (y, pw, "Partner", y, 'partner'))
         conn_sys.commit()
         conn_sys.close()
         
-        return len(df_db)
+        return len(db_rows)
     except Exception as e:
-        print(f"Error saving file: {e}")
+        print(f"Error: {e}")
         return 0
 
 def save_address_file(uploaded_file):
     try:
-        if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file, dtype=str)
-        else: 
-            try: df = pd.read_excel(uploaded_file, engine='openpyxl', dtype=str)
-            except: df = pd.read_excel(uploaded_file, engine='xlrd', dtype=str)
-            
+        df = read_file_smart(uploaded_file)
+        if df is None: return 0
         name_col = next((c for c in df.columns if '폐차장' in c or '업체' in c), None)
         addr_col = next((c for c in df.columns if '주소' in c), None)
-        
-        if not name_col or not addr_col: return 0
+        if not name_col: return 0
         
         conn = sqlite3.connect(INVENTORY_DB)
         cnt = 0
         for _, r in df.iterrows():
-            nm, ad = str(r[name_col]).strip(), str(r[addr_col]).strip()
+            nm, ad = str(r[name_col]).strip(), str(r.get(addr_col, '')).strip()
             reg = ad.split()[0][:2] if len(ad.split()) >= 1 else '기타'
             conn.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (nm, ad, reg))
             cnt += 1
@@ -261,36 +283,28 @@ def save_address_file(uploaded_file):
     except: return 0
 
 # ---------------------------------------------------------
-# 3. 사용자 관리 및 인증
+# 3. 사용자 관리
 # ---------------------------------------------------------
 
 def fetch_users_for_auth():
     try: admin_pw = stauth.Hasher(['1234']).generate()[0]
     except: admin_pw = stauth.Hasher().hash('1234')
-    
-    credentials = {'usernames': {'admin': {'name': 'Administrator', 'password': admin_pw, 'role': 'admin', 'email': '', 'phone': ''}}}
+    creds = {'usernames': {'admin': {'name': 'Administrator', 'password': admin_pw, 'role': 'admin', 'email': '', 'phone': ''}}}
     try:
         conn = sqlite3.connect(SYSTEM_DB)
-        rows = conn.execute("SELECT user_id, password, name, role, email, phone FROM users").fetchall()
+        for r in conn.execute("SELECT user_id, password, name, role, email, phone FROM users").fetchall():
+            creds['usernames'][r[0]] = {'name': r[2], 'password': r[1], 'role': r[3], 'email': r[4] or '', 'phone': r[5] or ''}
         conn.close()
-        for r in rows:
-            credentials['usernames'][r[0]] = {
-                'name': r[2], 
-                'password': r[1], 
-                'role': r[3],
-                'email': r[4] if r[4] else '',
-                'phone': r[5] if r[5] else ''
-            }
     except: pass
-    return credentials
+    return creds
 
 def create_user(uid, pw, name, comp, country, email, phone):
     try:
         conn = sqlite3.connect(SYSTEM_DB)
-        try: hashed_pw = stauth.Hasher([pw]).generate()[0]
-        except: hashed_pw = stauth.Hasher().hash(pw)
+        try: hpw = stauth.Hasher([pw]).generate()[0]
+        except: hpw = stauth.Hasher().hash(pw)
         conn.execute("INSERT INTO users (user_id, password, name, company, country, email, phone) VALUES (?, ?, ?, ?, ?, ?, ?)", 
-                     (uid, hashed_pw, name, comp, country, email, phone))
+                     (uid, hpw, name, comp, country, email, phone))
         conn.commit()
         conn.close()
         return True
@@ -305,12 +319,12 @@ def update_user_info(user_id, email, phone):
         return True
     except: return False
 
-def update_user_password(user_id, new_password):
+def update_user_password(user_id, new_pw):
     try:
-        try: hashed_pw = stauth.Hasher([new_password]).generate()[0]
-        except: hashed_pw = stauth.Hasher().hash(new_password)
+        try: hpw = stauth.Hasher([new_pw]).generate()[0]
+        except: hpw = stauth.Hasher().hash(new_pw)
         conn = sqlite3.connect(SYSTEM_DB)
-        conn.execute("UPDATE users SET password = ? WHERE user_id = ?", (hashed_pw, user_id))
+        conn.execute("UPDATE users SET password = ? WHERE user_id = ?", (hpw, user_id))
         conn.commit()
         conn.close()
         return True
@@ -335,38 +349,30 @@ def update_user_role(uid, role):
     conn.close()
 
 # ---------------------------------------------------------
-# 4. 데이터 조회 및 검색
+# 4. 조회 및 검색
 # ---------------------------------------------------------
 
 @st.cache_data(ttl=60)
 def search_data(maker, models, engines, sy, ey, yards, sm, em):
     try:
         conn = sqlite3.connect(INVENTORY_DB)
-        base_cond = "1=1"
-        params = []
-        
+        cond, params = "1=1", []
         if maker and maker != "All":
-            base_cond += " AND v.manufacturer = ?"
-            params.append(maker)
-        
-        base_cond += " AND v.model_year >= ? AND v.model_year <= ?"
-        params.extend([sy, ey])
-        
-        base_cond += " AND strftime('%Y-%m', v.reg_date) >= ? AND strftime('%Y-%m', v.reg_date) <= ?"
-        params.extend([sm, em])
-        
+            cond += " AND v.manufacturer = ?"; params.append(maker)
+        cond += " AND v.model_year >= ? AND v.model_year <= ?"; params.extend([sy, ey])
+        cond += " AND strftime('%Y-%m', v.reg_date) >= ? AND strftime('%Y-%m', v.reg_date) <= ?"; params.extend([sm, em])
         if models:
-            base_cond += f" AND v.model_name IN ({','.join(['?']*len(models))})"
-            params.extend(models)
+            cond += f" AND v.model_name IN ({','.join(['?']*len(models))})"; params.extend(models)
         if engines:
-            base_cond += f" AND v.engine_code IN ({','.join(['?']*len(engines))})"
-            params.extend(engines)
+            cond += f" AND v.engine_code IN ({','.join(['?']*len(engines))})"; params.extend(engines)
         if yards:
-            base_cond += f" AND v.junkyard IN ({','.join(['?']*len(yards))})"
-            params.extend(yards)
+            cond += f" AND v.junkyard IN ({','.join(['?']*len(yards))})"; params.extend(yards)
         
-        count = conn.execute(f"SELECT COUNT(*) FROM vehicle_data v WHERE {base_cond}", params).fetchone()[0]
-        df = pd.read_sql(f"SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name WHERE {base_cond} ORDER BY v.reg_date DESC LIMIT 5000", conn, params=params)
+        # model_detail 컬럼 추가 조회
+        q = f"SELECT v.vin, v.reg_date, v.car_no, v.manufacturer, v.model_name, v.model_detail, v.model_year, v.junkyard, v.engine_code, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name WHERE {cond} ORDER BY v.reg_date DESC LIMIT 5000"
+        
+        count = conn.execute(f"SELECT COUNT(*) FROM vehicle_data v WHERE {cond}", params).fetchone()[0]
+        df = pd.read_sql(q, conn, params=params)
         conn.close()
         
         if not df.empty:
@@ -385,27 +391,21 @@ def load_metadata():
     except: months = []
     
     total = conn.execute("SELECT COUNT(*) FROM vehicle_data").fetchone()[0]
+    # 초기 조회 시에도 model_detail 포함
     df_init = pd.read_sql("SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name ORDER BY v.reg_date DESC LIMIT 5000", conn)
     conn.close()
     
     if not df_init.empty:
         df_init['model_year'] = pd.to_numeric(df_init['model_year'], errors='coerce').fillna(0)
         df_init['reg_date'] = pd.to_datetime(df_init['reg_date'], errors='coerce')
-        
     return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), months, df_init, total
 
 def reset_dashboard():
-    """검색 필터 및 세션 상태를 초기화"""
     m_df, m_eng, m_yards, m_mon, init_df, init_total = load_metadata()
     st.session_state.update({
-        'view_data': init_df,
-        'total_count': init_total,
-        'models_df': m_df,
-        'engines_list': m_eng,
-        'yards_list': m_yards,
-        'months_list': m_mon,
-        'is_filtered': False,
-        'mode_demand': False
+        'view_data': init_df, 'total_count': init_total, 'models_df': m_df,
+        'engines_list': m_eng, 'yards_list': m_yards, 'months_list': m_mon,
+        'is_filtered': False, 'mode_demand': False
     })
 
 def log_search(kw, stype):
@@ -428,7 +428,7 @@ def get_trends():
     except: return pd.DataFrame(), pd.DataFrame()
 
 # ---------------------------------------------------------
-# 5. 주문 및 번역
+# 5. 주문 처리
 # ---------------------------------------------------------
 
 def place_order(buyer_id, contact, target, real_target, summary):
@@ -462,9 +462,50 @@ def load_translations():
     try: df = pd.read_sql("SELECT * FROM translations", conn)
     except: return {}
     conn.close()
-    
     trans_dict = {}
     if not df.empty:
         for lang in ['English', 'Korean', 'Russian', 'Arabic']:
             if lang in df.columns: trans_dict[lang] = dict(zip(df['key'], df[lang]))
     return trans_dict
+
+# [modules/db.py 맨 아래에 추가]
+
+def standardize_existing_data():
+    """
+    이미 DB에 저장된 차량 데이터의 브랜드/모델명을 표준화 규칙에 맞춰 일괄 정리
+    """
+    try:
+        conn = sqlite3.connect(INVENTORY_DB)
+        c = conn.cursor()
+        
+        # 1. model_detail 컬럼이 없으면 생성
+        try:
+            c.execute("ALTER TABLE vehicle_data ADD COLUMN model_detail TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass 
+
+        # 2. 모든 데이터 조회
+        df = pd.read_sql("SELECT vin, manufacturer, model_name FROM vehicle_data", conn)
+        updates = []
+        
+        for _, row in df.iterrows():
+            vin = row['vin']
+            # 표준화 로직 적용 (기존에 정의한 normalize_row 함수 활용)
+            std_mfr, std_mod, std_det = normalize_row(row)
+            updates.append((std_mfr, std_mod, std_det, vin))
+        
+        # 3. 일괄 업데이트
+        if updates:
+            c.executemany("UPDATE vehicle_data SET manufacturer = ?, model_name = ?, model_detail = ? WHERE vin = ?", updates)
+            
+            # 모델 리스트 재구성
+            c.execute("DELETE FROM model_list")
+            c.execute("INSERT OR IGNORE INTO model_list (manufacturer, model_name) SELECT DISTINCT manufacturer, model_name FROM vehicle_data")
+            
+            conn.commit()
+            
+        cnt = len(updates)
+        conn.close()
+        return True, cnt
+    except Exception as e:
+        return False, str(e)

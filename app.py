@@ -78,28 +78,40 @@ with st.sidebar:
 
     st.divider()
     
-    # Admin Tools
+# Admin Tools
     if st.session_state.user_role == 'admin':
         with st.expander(f"📂 {t('admin_tools')}"):
+            # 1. 차량 데이터 업로드 (기존 코드)
             with st.form("up_veh"):
-                st.write("Vehicle Data")
+                st.write("Vehicle Data Upload")
                 vf = st.file_uploader("", type=['xlsx','csv','xls'], accept_multiple_files=True)
                 if st.form_submit_button(t('save_data')):
                     cnt = sum([db.save_vehicle_file(f) for f in vf]) if vf else 0
                     st.success(t('records_saved').format(cnt))
-                    db.load_metadata.clear()
+                    db.load_metadata.clear() # 캐시 초기화
             
+            # 2. 주소 데이터 업로드 (기존 코드)
             with st.form("up_addr"):
-                st.write("Address Data")
+                st.write("Address Data Upload")
                 af = st.file_uploader("", type=['xlsx','csv'])
                 if st.form_submit_button(t('save_addr')):
                     if af: st.success(t('addr_updated').format(db.save_address_file(af)))
                     db.load_metadata.clear()
 
-        if st.button(t('demand_analysis')): 
-            st.session_state.mode_demand = True
-            st.rerun()
+            st.divider()
 
+            # [새로 추가된 기능] 3. DB 데이터 표준화 버튼
+            st.write("🔧 **Data Maintenance**")
+            if st.button("Normalize & Clean DB (기존 데이터 정리)"):
+                with st.spinner("Standardizing database..."):
+                    success, msg = db.standardize_existing_data()
+                    if success:
+                        st.success(f"✅ Database Normalized! Processed {msg} records.")
+                        db.load_metadata.clear() # 캐시 초기화
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error(f"Error: {msg}")
     # Filters
     st.subheader(f"🔍 {t('search_filter')}")
     tab_v, tab_e, tab_y = st.tabs([t('tab_vehicle'), t('tab_engine'), t('tab_yard')])

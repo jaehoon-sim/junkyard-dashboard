@@ -325,6 +325,25 @@ def save_address_file(uploaded_file):
         return cnt
     except: return 0
 
+def reset_dashboard():
+    """
+    검색 필터 및 세션 상태를 초기 상태로 되돌리는 함수
+    """
+    # 1. 초기 데이터 및 메타데이터 다시 로드
+    m_df, m_eng, m_yards, m_mon, init_df, init_total = load_metadata()
+    
+    # 2. Streamlit 세션 상태 강제 업데이트
+    st.session_state.update({
+        'view_data': init_df,       # 필터링 안 된 전체 차량 데이터
+        'total_count': init_total,  # 전체 수량
+        'models_df': m_df,          # 모델 목록
+        'engines_list': m_eng,      # 엔진 목록
+        'yards_list': m_yards,      # 폐차장 목록
+        'months_list': m_mon,       # 기간 목록
+        'is_filtered': False,       # 필터 적용 여부 해제
+        'mode_demand': False        # 수요 분석 모드 해제
+    })
+    
 def place_order(buyer_id, contact, target, real_target, summary):
     conn = sqlite3.connect(SYSTEM_DB)
     conn.execute("INSERT INTO orders (buyer_id, contact_info, target_partner_alias, real_junkyard_name, items_summary, status) VALUES (?, ?, ?, ?, ?, ?)",

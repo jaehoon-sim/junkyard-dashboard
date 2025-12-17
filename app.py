@@ -83,7 +83,7 @@ with st.sidebar:
         with st.expander(f"📂 {t('admin_tools')}"):
             with st.form("up_veh"):
                 st.write("Vehicle Data")
-                vf = st.file_uploader("", type=['xlsx','csv'], accept_multiple_files=True)
+                vf = st.file_uploader("", type=['xlsx','csv','xls'], accept_multiple_files=True)
                 if st.form_submit_button(t('save_data')):
                     cnt = sum([db.save_vehicle_file(f) for f in vf]) if vf else 0
                     st.success(t('records_saved').format(cnt))

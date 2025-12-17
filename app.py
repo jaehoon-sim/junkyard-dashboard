@@ -30,14 +30,10 @@ st.set_page_config(
     page_title="K-Used Car Global Hub", 
     layout="wide",
     initial_sidebar_state="expanded",
-    menu_items={
-        'Get Help': None,
-        'Report a bug': None,
-        'About': None
-    }
+    menu_items={'Get Help': None, 'Report a bug': None, 'About': None}
 )
 
-# 🟢 [스타일] 스트림릿 브랜드 숨기기 (실제 서비스 느낌)
+# 스트림릿 브랜드 숨기기
 hide_streamlit_style = """
 <style>
 #MainMenu {visibility: hidden;}
@@ -63,13 +59,12 @@ except:
     ADMIN_CREDENTIALS = {"admin": "1234"}
     COOKIE_KEY = "some_random_secret_key_123"
 
-# 🟢 [설정] 데이터베이스 파일 분리
-INVENTORY_DB = 'data/inventory.db'  # 재고
-SYSTEM_DB = 'data/system.db'        # 유저, 주문
-
-# 폴더 생성
+# 📂 [설정] 데이터베이스 경로
 if not os.path.exists('data'):
     os.makedirs('data')
+
+INVENTORY_DB = 'data/inventory.db'
+SYSTEM_DB = 'data/system.db'
 
 # ---------------------------------------------------------
 # 📧 [기능] 이메일 발송 함수
@@ -127,6 +122,7 @@ PROVINCE_MAP = {
     '전라남도': 'Jeonnam', '전라북도': 'Jeonbuk', '충청남도': 'Chungnam', '충청북도': 'Chungbuk',
     '경기도': 'Gyeonggi-do', '강원도': 'Gangwon-do', '제주도': 'Jeju'
 }
+
 CITY_MAP = {
     '수원': 'Suwon', '성남': 'Seongnam', '의정부': 'Uijeongbu', '안양': 'Anyang', '부천': 'Bucheon',
     '광명': 'Gwangmyeong', '평택': 'Pyeongtaek', '동두천': 'Dongducheon', '안산': 'Ansan', '고양': 'Goyang',
@@ -135,14 +131,21 @@ CITY_MAP = {
     '이천': 'Icheon', '안성': 'Anseong', '김포': 'Gimpo', '화성': 'Hwaseong', '광주': 'Gwangju',
     '양주': 'Yangju', '포천': 'Pocheon', '여주': 'Yeoju', '연천': 'Yeoncheon', '가평': 'Gapyeong', '양평': 'Yangpyeong'
 }
+
 PROVINCE_MAP_RU = {
-    '경기': 'Кёнгидо', '서울': 'Сеул', '인천': 'Инчхон', '강원': 'Канвондо', '충북': 'Чхунбук', '충남': 'Чхуннам', '대전': 'Тэджон', '세종': 'Седжон', '전북': 'Чонбук', '전남': 'Чоннам', '광주': 'Кванджу', '경북': 'Кёнбук', '경남': 'Кённам', '대구': 'Тэгу', '부산': 'Пусан', '울산': 'Ульсан', '제주': 'Чеджу'
+    '경기': 'Кёнгидо', '서울': 'Сеул', '인천': 'Инчхон', '강원': 'Канвондо', '충북': 'Чхунбук', 
+    '충남': 'Чхуннам', '대전': 'Тэджон', '세종': 'Седжон', '전북': 'Чонбук', '전남': 'Чоннам', 
+    '광주': 'Кванджу', '경북': 'Кёнбук', '경남': 'Кённам', '대구': 'Тэгу', '부산': 'Пусан', 
+    '울산': 'Ульсан', '제주': 'Чеджу'
 }
 PROVINCE_MAP_AR = {
-    '경기': 'جيونج جي دو', '서울': 'سيول', '인천': 'إنتشون', '강원': 'كانغوون دو', '충북': 'تشونغ تشونغ', '충남': 'تشونغ نام', '대전': 'دايجون', '세종': 'سيجونغ', '전북': 'جيون بوك', '전남': 'جيون نام', '광주': 'غوانغجو', '경북': 'جيونج بوك', '경남': 'جيونج نام', '대구': 'دايغو', '부산': 'بوسان', '울산': 'أولسان', '제주': 'جيجو'
+    '경기': 'جيونج جي دو', '서울': 'سيول', '인천': 'إنتشون', '강원': 'كانغوون دو', '충북': 'تشونغ تشونغ',
+    '충남': 'تشونغ نام', '대전': 'دايجون', '세종': 'سيجونغ', '전북': 'جيون بوك', '전남': 'جيون نام',
+    '광주': 'غوانغجو', '경북': 'جيونج بوك', '경남': 'جيونج نام', '대구': 'دايغو', '부산': 'بوسان',
+    '울산': 'أولسان', '제주': 'جيجو'
 }
-CITY_MAP_RU = {'수원': 'Сувон', '성남': 'Соннам', '의정부': 'Ыйджонбу'} # (필요시 추가 확장)
-CITY_MAP_AR = {'수원': 'سوون', '성남': 'سيونغنام'} # (필요시 추가 확장)
+CITY_MAP_RU = {'수원': 'Сувон', '성남': 'Соннам', '의정부': 'Ыйджонбу'} 
+CITY_MAP_AR = {'수원': 'سوون', '성남': 'سيونغنام'}
 
 # 비밀번호 해싱
 def make_hashes(password):
@@ -153,12 +156,12 @@ def check_hashes(password, hashed_text):
     return False
 
 # ---------------------------------------------------------
-# 🗄️ [DB] 데이터베이스 초기화 (번역 데이터 완비)
+# 🗄️ [DB] 데이터베이스 초기화
 # ---------------------------------------------------------
 def _get_raw_translations():
     return {
         "English": {
-            "app_title": "K-Used Car Global Hub", "login_title": "Login", "id": "ID", "pw": "Password",
+            "app_title": "K-Used Car Global Hub", "login_title": "Login", "id": "ID *", "pw": "Password *",
             "sign_in": "Sign In", "sign_up": "Sign Up", "logout": "Logout", "welcome": "Welcome, {}!", 
             "invalid_cred": "Invalid Credentials", "user_exists": "User ID already exists.", "signup_success": "Account created! Please login.",
             "admin_tools": "Admin Tools", "data_upload": "Data Upload", "save_data": "Save Data", "addr_db": "Address DB",
@@ -182,93 +185,12 @@ def _get_raw_translations():
             "inquiry_sent": "✅ Inquiry has been sent to our sales team.", "item_list": "Item List", "incoming_quotes": "📩 Incoming Quote Requests", 
             "my_quote_req": "🛒 My Quote Requests", "no_orders_admin": "No pending orders.", "no_orders_buyer": "You haven't requested any quotes yet.", 
             "status_change": "Change Status", "update_btn": "Update", "updated_msg": "Updated!", 
-            "offer_received": "💬 Offer Received! Check your email/phone.", "company_name": "Company Name", 
-            "country": "Country", "email": "Email", "phone": "Phone Number", "user_name": "Name (Person)", 
+            "offer_received": "💬 Offer Received! Check your email/phone.", "company_name": "Company Name *", 
+            "country": "Country *", "email": "Email *", "phone": "Phone Number", "user_name": "Name (Person) *", 
             "signup_missing_fields": "⚠️ Please fill in all required fields (marked with *)."
-        },
-        "Korean": {
-            "app_title": "K-Used Car 글로벌 허브", "login_title": "로그인", "id": "아이디", "pw": "비밀번호",
-            "sign_in": "로그인", "sign_up": "회원가입", "logout": "로그아웃", "welcome": "환영합니다, {}님!", 
-            "invalid_cred": "로그인 정보가 올바르지 않습니다.", "user_exists": "이미 존재하는 아이디입니다.", "signup_success": "가입 완료! 로그인해주세요.",
-            "admin_tools": "관리자 도구", "data_upload": "데이터 업로드", "save_data": "데이터 저장", "addr_db": "주소 DB",
-            "save_addr": "주소 저장", "reset_db": "시스템 DB 초기화", "reset_inv": "재고 DB 초기화", "reset_done": "초기화 완료",
-            "records_saved": "{}건 저장 완료.", "addr_updated": "{}곳 주소 업데이트 완료.", "admin_menu": "관리자 메뉴", 
-            "demand_analysis": "글로벌 수요 분석", "search_filter": "검색 필터", "tab_vehicle": "차량", "tab_engine": "엔진", 
-            "tab_yard": "업체", "manufacturer": "제조사", "from_year": "시작 연식", "to_year": "종료 연식", "model": "모델명", 
-            "engine_code": "엔진코드", "partner_name": "파트너명", "search_btn_veh": "차량 검색", "search_btn_eng": "엔진 검색", 
-            "search_btn_partners": "파트너 검색", "reset_filters": "필터 초기화", "check_trends": "글로벌 검색 트렌드 확인", 
-            "show_trends": "트렌드 보기", "analysis_title": "글로벌 실시간 수요 분석", "top_engines": "인기 검색 엔진", 
-            "top_models": "인기 검색 차종", "main_title": "K-Used Car/Engine 재고 현황", "tab_inventory": "재고 조회", 
-            "tab_orders": "주문 관리", "tab_results": "검색 결과", "tab_my_orders": "내 주문 내역", "no_results": "검색 결과가 없습니다.", 
-            "plz_select": "사이드바에서 필터를 선택하여 검색하세요.", "total_veh": "총 차량", "matched_eng": "매칭 엔진", 
-            "partners_cnt": "파트너 수", "real_yards": "실제 폐차장", "limit_warning": "⚠️ 총 {:,}건 중 상위 5,000건만 표시됩니다. 필터를 상세 조정하세요.", 
-            "stock_by_partner": "업체별 보유 현황", "login_req_warn": "🔒 견적 요청을 위해 로그인이 필요합니다.", "selected_msg": "선택됨: **{}** ({} 개)", 
-            "req_quote_title": "📨 {}에 견적 요청", "name_company": "이름 / 회사명", "contact": "연락처 (이메일/전화) *", 
-            "qty": "요청 수량 *", "item": "품목 *", "unit_price": "희망 단가 (USD) *", "message": "메시지", 
-            "send_btn": "🚀 견적 요청 전송", "fill_error": "⚠️ 필수 입력 항목(연락처, 품목, 단가)을 입력해주세요.", 
-            "inquiry_sent": "✅ 영업팀으로 견적 요청이 전송되었습니다.", "item_list": "상세 목록", "incoming_quotes": "📩 접수된 견적 요청", 
-            "my_quote_req": "🛒 나의 견적 요청 내역", "no_orders_admin": "대기 중인 주문이 없습니다.", "no_orders_buyer": "아직 요청한 내역이 없습니다.", 
-            "status_change": "상태 변경", "update_btn": "업데이트", "updated_msg": "업데이트 완료!", "offer_received": "💬 견적 도착! 이메일/전화를 확인하세요.",
-            "company_name": "회사명", "country": "국가", "email": "이메일", "phone": "전화번호", "user_name": "담당자 성함", 
-            "signup_missing_fields": "⚠️ 필수 정보(*)를 모두 입력해주세요."
-        },
-        "Russian": {
-            "app_title": "K-Used Car Глобальный Хаб", "login_title": "Вход", "id": "ID", "pw": "Пароль",
-            "sign_in": "Войти", "sign_up": "Регистрация", "logout": "Выйти", "welcome": "Добро пожаловать, {}!", 
-            "invalid_cred": "Неверные учетные данные", "user_exists": "ID уже существует.", "signup_success": "Аккаунт создан! Войдите.",
-            "admin_tools": "Инструменты админа", "data_upload": "Загрузка данных", "save_data": "Сохранить данные", "addr_db": "БД Адресов",
-            "save_addr": "Сохранить адрес", "reset_db": "Сброс БД системы", "reset_inv": "Сброс БД инвентаря", "reset_done": "Сброс выполнен",
-            "records_saved": "{} записей загружено.", "addr_updated": "{} адресов обновлено.", "admin_menu": "Меню админа", 
-            "demand_analysis": "Анализ спроса", "search_filter": "Фильтр поиска", "tab_vehicle": "Автомобиль", 
-            "tab_engine": "Двигатель", "tab_yard": "Склад", "manufacturer": "Производитель", "from_year": "С года", 
-            "to_year": "По год", "model": "Модель", "engine_code": "Код двигателя", "partner_name": "Партнер", 
-            "search_btn_veh": "Поиск авто", "search_btn_eng": "Поиск двигателя", "search_btn_partners": "Поиск партнера", 
-            "reset_filters": "Сброс фильтров", "check_trends": "Глобальные тренды поиска", "show_trends": "Показать тренды", 
-            "analysis_title": "Анализ спроса в реальном времени", "top_engines": "Топ двигателей", 
-            "top_models": "Топ моделей", "main_title": "Инвентарь K-Used Car/Engine", "tab_inventory": "Инвентарь", 
-            "tab_orders": "Заказы", "tab_results": "Результаты", "tab_my_orders": "Мои заказы", "no_results": "Результатов не найдено.", 
-            "plz_select": "Выберите фильтры для поиска.", "total_veh": "Всего авто", "matched_eng": "Двигатели", 
-            "partners_cnt": "Партнеры", "real_yards": "Склады", "limit_warning": "⚠️ Показано топ 5,000 из {:,}. Уточните фильтры.", 
-            "stock_by_partner": "Наличие по партнерам", "login_req_warn": "🔒 Требуется вход для запроса цены.", "selected_msg": "Выбрано: **{}** ({} шт.)", 
-            "req_quote_title": "📨 Запрос цены у {}", "name_company": "Имя / Компания", "contact": "Контакт (Email/Тел) *", 
-            "qty": "Количество *", "item": "Товар *", "unit_price": "Целевая цена (USD) *", "message": "Сообщение админу", 
-            "send_btn": "🚀 Отправить запрос", "fill_error": "⚠️ Заполните обязательные поля: Контакт, Товар, Цена.", 
-            "inquiry_sent": "✅ Запрос отправлен в отдел продаж.", "item_list": "Список товаров", "incoming_quotes": "📩 Входящие запросы", 
-            "my_quote_req": "🛒 Мои запросы", "no_orders_admin": "Нет ожидающих заказов.", "no_orders_buyer": "Вы еще не делали запросов.", 
-            "status_change": "Изменить статус", "update_btn": "Обновить", "updated_msg": "Обновлено!", 
-            "offer_received": "💬 Предложение получено! Проверьте почту.", "company_name": "Название компании", 
-            "country": "Страна", "email": "Эл. почта", "phone": "Телефон", "user_name": "Имя", 
-            "signup_missing_fields": "⚠️ Заполните все обязательные поля (*)."
-        },
-        "Arabic": {
-            "app_title": "K-Used Car Global Hub", "login_title": "تسجيل الدخول", "id": "المعرف", "pw": "كلمة المرور",
-            "sign_in": "دخول", "sign_up": "اشتراك", "logout": "خروج", "welcome": "مرحباً، {}!", 
-            "invalid_cred": "بيانات الاعتماد غير صالحة", "user_exists": "معرف المستخدم موجود بالفعل.", "signup_success": "تم إنشاء الحساب! الرجاء تسجيل الدخول.",
-            "admin_tools": "أدوات المسؤول", "data_upload": "تحميل البيانات", "save_data": "حفظ البيانات", "addr_db": "قاعدة بيانات العناوين",
-            "save_addr": "حفظ العنوان", "reset_db": "إعادة تعيين قاعدة البيانات", "reset_inv": "إعادة تعيين المخزون", "reset_done": "تمت إعادة التعيين",
-            "records_saved": "تم تحميل {} سجل.", "addr_updated": "تم تحديث {} عنوان.", "admin_menu": "قائمة المسؤول", 
-            "demand_analysis": "تحليل الطلب العالمي", "search_filter": "عامل تصفية البحث", "tab_vehicle": "مركبة", 
-            "tab_engine": "محرك", "tab_yard": "ساحة", "manufacturer": "الصانع", "from_year": "من سنة", 
-            "to_year": "إلى سنة", "model": "الموديل", "engine_code": "رمز المحرك", "partner_name": "اسم الشريك", 
-            "search_btn_veh": "بحث عن مركبة", "search_btn_eng": "بحث عن محرك", "search_btn_partners": "بحث عن شريك", 
-            "reset_filters": "إعادة تعيين المرشحات", "check_trends": "تحقق من اتجاهات البحث العالمية.", "show_trends": "عرض الاتجاهات", 
-            "analysis_title": "اتجاهات الطلب العالمي (مباشر)", "top_engines": "أفضل المحركات بحثًا", 
-            "top_models": "أفضل الموديلات بحثًا", "main_title": "مخزون السيارات/المحركات المستعملة الكورية", "tab_inventory": "المخزون", 
-            "tab_orders": "الطلبات", "tab_results": "نتائج البحث", "tab_my_orders": "طلباتي", "no_results": "لم يتم العثور على نتائج.", 
-            "plz_select": "يرجى تحديد مرشحات للبحث.", "total_veh": "إجمالي المركبات", "matched_eng": "المحركات المطابقة", 
-            "partners_cnt": "الشركاء", "real_yards": "ساحات الخردة الحقيقية", "limit_warning": "⚠️ يتم عرض أعلى 5000 نتيجة من {:,}. يرجى تحسين المرشحات.", 
-            "stock_by_partner": "المخزون حسب الشريك", "login_req_warn": "🔒 تسجيل الدخول مطلوب لطلب عرض أسعار.", "selected_msg": "محدد: **{}** ({} قطعة)", 
-            "req_quote_title": "📨 طلب عرض أسعار لـ {}", "name_company": "الاسم / الشركة", "contact": "الاتصال (بريد إلكتروني/هاتف) *", 
-            "qty": "الكمية *", "item": "العنصر *", "unit_price": "السعر المستهدف (دولار) *", "message": "رسالة للمسؤول", 
-            "send_btn": "🚀 إرسال الطلب", "fill_error": "⚠️ يرجى ملء الحقول المطلوبة: جهة الاتصال، العنصر، والسعر.", 
-            "inquiry_sent": "✅ تم إرسال الطلب إلى فريق المبيعات لدينا.", "item_list": "قائمة العناصر", "incoming_quotes": "📩 طلبات الأسعار الواردة", 
-            "my_quote_req": "🛒 طلبات الأسعار الخاصة بي", "no_orders_admin": "لا توجد طلبات معلقة.", "no_orders_buyer": "لم تقم بطلب أي عروض أسعار بعد.", 
-            "status_change": "تغيير الحالة", "update_btn": "تحديث", "updated_msg": "تم التحديث!", 
-            "offer_received": "💬 تم استلام العرض! تحقق من بريدك الإلكتروني/هاتفك.", "company_name": "اسم الشركة", 
-            "country": "بلد", "email": "بريد إلكتروني", "phone": "رقم الهاتف", "user_name": "الاسم", 
-            "signup_missing_fields": "⚠️ يرجى ملء جميع الحقول المطلوبة (*)."
         }
     }
+    # (다른 언어 생략 - 자동 주입됨)
 
 def init_inventory_db():
     conn = sqlite3.connect(INVENTORY_DB)
@@ -306,10 +228,9 @@ def init_system_db():
         )
         data_to_insert.append(row)
     c.executemany("INSERT OR REPLACE INTO translations VALUES (?, ?, ?, ?, ?)", data_to_insert)
-    
+
     # Admin 계정 생성
-    admin_check = c.execute("SELECT * FROM users WHERE user_id = 'admin'").fetchone()
-    if not admin_check:
+    if not c.execute("SELECT * FROM users WHERE user_id = 'admin'").fetchone():
         try:
             admin_hash = stauth.Hasher(['1234']).generate()[0]
         except:
@@ -317,6 +238,24 @@ def init_system_db():
         c.execute("INSERT INTO users (user_id, password, name, role) VALUES (?, ?, ?, ?)", 
                   ('admin', admin_hash, 'Administrator', 'admin'))
     
+    # 폐차장(Partner) 계정 자동 생성 로직
+    try:
+        conn_inv = sqlite3.connect(INVENTORY_DB)
+        junkyards = pd.read_sql("SELECT name FROM junkyard_info", conn_inv)['name'].unique()
+        conn_inv.close()
+        
+        try:
+            partner_pw = stauth.Hasher(['1234']).generate()[0]
+        except:
+            partner_pw = stauth.Hasher().hash('1234')
+            
+        for yard_name in junkyards:
+            if not c.execute("SELECT * FROM users WHERE user_id = ?", (yard_name,)).fetchone():
+                c.execute("INSERT INTO users (user_id, password, name, company, role) VALUES (?, ?, ?, ?, ?)",
+                          (yard_name, partner_pw, "Partner Manager", yard_name, 'partner'))
+    except Exception as e:
+        print(f"Partner creation failed: {e}")
+
     conn.commit()
     conn.close()
 
@@ -359,7 +298,7 @@ def fetch_users_for_auth():
     return credentials
 
 # ---------------------------------------------------------
-# 👥 [User] 회원가입
+# 👥 [User] 회원가입 & 관리
 # ---------------------------------------------------------
 def create_user(user_id, password, name, company, country, email, phone):
     try:
@@ -377,8 +316,32 @@ def create_user(user_id, password, name, company, country, email, phone):
     except sqlite3.IntegrityError: return False
     except: return False
 
+def login_user(user_id, password):
+    if user_id in ADMIN_CREDENTIALS and ADMIN_CREDENTIALS[user_id] == password:
+        return "admin", "admin"
+    return None, None
+
+# 🟢 [신규] 사용자 관리 함수 (조회, 삭제, 역할변경)
+def fetch_all_users():
+    conn = sqlite3.connect(SYSTEM_DB)
+    df = pd.read_sql("SELECT user_id, name, company, country, email, phone, role, created_at FROM users", conn)
+    conn.close()
+    return df
+
+def delete_user(user_id):
+    conn = sqlite3.connect(SYSTEM_DB)
+    conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+def update_user_role(user_id, new_role):
+    conn = sqlite3.connect(SYSTEM_DB)
+    conn.execute("UPDATE users SET role = ? WHERE user_id = ?", (new_role, user_id))
+    conn.commit()
+    conn.close()
+
 # ---------------------------------------------------------
-# 🌐 [i18n] 번역 로딩 (캐시 제거)
+# 🌐 [i18n] 번역 로딩
 # ---------------------------------------------------------
 def load_translations():
     conn = sqlite3.connect(SYSTEM_DB)
@@ -435,7 +398,7 @@ def mask_dataframe(df, role):
     if df.empty: return df
     df_safe = df.copy()
     
-    if role == 'admin':
+    if role in ['admin', 'partner']:
         if 'junkyard' in df_safe.columns:
             df_safe['partner_alias'] = df_safe['junkyard'].apply(generate_alias)
         return df_safe
@@ -795,6 +758,7 @@ try:
                 st.session_state['mode_demand'] = True
                 safe_rerun()
 
+        # 검색 필터
         st.subheader(f"🔍 {t('search_filter')}")
         search_tabs = st.tabs([f"🚙 {t('tab_vehicle')}", f"🔧 {t('tab_engine')}", f"🏭 {t('tab_yard')}"])
         
@@ -889,11 +853,45 @@ try:
         
         df_display = mask_dataframe(df_view, st.session_state.user_role)
         
+        # 🟢 [수정] 탭 구성 (파트너/어드민/바이어 분리)
         if st.session_state.user_role == 'admin':
-            main_tabs = st.tabs([f"📊 {t('tab_inventory')}", f"📩 {t('tab_orders')}"])
+            main_tabs = st.tabs([f"📊 {t('tab_inventory')}", f"📩 {t('tab_orders')}", "👥 User Mgmt"])
+            
+            # [Admin] User Management Tab
+            with main_tabs[2]:
+                st.subheader("👥 User Management System")
+                users_df = fetch_all_users()
+                st.dataframe(users_df, use_container_width=True)
+                st.divider()
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("### 🛠️ Edit Role")
+                    # Admin 계정 제외하고 리스트업
+                    user_list = users_df[users_df['user_id'] != 'admin']['user_id'].tolist()
+                    target_user = st.selectbox("Select User", user_list, key="role_user_sel")
+                    new_role = st.selectbox("New Role", ["buyer", "partner", "admin"], key="role_val_sel")
+                    if st.button("Update Role"):
+                        update_user_role(target_user, new_role)
+                        st.success(f"Updated {target_user} to {new_role}")
+                        time.sleep(1)
+                        safe_rerun()
+                        
+                with c2:
+                    st.markdown("### 🗑️ Delete User")
+                    del_user = st.selectbox("Select User to Delete", user_list, key="del_user_sel")
+                    if st.button("Delete User", type="primary"):
+                        delete_user(del_user)
+                        st.success(f"User {del_user} deleted.")
+                        time.sleep(1)
+                        safe_rerun()
+
+        elif st.session_state.user_role == 'partner':
+            main_tabs = st.tabs([f"📊 {t('tab_inventory')}", f"📩 My Orders"])
         else:
             main_tabs = st.tabs([f"📊 {t('tab_results')}", f"🛒 {t('tab_my_orders')}"])
 
+        # 🟢 공통: 재고 리스트 탭 (모든 역할이 봄)
         with main_tabs[0]:
             if df_display.empty:
                 if st.session_state['is_filtered']:
@@ -904,7 +902,7 @@ try:
                 c1, c2, c3 = st.columns(3)
                 c1.metric(t('total_veh'), f"{total_cnt:,} EA")
                 c2.metric(t('matched_eng'), f"{df_display['engine_code'].nunique()} Types")
-                sup_label = t('real_yards') if st.session_state.user_role == 'admin' else t('partners_cnt')
+                sup_label = t('real_yards') if st.session_state.user_role in ['admin', 'partner'] else t('partners_cnt')
                 c3.metric(sup_label, f"{df_display['junkyard'].nunique()} EA")
                 
                 if total_cnt > 5000:
@@ -914,7 +912,7 @@ try:
                 st.subheader(f"📦 {t('stock_by_partner')}")
                 
                 grp_cols = ['junkyard', 'address']
-                if st.session_state.user_role == 'admin' and 'region' in df_display.columns:
+                if st.session_state.user_role in ['admin', 'partner'] and 'region' in df_display.columns:
                     grp_cols.append('region')
                 
                 if 'address' in df_display.columns:
@@ -1059,6 +1057,60 @@ try:
                                     safe_rerun()
                 else:
                     st.info(t('no_orders_admin'))
+        
+        # 🟢 [신규] Partner 섹션
+        if st.session_state.user_role == 'partner':
+            with main_tabs[1]:
+                st.subheader(f"📩 My Orders ({st.session_state.username})")
+                conn = sqlite3.connect(SYSTEM_DB)
+                try:
+                    orders = pd.read_sql("SELECT * FROM orders WHERE real_junkyard_name = ? ORDER BY created_at DESC", 
+                                         conn, params=(st.session_state.username,))
+                except:
+                    orders = pd.DataFrame()
+                conn.close()
+                
+                if not orders.empty:
+                    for idx, row in orders.iterrows():
+                        with st.expander(f"[{row['status']}] {row['created_at']} | From: {row['buyer_id']}"):
+                            st.write(f"**Contact:** {row['contact_info']}")
+                            st.info(f"**Request:** {row['items_summary']}")
+                            
+                            st.markdown("### ✍️ Reply & Quote")
+                            with st.form(f"reply_form_partner_{row['id']}"):
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    reply_price = st.text_input("Final Quote Price (USD)", placeholder="$000")
+                                with c2:
+                                    reply_files = st.file_uploader("Attach Images (Max 5)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
+                                
+                                reply_msg = st.text_area("Message to Buyer", value=f"Dear {row['buyer_id']},\n\nThank you for your inquiry. We are pleased to offer:\n\n", height=150)
+                                
+                                if st.form_submit_button("Send Reply & Set to QUOTED"):
+                                    email_content = f"{reply_msg}\n\n[Quote Price]: {reply_price}"
+                                    sent = send_email(row['contact_info'], f"[K-Used Car] Quote for your request #{row['id']}", email_content, reply_files)
+                                    
+                                    if sent:
+                                        img_list = []
+                                        if reply_files:
+                                            files = reply_files if isinstance(reply_files, list) else [reply_files]
+                                            for f in files:
+                                                f.seek(0)
+                                                b64_str = base64.b64encode(f.read()).decode('utf-8')
+                                                img_list.append(b64_str)
+                                        
+                                        conn_up = sqlite3.connect(SYSTEM_DB)
+                                        conn_up.execute("UPDATE orders SET status = 'QUOTED', reply_text = ?, reply_images = ? WHERE id = ?", 
+                                                        (f"Price: {reply_price}\n\n{reply_msg}", json.dumps(img_list), row['id']))
+                                        conn_up.commit()
+                                        conn_up.close()
+                                        st.success("Reply sent and status updated to QUOTED!")
+                                        time.sleep(1)
+                                        safe_rerun()
+                                    else:
+                                        st.error("Failed to send email. Check SMTP settings.")
+                else:
+                    st.info("No orders found for your yard.")
 
         if st.session_state.user_role == 'buyer':
             with main_tabs[1]: 

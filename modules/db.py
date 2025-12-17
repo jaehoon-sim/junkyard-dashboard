@@ -152,60 +152,157 @@ def load_metadata():
         df_init['reg_date'] = pd.to_datetime(df_init['reg_date'], errors='coerce')
     return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), months, df_init, total
 
+# modules/db.py (상단 import 부분은 유지)
+
+# ... (기존 init_dbs, load_translations 등은 유지) ...
+
+def read_file_smart(uploaded_file):
+    """
+    파일 확장자에 따라 적절한 엔진과 인코딩을 사용하여 데이터프레임으로 변환
+    """
+    file_ext = uploaded_file.name.split('.')[-1].lower()
+    
+    # 1. CSV 파일 처리 (인코딩 대응)
+    if file_ext == 'csv':
+        try:
+            # 기본 UTF-8 시도
+            uploaded_file.seek(0)
+            return pd.read_csv(uploaded_file, dtype=str)
+        except UnicodeDecodeError:
+            # 실패 시 CP949 (한글 윈도우 표준) 시도
+            uploaded_file.seek(0)
+            return pd.read_csv(uploaded_file, encoding='cp949', dtype=str)
+    
+    # 2. Excel 파일 처리
+    elif file_ext in ['xls', 'xlsx', 'xlsm']:
+        engine = 'openpyxl' if file_ext in ['xlsx', 'xlsm'] else 'xlrd'
+        try:
+            uploaded_file.seek(0)
+            return pd.read_excel(uploaded_file, engine=engine, dtype=str)
+        except Exception as e:
+            # 엔진 호환성 문제 시 예비 엔진 시도 (xlrd <-> openpyxl)
+            try:
+                alt_engine = 'xlrd' if engine == 'openpyxl' else 'openpyxl'
+                uploaded_file.seek(0)
+                return pd.read_excel(uploaded_file, engine=alt_engine, dtype=str)
+            except:
+                return None
+    return None
+
+def find_header_row(df, keywords=['차대번호', 'vin', '차량번호']):
+    """
+    데이터프레임 상단에서 키워드가 포함된 행(Header)을 찾음
+    """
+    # 1. 현재 컬럼명에 키워드가 있는지 확인
+    for col in df.columns:
+        if any(k in str(col).lower() for k in keywords):
+            return 0, df # 현재 상태가 맞음
+
+    # 2. 상위 10개 행을 검사하여 헤더 찾기
+    for i, row in df.head(10).iterrows():
+        row_str = " ".join([str(x).lower() for x in row.values])
+        if any(k in row_str for k in keywords):
+            # i+1 번째 행이 헤더임 (0-based index 고려, read_excel에서는 header=i+1)
+            return i + 1, None
+            
+    return -1, None # 못 찾음
+
 def save_vehicle_file(uploaded_file):
     try:
-        if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file, dtype=str)
-        else: 
-            try: df = pd.read_excel(uploaded_file, engine='openpyxl', dtype=str)
-            except: df = pd.read_excel(uploaded_file, engine='xlrd', dtype=str)
-        if '차대번호' not in df.columns:
-            uploaded_file.seek(0)
-            if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file, header=2, dtype=str)
-            else: 
-                try: df = pd.read_excel(uploaded_file, header=2, engine='openpyxl', dtype=str)
-                except: df = pd.read_excel(uploaded_file, header=2, engine='xlrd', dtype=str)
-        df.columns = [str(c).strip() for c in df.columns]
+        # 1. 파일 읽기 (스마트 로드)
+        df = read_file_smart(uploaded_file)
+        if df is None: return 0
+
+        # 2. 헤더 위치 찾기 및 재로딩
+        # 필수 컬럼 중 하나라도 있으면 헤더로 인정
+        header_row_idx, clean_df = find_header_row(df, keywords=['차대번호', 'vin'])
         
+        if clean_df is None:
+            if header_row_idx != -1:
+                # 헤더 위치를 찾았으니 해당 위치를 header로 잡고 다시 읽음
+                uploaded_file.seek(0)
+                file_ext = uploaded_file.name.split('.')[-1].lower()
+                
+                # read_csv/excel 파라미터 구성
+                read_params = {'header': header_row_idx, 'dtype': str}
+                if file_ext == 'csv':
+                    try: df = pd.read_csv(uploaded_file, **read_params)
+                    except: df = pd.read_csv(uploaded_file, encoding='cp949', **read_params)
+                else:
+                    eng = 'openpyxl' if file_ext in ['xlsx', 'xlsm'] else 'xlrd'
+                    df = pd.read_excel(uploaded_file, engine=eng, **read_params)
+            else:
+                # 헤더를 못 찾음 -> 처리 불가
+                return 0
+        else:
+            df = clean_df
+
+        # 3. 컬럼명 공백 제거
+        df.columns = [str(c).strip() for c in df.columns]
+
+        # 4. 필수 컬럼 확인 (차대번호 없으면 저장 불가)
+        if '차대번호' not in df.columns and 'VIN' not in df.columns:
+            # 영문 컬럼명 매핑 시도 (혹시 모르니)
+            col_map = {'VIN': '차대번호', 'vin': '차대번호'}
+            df.rename(columns=col_map, inplace=True)
+            if '차대번호' not in df.columns: return 0
+
         conn = sqlite3.connect(INVENTORY_DB)
         c = conn.cursor()
+        
+        # 데이터 정제
         df_db = pd.DataFrame()
-        df_db['vin'] = df['차대번호'].fillna('').astype(str).str.strip()
-        df_db['reg_date'] = df['등록일자'].fillna('').astype(str)
-        df_db['car_no'] = df['차량번호'].fillna('').astype(str)
-        df_db['manufacturer'] = df['제조사'].fillna('').astype(str)
-        df_db['model_name'] = df['차량명'].fillna('').astype(str)
-        df_db['junkyard'] = df['회원사'].fillna('').astype(str)
-        df_db['engine_code'] = df['원동기형식'].fillna('').astype(str)
+        # 없는 컬럼은 빈 문자열로 처리 (get 활용)
+        df_db['vin'] = df.get('차대번호', df.get('VIN', '')).fillna('').astype(str).str.strip()
+        df_db['reg_date'] = df.get('등록일자', '').fillna('').astype(str)
+        df_db['car_no'] = df.get('차량번호', '').fillna('').astype(str)
+        df_db['manufacturer'] = df.get('제조사', '').fillna('').astype(str)
+        df_db['model_name'] = df.get('차량명', df.get('모델명', '')).fillna('').astype(str)
+        df_db['junkyard'] = df.get('회원사', df.get('업체명', '')).fillna('').astype(str)
+        df_db['engine_code'] = df.get('원동기형식', df.get('엔진코드', '')).fillna('').astype(str)
+        
         def parse_year(x):
             try: return float(re.findall(r"[\d\.]+", str(x))[0])
             except: return 0.0
-        df_db['model_year'] = df['연식'].apply(parse_year)
         
+        # 연식 컬럼 처리
+        if '연식' in df.columns:
+            df_db['model_year'] = df['연식'].apply(parse_year)
+        else:
+            df_db['model_year'] = 0.0
+        
+        # 임시 테이블 저장 및 병합
         df_db.to_sql('temp_vehicles', conn, if_exists='replace', index=False)
         c.execute("INSERT OR IGNORE INTO vehicle_data (vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code) SELECT vin, reg_date, car_no, manufacturer, model_name, model_year, junkyard, engine_code FROM temp_vehicles")
         c.execute("DROP TABLE temp_vehicles")
         
-        model_list = df_db[['manufacturer', 'model_name']].drop_duplicates()
-        for _, r in model_list.iterrows():
-            c.execute("INSERT OR IGNORE INTO model_list (manufacturer, model_name) VALUES (?, ?)", (r['manufacturer'], r['model_name']))
+        # 모델 목록 업데이트
+        c.execute("INSERT OR IGNORE INTO model_list (manufacturer, model_name) SELECT DISTINCT manufacturer, model_name FROM vehicle_data")
             
+        # 폐차장 정보 및 계정 생성 (기존 로직 유지)
         yards = df_db['junkyard'].unique().tolist()
         for y in yards:
-            c.execute("INSERT OR IGNORE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (y, '검색실패', '기타'))
+            if y and len(y) > 1: # 빈 이름 제외
+                c.execute("INSERT OR IGNORE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (y, '검색실패', '기타'))
         conn.commit()
         conn.close()
         
-        # Partner 생성
+        # Partner 계정 생성 (System DB)
         conn_sys = sqlite3.connect(SYSTEM_DB)
+        # ... (파트너 계정 생성 로직 동일하게 유지) ...
         try: pw = stauth.Hasher(['1234']).generate()[0]
         except: pw = stauth.Hasher().hash('1234')
         for y in yards:
-            if not conn_sys.execute("SELECT * FROM users WHERE user_id = ?", (y,)).fetchone():
-                conn_sys.execute("INSERT INTO users (user_id, password, name, company, role) VALUES (?, ?, ?, ?, ?)", (y, pw, "Partner", y, 'partner'))
+            if y and len(y) > 1:
+                if not conn_sys.execute("SELECT * FROM users WHERE user_id = ?", (y,)).fetchone():
+                    conn_sys.execute("INSERT INTO users (user_id, password, name, company, role) VALUES (?, ?, ?, ?, ?)", (y, pw, "Partner", y, 'partner'))
         conn_sys.commit()
         conn_sys.close()
+        
         return len(df_db)
-    except: return 0
+    except Exception as e:
+        print(f"Error saving file: {e}") # 디버깅용
+        return 0
 
 def save_address_file(uploaded_file):
     try:

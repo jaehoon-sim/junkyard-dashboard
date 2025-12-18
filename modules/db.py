@@ -14,6 +14,14 @@ SYSTEM_DB = 'data/system.db'
 # ---------------------------------------------------------
 # 0. 데이터 표준화 규칙 (Global Mapping Rules)
 # ---------------------------------------------------------
+
+# [신규] 모델명으로 사용하기에 부적절한 단어들 (브랜드명 중복 등)
+GARBAGE_TERMS = [
+    'MERCEDES-BENZ', 'MERCEDES-AMG', 'MERCEDES-MAYBACH', 'BENZ', 
+    'BMW', 'AUDI', 'VOLKSWAGEN', 'HYUNDAI', 'KIA', 'CHEVROLET',
+    'LIMITED', 'SPECIAL', 'EDITION'
+]
+
 BRAND_MAP = {
     '현대': 'Hyundai', '현대자동차': 'Hyundai', 'HYUNDAI': 'Hyundai',
     '기아': 'Kia', '기아자동차': 'Kia', 'KIA': 'Kia',
@@ -28,8 +36,6 @@ BRAND_MAP = {
     '지프': 'Jeep', '포드': 'Ford'
 }
 
-# 1차 매핑 (이름 기반 모델: 키워드 -> 표준 모델명)
-# 중요: 여기에 등록된 키워드는 '쪼개지지 않고' 그 자체로 모델명이 됩니다.
 MODEL_MAP = {
     # Hyundai
     '그랜저': 'Grandeur', '그랜져': 'Grandeur', '쏘나타': 'Sonata', '소나타': 'Sonata',
@@ -41,13 +47,14 @@ MODEL_MAP = {
     # Genesis
     'G70': 'G70', 'G80': 'G80', 'G90': 'G90', 'GV60': 'GV60', 'GV70': 'GV70', 'GV80': 'GV80',
     
-    # Mercedes-Benz (클래스 명칭 보호)
+    # Mercedes-Benz (주요 클래스)
     'S클래스': 'S-Class', 'E클래스': 'E-Class', 'C클래스': 'C-Class', 
     'A클래스': 'A-Class', 'B클래스': 'B-Class',
     'GLE클래스': 'GLE', 'GLC클래스': 'GLC', 'GLS클래스': 'GLS', 
     'CLA클래스': 'CLA', 'CLS클래스': 'CLS', 'G클래스': 'G-Class',
+    'M클래스': 'M-Class', 'ML클래스': 'M-Class', # 구형 ML
     
-    # BMW (시리즈 명칭 보호 - 핵심 수정 사항)
+    # BMW (시리즈 보호)
     '1시리즈': '1 Series', '1 Series': '1 Series', '1Series': '1 Series',
     '2시리즈': '2 Series', '2 Series': '2 Series', '2Series': '2 Series',
     '3시리즈': '3 Series', '3 Series': '3 Series', '3Series': '3 Series',
@@ -144,8 +151,18 @@ def detect_global_pattern(text):
     """
     text = text.upper().replace(" ", "")
     
-    # 1. Mercedes-Benz
-    if re.match(r"^([ABCEGS])\d{3}", text): return f"{text[0]}-Class" # A200, E300, S500
+    # 1. Mercedes-Benz (구형 모델 ML, R, SLK 등 추가)
+    if re.match(r"^([ABCEGS])\d{2,3}", text): return f"{text[0]}-Class" # A200, S500
+    
+    # [추가] M-Class (ML350, ML500 등)
+    if re.match(r"^ML\d{2,3}", text): return "M-Class"
+    # [추가] R-Class (R350, R500 등)
+    if re.match(r"^R\d{2,3}", text): return "R-Class"
+    # [추가] GLK, SLK, CLK 등
+    if re.match(r"^GLK", text): return "GLK"
+    if re.match(r"^SLK", text): return "SLK"
+    if re.match(r"^CLK", text): return "CLK"
+    
     if text.startswith("CLA"): return "CLA"
     if text.startswith("CLS"): return "CLS"
     if text.startswith("GLA"): return "GLA"
@@ -157,18 +174,15 @@ def detect_global_pattern(text):
     if text.startswith("EQ"): return "EQ Series"
 
     # 2. BMW
-    # Case 1: 숫자 + 문자 조합 (예: 520d, 740li, 118d)
     if re.match(r"^([1-8])\d{2}[A-Z]*$", text): return f"{text[0]} Series"
-    # Case 2: 단일 숫자 (예: 3, 5, 7) - 이것을 시리즈로 매핑
     if re.match(r"^([1-8])$", text): return f"{text[0]} Series"
     
-    # X, Z, M Series
     if re.match(r"^X([1-7])", text): return f"X{text[1]}"
     if re.match(r"^Z([348])", text): return f"Z{text[1]}"
     if re.match(r"^M([2-8])", text): return f"M{text[1]}"
     if text.startswith("I"): return "i Series"
 
-    # 3. Audi (A/S/RS/Q + Number)
+    # 3. Audi
     if re.match(r"^(A|S|RS)([1-8])", text):
         match = re.match(r"^(A|S|RS)([1-8])", text)
         return f"{match.group(1)}{match.group(2)}"
@@ -178,7 +192,7 @@ def detect_global_pattern(text):
     if text.startswith("R8"): return "R8"
     if text.startswith("E-TRON"): return "e-tron"
 
-    # 4. Lexus / Volvo / Renault / Jaguar / Land Rover (기존 동일)
+    # 4. Others
     lexus_prefix = ["CT", "IS", "ES", "GS", "LS", "UX", "NX", "RX", "GX", "LX", "LC", "RC"]
     for p in lexus_prefix:
         if text.startswith(p): return p
@@ -214,19 +228,19 @@ def normalize_row(row):
     # 2. 모델명 정리 (브랜드명 제거)
     clean_model = re.sub(BRAND_REMOVE_REGEX, "", raw_model, flags=re.IGNORECASE).strip()
     
+    # [신규] 쓰레기 데이터 필터링 (브랜드 이름만 덩그러니 있거나 의미 없는 단어)
+    if clean_model.upper() in GARBAGE_TERMS:
+        clean_model = "Unknown" 
+
     std_model = clean_model
     std_detail = ""
 
     mapped = False
     
-    # [Step A] 1차 매핑 (MODEL_MAP) - 완전 일치나 시작 키워드 우선 확인
-    # 여기서 '1 Series' 같은 키워드가 걸리면 바로 채택하고 루프 종료 (쪼개짐 방지)
+    # [Step A] 1차 매핑
     for k, v in MODEL_MAP.items():
-        # 대소문자 무시 비교를 위해 양쪽 다 upper() 적용
         if clean_model.upper() == k.upper() or clean_model.upper().startswith(k.upper()):
             std_model = v
-            # 모델명을 뺀 나머지만 디테일로 (예: "그랜저HG" -> "HG")
-            # 단, 키워드와 원본이 완전히 같으면 디테일은 없음
             if clean_model.upper() == k.upper():
                 std_detail = ""
             else:
@@ -235,15 +249,15 @@ def normalize_row(row):
             mapped = True
             break
             
-    # [Step B] 글로벌 패턴 매칭 (알파벳+숫자 기반)
+    # [Step B] 글로벌 패턴 매칭
     if not mapped:
         pattern_detected = detect_global_pattern(clean_model)
         if pattern_detected:
             std_model = pattern_detected
-            if std_detail == "": std_detail = clean_model # 전체 모델명 보존
+            if std_detail == "": std_detail = clean_model
             mapped = True
 
-    # [Step C] 기본 분리 (공백 기준) - 매핑되지 않은 경우에만 수행
+    # [Step C] 기본 분리
     if not mapped:
         parts = clean_model.split()
         if len(parts) >= 2:
@@ -253,6 +267,11 @@ def normalize_row(row):
             std_model = clean_model
 
     std_detail = std_detail.replace("(", "").replace(")", "").strip()
+    
+    # 최종 안전장치: 모델명이 쓰레기 단어와 같아졌다면 Unknown 처리
+    if std_model.upper() in GARBAGE_TERMS:
+        std_model = "Unknown"
+        
     return std_mfr, std_model, std_detail
 
 def read_file_smart(uploaded_file):

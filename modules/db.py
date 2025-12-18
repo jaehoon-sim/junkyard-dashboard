@@ -423,22 +423,33 @@ def search_data(maker, models, details, engines, sy, ey, yards, sm, em): # [변�
         print(f"Search Error: {e}")
         return pd.DataFrame(), 0
     
+@st.cache_data(ttl=300)
 def load_metadata():
     conn = sqlite3.connect(INVENTORY_DB)
-    df_m = pd.read_sql("SELECT DISTINCT manufacturer, model_name FROM model_list", conn)
+    
+    # [핵심 수정 부분] model_detail 컬럼을 꼭 포함해야 합니다!
+    query = """
+        SELECT DISTINCT manufacturer, model_name, model_detail 
+        FROM vehicle_data 
+        WHERE manufacturer IS NOT NULL AND manufacturer != ''
+        ORDER BY manufacturer, model_name, model_detail
+    """
+    df_m = pd.read_sql(query, conn)
+    
+    # ... (나머지 코드는 동일)
     df_e = pd.read_sql("SELECT DISTINCT engine_code FROM vehicle_data", conn)
     df_y = pd.read_sql("SELECT name FROM junkyard_info", conn)
     try: months = pd.read_sql("SELECT DISTINCT strftime('%Y-%m', reg_date) as m FROM vehicle_data WHERE reg_date IS NOT NULL ORDER BY m DESC", conn)['m'].tolist()
     except: months = []
     
     total = conn.execute("SELECT COUNT(*) FROM vehicle_data").fetchone()[0]
-    # 초기 조회 시에도 model_detail 포함
     df_init = pd.read_sql("SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name ORDER BY v.reg_date DESC LIMIT 5000", conn)
     conn.close()
     
     if not df_init.empty:
         df_init['model_year'] = pd.to_numeric(df_init['model_year'], errors='coerce').fillna(0)
         df_init['reg_date'] = pd.to_datetime(df_init['reg_date'], errors='coerce')
+        
     return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), months, df_init, total
 
 def reset_dashboard():

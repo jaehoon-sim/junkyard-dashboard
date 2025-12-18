@@ -19,12 +19,12 @@ if 'user_id' not in st.session_state:
     })
 
 # ---------------------------------------------------------
-# [수정됨] 다국어 번역 데이터 (러시아어, 아랍어 추가 완료)
+# 다국어 번역 데이터
 # ---------------------------------------------------------
 TRANS = {
     'English': {
         'title': "K-Used Car/Engine Inventory",
-        'login': "Login", 'logout': "Logout",
+        'login': "Login", 'logout': "Logout", 'signup': "Sign Up", 'create_acc': "Create Account",
         'vehicle_inv': "Vehicle Inventory", 'engine_inv': "Engine Inventory",
         'my_orders': "My Orders", 'admin_tools': "Admin Tools",
         'search_btn_veh': "Search Vehicle", 'search_btn_eng': "Search Engine",
@@ -39,7 +39,7 @@ TRANS = {
     },
     'Korean': {
         'title': "수출차량/엔진 재고 현황",
-        'login': "로그인", 'logout': "로그아웃",
+        'login': "로그인", 'logout': "로그아웃", 'signup': "회원가입", 'create_acc': "계정 생성",
         'vehicle_inv': "차량 재고 검색", 'engine_inv': "엔진 재고 검색",
         'my_orders': "나의 주문 내역", 'admin_tools': "관리자 도구",
         'search_btn_veh': "차량 검색", 'search_btn_eng': "엔진 검색",
@@ -54,7 +54,7 @@ TRANS = {
     },
     'Russian': {
         'title': "Склад б/у автомобилей и двигателей",
-        'login': "Вход", 'logout': "Выход",
+        'login': "Вход", 'logout': "Выход", 'signup': "Регистрация", 'create_acc': "Создать аккаунт",
         'vehicle_inv': "Поиск автомобилей", 'engine_inv': "Поиск двигателей",
         'my_orders': "Мои заказы", 'admin_tools': "Инструменты админа",
         'search_btn_veh': "Найти автомобиль", 'search_btn_eng': "Найти двигатель",
@@ -69,7 +69,7 @@ TRANS = {
     },
     'Arabic': {
         'title': "مخزون السيارات والمحركات المستعملة",
-        'login': "تسجيل الدخول", 'logout': "تسجيل الخروج",
+        'login': "تسجيل الدخول", 'logout': "تسجيل الخروج", 'signup': "اشتراك", 'create_acc': "إنشاء حساب",
         'vehicle_inv': "مخزون السيارات", 'engine_inv': "مخزون المحركات",
         'my_orders': "طلباتي", 'admin_tools': "أدوات المسؤول",
         'search_btn_veh': "بحث سيارة", 'search_btn_eng': "بحث محرك",
@@ -109,6 +109,7 @@ with st.sidebar:
 
     # Login / Logout Logic
     if not st.session_state.logged_in:
+        # 1. 로그인 폼
         with st.form("login_form"):
             uid = st.text_input("ID")
             upw = st.text_input("Password", type="password")
@@ -124,6 +125,27 @@ with st.sidebar:
                     st.rerun()
                 else:
                     st.error("Invalid ID or Password")
+        
+        # 2. [추가됨] 회원가입 폼
+        with st.expander(f"📝 {t('create_acc')}"):
+            with st.form("signup_form"):
+                new_uid = st.text_input("New ID")
+                new_pw = st.text_input("Password", type="password")
+                new_name = st.text_input("Name")
+                new_comp = st.text_input("Company Name")
+                new_phone = st.text_input("Phone")
+                new_email = st.text_input("Email")
+                
+                if st.form_submit_button(t('signup')):
+                    if new_uid and new_pw:
+                        # 기본 가입은 buyer로 설정
+                        if db.create_user(new_uid, new_pw, new_name, new_comp, "Global", new_email, new_phone):
+                            st.success("Account created! Please login.")
+                        else:
+                            st.error("ID already exists.")
+                    else:
+                        st.warning("Please fill in ID and Password.")
+
     else:
         st.write(f"👤 **{st.session_state.user_id}** ({st.session_state.user_role})")
         if st.button(t('logout')):

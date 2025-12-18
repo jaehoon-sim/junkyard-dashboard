@@ -126,7 +126,7 @@ with st.sidebar:
                 else:
                     st.error("Invalid ID or Password")
         
-        # 2. [추가됨] 회원가입 폼
+        # 2. 회원가입 폼
         with st.expander(f"📝 {t('create_acc')}"):
             with st.form("signup_form"):
                 new_uid = st.text_input("New ID")
@@ -138,7 +138,6 @@ with st.sidebar:
                 
                 if st.form_submit_button(t('signup')):
                     if new_uid and new_pw:
-                        # 기본 가입은 buyer로 설정
                         if db.create_user(new_uid, new_pw, new_name, new_comp, "Global", new_email, new_phone):
                             st.success("Account created! Please login.")
                         else:
@@ -213,7 +212,7 @@ else:
     if st.session_state.user_role == 'partner':
         tabs = st.tabs(["🏭 My Inventory", "📦 Orders", "📊 Market View"])
         
-        # Tab 1: 내 재고 관리 (My Inventory)
+        # Tab 1: 내 재고 관리 (My Inventory) - [수정됨: 검색 기능 추가]
         with tabs[0]:
             st.subheader(f"Inventory Management: {st.session_state.user_id}")
             
@@ -226,32 +225,57 @@ else:
                 st.divider()
                 st.write("### ✏️ Edit Vehicle Info")
                 
-                my_cars['label'] = my_cars['vin'] + " - " + my_cars['model_name'] + " " + my_cars['model_detail']
-                sel_veh = st.selectbox("Select Vehicle", my_cars['label'])
+                # ---------------------------------------------------
+                # [NEW] 차량 검색 기능 (차대번호 or 차량번호)
+                # ---------------------------------------------------
+                search_query = st.text_input("🔍 Find Vehicle (VIN or Car No)", placeholder="Enter VIN or Car Number...")
                 
-                if sel_veh:
-                    target_vin = sel_veh.split(" - ")[0]
-                    row = my_cars[my_cars['vin'] == target_vin].iloc[0]
+                # 라벨 생성 (차량번호 우선 표시로 변경)
+                my_cars['label'] = "[" + my_cars['car_no'] + "] " + my_cars['model_name'] + " " + my_cars['model_detail'] + " (" + my_cars['vin'] + ")"
+                
+                # 검색어가 있으면 필터링
+                if search_query:
+                    search_query = search_query.lower().strip()
+                    filtered_cars = my_cars[
+                        my_cars['vin'].str.lower().str.contains(search_query) | 
+                        my_cars['car_no'].str.lower().str.contains(search_query)
+                    ]
+                else:
+                    filtered_cars = my_cars
+                
+                # 필터링된 목록으로 셀렉트박스 구성
+                if not filtered_cars.empty:
+                    sel_veh_label = st.selectbox("Select Vehicle from list", filtered_cars['label'])
                     
-                    with st.form("edit_veh"):
-                        c1, c2 = st.columns(2)
-                        p_price = c1.number_input("Sales Price (KRW)", value=int(row['price']) if row['price'] else 0, step=10000)
-                        p_mile = c2.number_input("Mileage (km)", value=int(row['mileage']) if row['mileage'] else 0, step=1000)
+                    if sel_veh_label:
+                        # 라벨에서 VIN 추출 (맨 뒤 괄호 안의 값)
+                        target_vin = sel_veh_label.split("(")[-1].replace(")", "")
+                        # 정확한 매칭을 위해 다시 조회
+                        row = my_cars[my_cars['vin'] == target_vin].iloc[0]
                         
-                        st.write("Photos:")
-                        if row['photos']: st.caption(row['photos'])
+                        st.markdown(f"**Selected:** {row['manufacturer']} {row['model_name']} ({row['car_no']})")
                         
-                        p_files = st.file_uploader("Upload Photos", accept_multiple_files=True, type=['png','jpg','jpeg'])
-                        
-                        if st.form_submit_button("💾 Save Changes"):
-                            if db.update_vehicle_sales_info(target_vin, p_price, p_mile, p_files):
-                                st.success("Updated Successfully!")
-                                time.sleep(1)
-                                st.rerun()
-                            else:
-                                st.error("Failed to update.")
+                        with st.form("edit_veh"):
+                            c1, c2 = st.columns(2)
+                            p_price = c1.number_input("Sales Price (KRW)", value=int(row['price']) if row['price'] else 0, step=10000)
+                            p_mile = c2.number_input("Mileage (km)", value=int(row['mileage']) if row['mileage'] else 0, step=1000)
+                            
+                            st.write("Photos:")
+                            if row['photos']: st.caption(row['photos'])
+                            
+                            p_files = st.file_uploader("Upload Photos", accept_multiple_files=True, type=['png','jpg','jpeg'])
+                            
+                            if st.form_submit_button("💾 Save Changes"):
+                                if db.update_vehicle_sales_info(target_vin, p_price, p_mile, p_files):
+                                    st.success("Updated Successfully!")
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to update.")
+                else:
+                    st.warning("No vehicles match your search.")
             else:
-                st.warning("No vehicles found.")
+                st.warning("No vehicles found in your inventory.")
 
         # Tab 2: 주문 관리 (Orders)
         with tabs[1]:

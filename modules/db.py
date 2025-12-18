@@ -4,18 +4,18 @@ import pandas as pd
 import datetime
 import os
 import re
+import shutil
 import streamlit as st
 import streamlit_authenticator as stauth
 from modules.constants import RAW_TRANSLATIONS
 
 INVENTORY_DB = 'data/inventory.db'
 SYSTEM_DB = 'data/system.db'
+IMAGE_DIR = 'data/vehicle_images'  # 이미지 저장 경로
 
 # ---------------------------------------------------------
 # 0. 데이터 표준화 규칙 (Global Mapping Rules)
 # ---------------------------------------------------------
-
-# [신규] 모델명으로 사용하기에 부적절한 단어들 (브랜드명 중복 등)
 GARBAGE_TERMS = [
     'MERCEDES-BENZ', 'MERCEDES-AMG', 'MERCEDES-MAYBACH', 'BENZ', 
     'BMW', 'AUDI', 'VOLKSWAGEN', 'HYUNDAI', 'KIA', 'CHEVROLET',
@@ -37,24 +37,17 @@ BRAND_MAP = {
 }
 
 MODEL_MAP = {
-    # Hyundai
     '그랜저': 'Grandeur', '그랜져': 'Grandeur', '쏘나타': 'Sonata', '소나타': 'Sonata',
     '아반떼': 'Avante', '싼타페': 'Santa Fe', '산타페': 'Santa Fe', '투싼': 'Tucson',
     '팰리세이드': 'Palisade', '스타렉스': 'Starex', '스타리아': 'Staria', '베뉴': 'Venue', '코나': 'Kona',
-    # Kia
     'K3': 'K3', 'K5': 'K5', 'K7': 'K7', 'K8': 'K8', 'K9': 'K9', '쏘렌토': 'Sorento',
     '카니발': 'Carnival', '스포티지': 'Sportage', '모닝': 'Morning', '레이': 'Ray', '셀토스': 'Seltos', '니로': 'Niro',
-    # Genesis
     'G70': 'G70', 'G80': 'G80', 'G90': 'G90', 'GV60': 'GV60', 'GV70': 'GV70', 'GV80': 'GV80',
-    
-    # Mercedes-Benz (주요 클래스)
     'S클래스': 'S-Class', 'E클래스': 'E-Class', 'C클래스': 'C-Class', 
     'A클래스': 'A-Class', 'B클래스': 'B-Class',
     'GLE클래스': 'GLE', 'GLC클래스': 'GLC', 'GLS클래스': 'GLS', 
     'CLA클래스': 'CLA', 'CLS클래스': 'CLS', 'G클래스': 'G-Class',
-    'M클래스': 'M-Class', 'ML클래스': 'M-Class', # 구형 ML
-    
-    # BMW (시리즈 보호)
+    'M클래스': 'M-Class', 'ML클래스': 'M-Class',
     '1시리즈': '1 Series', '1 Series': '1 Series', '1Series': '1 Series',
     '2시리즈': '2 Series', '2 Series': '2 Series', '2Series': '2 Series',
     '3시리즈': '3 Series', '3 Series': '3 Series', '3Series': '3 Series',
@@ -64,14 +57,9 @@ MODEL_MAP = {
     '7시리즈': '7 Series', '7 Series': '7 Series', '7Series': '7 Series',
     '8시리즈': '8 Series', '8 Series': '8 Series', '8Series': '8 Series',
     'X1': 'X1', 'X2': 'X2', 'X3': 'X3', 'X4': 'X4', 'X5': 'X5', 'X6': 'X6', 'X7': 'X7',
-
-    # Volkswagen
     '골프': 'Golf', '티구안': 'Tiguan', '파사트': 'Passat', '아테온': 'Arteon', '제타': 'Jetta', '투아렉': 'Touareg',
-    # Porsche
     '카이엔': 'Cayenne', '파나메라': 'Panamera', '마칸': 'Macan', '타이칸': 'Taycan', '박스터': 'Boxster', '카이맨': 'Cayman', '911': '911',
-    # Land Rover
     '레인지로버': 'Range Rover', '디스커버리': 'Discovery', '디펜더': 'Defender',
-    # Others
     '캠리': 'Camry', '라브4': 'RAV4', '프리우스': 'Prius', '시에나': 'Sienna',
     '어코드': 'Accord', '시빅': 'Civic', 'CR-V': 'CR-V', '파일럿': 'Pilot',
     '익스플로러': 'Explorer', '머스탱': 'Mustang', '랭글러': 'Wrangler', '체로키': 'Cherokee'
@@ -85,6 +73,7 @@ BRAND_REMOVE_REGEX = r"^(현대|기아|제네시스|르노|쉐보레|쌍용|벤�
 
 def init_dbs():
     if not os.path.exists('data'): os.makedirs('data')
+    if not os.path.exists(IMAGE_DIR): os.makedirs(IMAGE_DIR)
     
     # Inventory DB
     conn = sqlite3.connect(INVENTORY_DB)
@@ -92,9 +81,19 @@ def init_dbs():
     c.execute('''CREATE TABLE IF NOT EXISTS vehicle_data (
         vin TEXT PRIMARY KEY, reg_date TEXT, car_no TEXT, manufacturer TEXT, 
         model_name TEXT, model_detail TEXT, model_year REAL, junkyard TEXT, engine_code TEXT, 
+        price REAL DEFAULT 0, mileage REAL DEFAULT 0, photos TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+    
+    # 컬럼 추가 마이그레이션 (기존 DB 호환용)
     try: c.execute("ALTER TABLE vehicle_data ADD COLUMN model_detail TEXT DEFAULT ''")
-    except: pass 
+    except: pass
+    try: c.execute("ALTER TABLE vehicle_data ADD COLUMN price REAL DEFAULT 0")
+    except: pass
+    try: c.execute("ALTER TABLE vehicle_data ADD COLUMN mileage REAL DEFAULT 0")
+    except: pass
+    try: c.execute("ALTER TABLE vehicle_data ADD COLUMN photos TEXT DEFAULT ''")
+    except: pass
+
     c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (
         name TEXT PRIMARY KEY, address TEXT, region TEXT, lat REAL, lon REAL, 
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
@@ -120,10 +119,11 @@ def init_dbs():
     c.execute('''CREATE TABLE IF NOT EXISTS search_logs_v2 (
         id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, 
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
+    
+    # 번역
     c.execute("DROP TABLE IF EXISTS translations")
     c.execute('''CREATE TABLE translations (
         key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
-    
     raw_data = RAW_TRANSLATIONS
     keys = raw_data["English"].keys()
     data_to_insert = []
@@ -142,27 +142,17 @@ def init_dbs():
     conn.close()
 
 # ---------------------------------------------------------
-# 2. 파일 처리 및 데이터 표준화 (Global Smart Logic)
+# 2. 파일 처리 및 데이터 표준화
 # ---------------------------------------------------------
 
 def detect_global_pattern(text):
-    """
-    글로벌 브랜드의 모델명 패턴(알파벳+숫자)을 분석하여 대표 모델(Series/Class/Type) 반환
-    """
     text = text.upper().replace(" ", "")
-    
-    # 1. Mercedes-Benz (구형 모델 ML, R, SLK 등 추가)
-    if re.match(r"^([ABCEGS])\d{2,3}", text): return f"{text[0]}-Class" # A200, S500
-    
-    # [추가] M-Class (ML350, ML500 등)
+    if re.match(r"^([ABCEGS])\d{2,3}", text): return f"{text[0]}-Class"
     if re.match(r"^ML\d{2,3}", text): return "M-Class"
-    # [추가] R-Class (R350, R500 등)
     if re.match(r"^R\d{2,3}", text): return "R-Class"
-    # [추가] GLK, SLK, CLK 등
     if re.match(r"^GLK", text): return "GLK"
     if re.match(r"^SLK", text): return "SLK"
     if re.match(r"^CLK", text): return "CLK"
-    
     if text.startswith("CLA"): return "CLA"
     if text.startswith("CLS"): return "CLS"
     if text.startswith("GLA"): return "GLA"
@@ -172,92 +162,62 @@ def detect_global_pattern(text):
     if text.startswith("GLS"): return "GLS"
     if text.startswith("G63"): return "G-Class"
     if text.startswith("EQ"): return "EQ Series"
-
-    # 2. BMW
     if re.match(r"^([1-8])\d{2}[A-Z]*$", text): return f"{text[0]} Series"
     if re.match(r"^([1-8])$", text): return f"{text[0]} Series"
-    
     if re.match(r"^X([1-7])", text): return f"X{text[1]}"
     if re.match(r"^Z([348])", text): return f"Z{text[1]}"
     if re.match(r"^M([2-8])", text): return f"M{text[1]}"
     if text.startswith("I"): return "i Series"
-
-    # 3. Audi
     if re.match(r"^(A|S|RS)([1-8])", text):
         match = re.match(r"^(A|S|RS)([1-8])", text)
         return f"{match.group(1)}{match.group(2)}"
-    if re.match(r"^Q([2-8])", text):
-        return f"Q{text[1]}"
+    if re.match(r"^Q([2-8])", text): return f"Q{text[1]}"
     if text.startswith("TT"): return "TT"
     if text.startswith("R8"): return "R8"
     if text.startswith("E-TRON"): return "e-tron"
-
-    # 4. Others
     lexus_prefix = ["CT", "IS", "ES", "GS", "LS", "UX", "NX", "RX", "GX", "LX", "LC", "RC"]
     for p in lexus_prefix:
         if text.startswith(p): return p
-
     if re.match(r"^(XC|S|V|C)\d{2}", text):
         match = re.match(r"^(XC|S|V|C)\d{2}", text)
         return match.group(0)
-
     if re.match(r"^(SM|QM|XM)\d{1}", text):
         match = re.match(r"^(SM|QM|XM)\d{1}", text)
         return match.group(0)
-
     if re.match(r"^X[EFJ]", text): return text[:2]
     if "PACE" in text:
         if text.startswith("F"): return "F-Pace"
         if text.startswith("E"): return "E-Pace"
         if text.startswith("I"): return "I-Pace"
-
     if text.startswith("RANGE") or text.startswith("레인지"): return "Range Rover"
     if text.startswith("DISCO") or text.startswith("디스"): return "Discovery"
-    
     return None
 
 def normalize_row(row):
-    """행 단위 데이터 표준화 (브랜드/모델/세부모델 분리)"""
     raw_mfr = str(row.get('manufacturer', '')).strip()
     raw_model = str(row.get('model_name', '')).strip()
-    
-    # 1. 브랜드 표준화
     std_mfr = BRAND_MAP.get(raw_mfr, raw_mfr)
     if std_mfr == '현대': std_mfr = 'Hyundai' 
-    
-    # 2. 모델명 정리 (브랜드명 제거)
     clean_model = re.sub(BRAND_REMOVE_REGEX, "", raw_model, flags=re.IGNORECASE).strip()
-    
-    # [신규] 쓰레기 데이터 필터링 (브랜드 이름만 덩그러니 있거나 의미 없는 단어)
-    if clean_model.upper() in GARBAGE_TERMS:
-        clean_model = "Unknown" 
-
+    if clean_model.upper() in GARBAGE_TERMS: clean_model = "Unknown" 
     std_model = clean_model
     std_detail = ""
-
     mapped = False
-    
-    # [Step A] 1차 매핑
     for k, v in MODEL_MAP.items():
         if clean_model.upper() == k.upper() or clean_model.upper().startswith(k.upper()):
             std_model = v
-            if clean_model.upper() == k.upper():
-                std_detail = ""
+            if clean_model.upper() == k.upper(): std_detail = ""
             else:
                 det = re.sub(k, "", clean_model, flags=re.IGNORECASE).strip()
                 std_detail = det if det else ""
             mapped = True
             break
-            
-    # [Step B] 글로벌 패턴 매칭
     if not mapped:
         pattern_detected = detect_global_pattern(clean_model)
         if pattern_detected:
             std_model = pattern_detected
             if std_detail == "": std_detail = clean_model
             mapped = True
-
-    # [Step C] 기본 분리
     if not mapped:
         parts = clean_model.split()
         if len(parts) >= 2:
@@ -265,16 +225,12 @@ def normalize_row(row):
             std_detail = " ".join(parts[1:])
         else:
             std_model = clean_model
-
     std_detail = std_detail.replace("(", "").replace(")", "").strip()
-    
-    # 최종 안전장치: 모델명이 쓰레기 단어와 같아졌다면 Unknown 처리
-    if std_model.upper() in GARBAGE_TERMS:
-        std_model = "Unknown"
-        
+    if std_model.upper() in GARBAGE_TERMS: std_model = "Unknown"
     return std_mfr, std_model, std_detail
 
 def read_file_smart(uploaded_file):
+    # (이전과 동일)
     file_ext = uploaded_file.name.split('.')[-1].lower()
     if file_ext == 'csv':
         try:
@@ -297,6 +253,7 @@ def read_file_smart(uploaded_file):
     return None
 
 def find_header_row(df, keywords=['차대번호', 'vin']):
+    # (이전과 동일)
     for col in df.columns:
         if any(k in str(col).lower() for k in keywords): return 0, df
     for i, row in df.head(10).iterrows():
@@ -305,6 +262,7 @@ def find_header_row(df, keywords=['차대번호', 'vin']):
     return -1, None
 
 def save_vehicle_file(uploaded_file):
+    # (이전과 동일)
     try:
         df = read_file_smart(uploaded_file)
         if df is None: return 0
@@ -362,6 +320,7 @@ def save_vehicle_file(uploaded_file):
     except Exception as e: return 0
 
 def save_address_file(uploaded_file):
+    # (이전과 동일)
     try:
         df = read_file_smart(uploaded_file)
         if df is None: return 0
@@ -380,6 +339,11 @@ def save_address_file(uploaded_file):
         return cnt
     except: return 0
 
+# ---------------------------------------------------------
+# 3. 사용자 관리 및 데이터 조회 (업데이트)
+# ---------------------------------------------------------
+
+# (사용자 관리 함수들: fetch_users_for_auth, create_user 등은 이전과 동일 유지)
 def fetch_users_for_auth():
     try: admin_pw = stauth.Hasher(['1234']).generate()[0]
     except: admin_pw = stauth.Hasher().hash('1234')
@@ -458,8 +422,10 @@ def search_data(maker, models, details, engines, sy, ey, yards, sm, em):
         if engines:
             cond += f" AND v.engine_code IN ({','.join(['?']*len(engines))})"; params.extend(engines)
         if yards:
+            # 폐차장 이름으로 정확히 매칭 (Partner 필터용)
             cond += f" AND v.junkyard IN ({','.join(['?']*len(yards))})"; params.extend(yards)
-        q = f"SELECT v.vin, v.reg_date, v.car_no, v.manufacturer, v.model_name, v.model_detail, v.model_year, v.junkyard, v.engine_code, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name WHERE {cond} ORDER BY v.reg_date DESC LIMIT 5000"
+            
+        q = f"SELECT v.vin, v.reg_date, v.car_no, v.manufacturer, v.model_name, v.model_detail, v.model_year, v.junkyard, v.engine_code, v.price, v.mileage, v.photos, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name WHERE {cond} ORDER BY v.reg_date DESC LIMIT 5000"
         count = conn.execute(f"SELECT COUNT(*) FROM vehicle_data v WHERE {cond}", params).fetchone()[0]
         df = pd.read_sql(q, conn, params=params)
         conn.close()
@@ -469,6 +435,44 @@ def search_data(maker, models, details, engines, sy, ey, yards, sm, em):
         return df, count
     except: return pd.DataFrame(), 0
 
+# [신규] 차량 상세 판매정보 업데이트 함수
+def update_vehicle_sales_info(vin, price, mileage, photo_files):
+    try:
+        # 이미지 저장
+        saved_paths = []
+        if photo_files:
+            if not os.path.exists(IMAGE_DIR): os.makedirs(IMAGE_DIR)
+            for f in photo_files:
+                # 파일명 충돌 방지: VIN_Timestamp_OriginalName
+                fname = f"{vin}_{datetime.datetime.now().strftime('%H%M%S')}_{f.name}"
+                fpath = os.path.join(IMAGE_DIR, fname)
+                with open(fpath, "wb") as buffer:
+                    shutil.copyfileobj(f, buffer)
+                saved_paths.append(fpath)
+        
+        photo_str = ",".join(saved_paths)
+        
+        conn = sqlite3.connect(INVENTORY_DB)
+        # 이미지가 새로 업로드된 경우에만 photos 컬럼 업데이트, 아니면 기존 유지하려면 로직이 복잡해지므로
+        # 여기서는 "새로 올리면 덮어쓰기" or "기존 값 유지" 선택 가능. 
+        # 심플하게: 이미지가 있으면 photos 업데이트, 없으면 price/mileage만 업데이트.
+        
+        if saved_paths:
+            sql = "UPDATE vehicle_data SET price = ?, mileage = ?, photos = ? WHERE vin = ?"
+            params = (price, mileage, photo_str, vin)
+        else:
+            sql = "UPDATE vehicle_data SET price = ?, mileage = ? WHERE vin = ?"
+            params = (price, mileage, vin)
+            
+        conn.execute(sql, params)
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Update Error: {e}")
+        return False
+
+# (나머지 load_metadata, log_search, get_trends, place_order, get_orders, update_order 등 동일)
 @st.cache_data(ttl=300)
 def load_metadata():
     conn = sqlite3.connect(INVENTORY_DB)

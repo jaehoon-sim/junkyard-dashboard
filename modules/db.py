@@ -25,23 +25,21 @@ BRAND_MAP = {
     '비엠더블유': 'BMW', '아우디': 'Audi', '폭스바겐': 'Volkswagen'
 }
 
-# 모델명 분리 규칙 (입력값 -> [표준모델명, 세부모델])
+# 1차 매핑 (한글/영문 명칭 -> 표준 모델명)
 MODEL_MAP = {
     # Hyundai
-    '그랜저': ['Grandeur', ''], '그랜저HG': ['Grandeur', 'HG'], '그랜저IG': ['Grandeur', 'IG'], '더뉴그랜저': ['Grandeur', 'The New'],
-    '쏘나타': ['Sonata', ''], '쏘나타DN8': ['Sonata', 'DN8'], 'LF쏘나타': ['Sonata', 'LF'],
-    '아반떼': ['Avante', ''], '아반떼CN7': ['Avante', 'CN7'], '아반떼AD': ['Avante', 'AD'],
-    '싼타페': ['Santa Fe', ''], '싼타페TM': ['Santa Fe', 'TM'], '팰리세이드': ['Palisade', ''], 
-    '투싼': ['Tucson', ''], '스타렉스': ['Starex', ''], '스타리아': ['Staria', ''],
+    '그랜저': 'Grandeur', '그랜져': 'Grandeur', '쏘나타': 'Sonata', '소나타': 'Sonata',
+    '아반떼': 'Avante', '싼타페': 'Santa Fe', '산타페': 'Santa Fe', '투싼': 'Tucson',
+    '팰리세이드': 'Palisade', '스타렉스': 'Starex', '스타리아': 'Staria',
     # Kia
-    'K5': ['K5', ''], 'K7': ['K7', ''], 'K8': ['K8', ''], 'K9': ['K9', ''],
-    '쏘렌토': ['Sorento', ''], '쏘렌토MQ4': ['Sorento', 'MQ4'], '카니발': ['Carnival', ''], 
-    '더뉴카니발': ['Carnival', 'The New'], '카니발KA4': ['Carnival', 'KA4'], '스포티지': ['Sportage', ''],
+    'K5': 'K5', 'K7': 'K7', 'K8': 'K8', 'K9': 'K9', '쏘렌토': 'Sorento',
+    '카니발': 'Carnival', '스포티지': 'Sportage', '모닝': 'Morning', '레이': 'Ray',
     # Genesis
-    'G80': ['G80', ''], 'G90': ['G90', ''], 'GV80': ['GV80', ''], 'GV70': ['GV70', ''],
-    # Imports
-    'S클래스': ['S-Class', ''], 'E클래스': ['E-Class', ''], 'C클래스': ['C-Class', ''],
-    '5시리즈': ['5 Series', ''], '3시리즈': ['3 Series', ''], '7시리즈': ['7 Series', ''],
+    'G80': 'G80', 'G90': 'G90', 'G70': 'G70', 'GV80': 'GV80', 'GV70': 'GV70',
+    # Imports (한글 표기 대응)
+    'S클래스': 'S-Class', 'E클래스': 'E-Class', 'C클래스': 'C-Class',
+    '5시리즈': '5 Series', '3시리즈': '3 Series', '7시리즈': '7 Series',
+    'GLE클래스': 'GLE', 'GLC클래스': 'GLC', 'GLS클래스': 'GLS'
 }
 
 BRAND_REMOVE_REGEX = r"^(현대|기아|제네시스|르노|쉐보레|쌍용|벤츠|메르세데스|비엠|아우디|폭스바겐|HYUNDAI|KIA|GENESIS|BENZ|BMW|AUDI)\s*"
@@ -67,7 +65,7 @@ def init_dbs():
     try:
         c.execute("ALTER TABLE vehicle_data ADD COLUMN model_detail TEXT DEFAULT ''")
     except sqlite3.OperationalError:
-        pass # 이미 존재함
+        pass 
 
     c.execute('''CREATE TABLE IF NOT EXISTS junkyard_info (
         name TEXT PRIMARY KEY, address TEXT, region TEXT, lat REAL, lon REAL, 
@@ -125,8 +123,80 @@ def init_dbs():
     conn.close()
 
 # ---------------------------------------------------------
-# 2. 파일 처리 및 데이터 표준화
+# 2. 파일 처리 및 데이터 표준화 (스마트 로직 포함)
 # ---------------------------------------------------------
+
+def detect_german_model(text):
+    """벤츠/BMW의 모델명 패턴(E220, 520d 등)을 분석하여 대표 모델을 반환"""
+    text = text.upper().replace(" ", "")
+    
+    # Mercedes-Benz Patterns
+    if re.match(r"^E\d{3}", text): return "E-Class"
+    if re.match(r"^S\d{3}", text): return "S-Class"
+    if re.match(r"^C\d{3}", text): return "C-Class"
+    if text.startswith("GLE"): return "GLE"
+    if text.startswith("GLC"): return "GLC"
+    if text.startswith("GLS"): return "GLS"
+    if text.startswith("CLA"): return "CLA"
+    
+    # BMW Patterns
+    if re.match(r"^5\d{2}", text): return "5 Series"
+    if re.match(r"^3\d{2}", text): return "3 Series"
+    if re.match(r"^7\d{2}", text): return "7 Series"
+    if text.startswith("X5"): return "X5"
+    if text.startswith("X3"): return "X3"
+    if text.startswith("X7"): return "X7"
+    if text.startswith("X6"): return "X6"
+    
+    return None
+
+def normalize_row(row):
+    """행 단위 데이터 표준화 (브랜드/모델/세부모델 분리)"""
+    raw_mfr = str(row.get('manufacturer', '')).strip()
+    raw_model = str(row.get('model_name', '')).strip()
+    
+    # 1. 브랜드 표준화
+    std_mfr = BRAND_MAP.get(raw_mfr, raw_mfr)
+    if std_mfr == '현대': std_mfr = 'Hyundai'
+    
+    # 2. 모델명 정리 (브랜드명 제거)
+    clean_model = re.sub(BRAND_REMOVE_REGEX, "", raw_model, flags=re.IGNORECASE).strip()
+    
+    std_model = clean_model
+    std_detail = ""
+
+    # 3. 모델/세부모델 분리 로직
+    # [Step A] 1차 매핑 테이블 확인
+    mapped = False
+    for k, v in MODEL_MAP.items():
+        if clean_model.startswith(k) or clean_model.upper().startswith(k.upper()):
+            std_model = v
+            det = re.sub(k, "", clean_model, flags=re.IGNORECASE).strip()
+            std_detail = det if det else std_detail
+            mapped = True
+            break
+            
+    # [Step B] 독일 3사 패턴 매칭
+    if not mapped:
+        german_detected = detect_german_model(clean_model)
+        if german_detected:
+            std_model = german_detected
+            if std_detail == "": std_detail = clean_model # 모델명 전체를 세부모델로 보존
+            mapped = True
+
+    # [Step C] 기본 분리 (공백 기준)
+    if not mapped:
+        parts = clean_model.split()
+        if len(parts) >= 2:
+            std_model = parts[0]
+            std_detail = " ".join(parts[1:])
+        else:
+            std_model = clean_model
+
+    # 특수문자 제거
+    std_detail = std_detail.replace("(", "").replace(")", "").strip()
+            
+    return std_mfr, std_model, std_detail
 
 def read_file_smart(uploaded_file):
     file_ext = uploaded_file.name.split('.')[-1].lower()
@@ -158,33 +228,6 @@ def find_header_row(df, keywords=['차대번호', 'vin']):
             return i + 1, None
     return -1, None
 
-def normalize_row(row):
-    """행 단위 데이터 표준화 (브랜드/모델/세부모델 분리)"""
-    raw_mfr = str(row.get('manufacturer', '')).strip()
-    raw_model = str(row.get('model_name', '')).strip()
-    
-    # 1. 브랜드 표준화
-    std_mfr = BRAND_MAP.get(raw_mfr, raw_mfr)
-    if std_mfr == '현대': std_mfr = 'Hyundai' # 안전장치
-    
-    # 2. 모델명 정리 (브랜드명 제거)
-    clean_model = re.sub(BRAND_REMOVE_REGEX, "", raw_model, flags=re.IGNORECASE).strip()
-    
-    # 3. 모델/세부모델 분리
-    if clean_model in MODEL_MAP:
-        std_model = MODEL_MAP[clean_model][0]
-        std_detail = MODEL_MAP[clean_model][1]
-    else:
-        parts = clean_model.split()
-        if len(parts) >= 2:
-            std_model = parts[0]
-            std_detail = " ".join(parts[1:])
-        else:
-            std_model = clean_model
-            std_detail = ""
-            
-    return std_mfr, std_model, std_detail
-
 def save_vehicle_file(uploaded_file):
     try:
         df = read_file_smart(uploaded_file)
@@ -210,7 +253,6 @@ def save_vehicle_file(uploaded_file):
             df.rename(columns={'VIN': '차대번호', 'vin': '차대번호'}, inplace=True)
             if '차대번호' not in df.columns: return 0
 
-        # 데이터 프레임 표준화 적용
         db_rows = []
         for _, row in df.iterrows():
             mfr = row.get('제조사', '').strip()
@@ -223,7 +265,6 @@ def save_vehicle_file(uploaded_file):
             yard = row.get('회원사', row.get('업체명', '')).strip()
             eng = row.get('원동기형식', row.get('엔진코드', '')).strip()
             
-            # 연식 파싱
             try: year = float(re.findall(r"[\d\.]+", str(row.get('연식', 0)))[0])
             except: year = 0.0
             
@@ -231,23 +272,18 @@ def save_vehicle_file(uploaded_file):
 
         conn = sqlite3.connect(INVENTORY_DB)
         c = conn.cursor()
-        
-        # Temp 테이블 없이 executemany로 직접 삽입 (성능 최적화)
         c.executemany('''INSERT OR REPLACE INTO vehicle_data 
                          (vin, reg_date, car_no, manufacturer, model_name, model_detail, model_year, junkyard, engine_code) 
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', db_rows)
         
-        # 모델 목록 업데이트
         c.execute("INSERT OR IGNORE INTO model_list (manufacturer, model_name) SELECT DISTINCT manufacturer, model_name FROM vehicle_data")
         
-        # 폐차장 정보 저장
         yards = set([r[7] for r in db_rows if r[7] and len(r[7]) > 1])
         for y in yards:
             c.execute("INSERT OR IGNORE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (y, '검색실패', '기타'))
         conn.commit()
         conn.close()
         
-        # 파트너 계정 생성
         conn_sys = sqlite3.connect(SYSTEM_DB)
         try: pw = stauth.Hasher(['1234']).generate()[0]
         except: pw = stauth.Hasher().hash('1234')
@@ -352,58 +388,19 @@ def update_user_role(uid, role):
 # 4. 조회 및 검색
 # ---------------------------------------------------------
 
-# modules/db.py 내 해당 함수들을 찾아 아래 코드로 교체하세요.
-
-@st.cache_data(ttl=300)
-def load_metadata():
-    conn = sqlite3.connect(INVENTORY_DB)
-    
-    # [변경 1] 모델 리스트를 가져올 때 'model_detail' 컬럼도 함께 조회 (3-Depth 구조 지원)
-    # vehicle_data 테이블에서 직접 조회하여 실제 존재하는 조합만 가져옵니다.
-    query = """
-        SELECT DISTINCT manufacturer, model_name, model_detail 
-        FROM vehicle_data 
-        WHERE manufacturer IS NOT NULL AND manufacturer != ''
-        ORDER BY manufacturer, model_name, model_detail
-    """
-    df_m = pd.read_sql(query, conn)
-    
-    # 나머지 메타데이터 로드 (기존 유지)
-    df_e = pd.read_sql("SELECT DISTINCT engine_code FROM vehicle_data", conn)
-    df_y = pd.read_sql("SELECT name FROM junkyard_info", conn)
-    try: months = pd.read_sql("SELECT DISTINCT strftime('%Y-%m', reg_date) as m FROM vehicle_data WHERE reg_date IS NOT NULL ORDER BY m DESC", conn)['m'].tolist()
-    except: months = []
-    
-    total = conn.execute("SELECT COUNT(*) FROM vehicle_data").fetchone()[0]
-    df_init = pd.read_sql("SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name ORDER BY v.reg_date DESC LIMIT 5000", conn)
-    conn.close()
-    
-    if not df_init.empty:
-        df_init['model_year'] = pd.to_numeric(df_init['model_year'], errors='coerce').fillna(0)
-        df_init['reg_date'] = pd.to_datetime(df_init['reg_date'], errors='coerce')
-        
-    return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), months, df_init, total
-
 @st.cache_data(ttl=60)
-def search_data(maker, models, details, engines, sy, ey, yards, sm, em): # [변경 2] details 인자 추가
+def search_data(maker, models, details, engines, sy, ey, yards, sm, em):
     try:
         conn = sqlite3.connect(INVENTORY_DB)
         cond, params = "1=1", []
-        
         if maker and maker != "All":
             cond += " AND v.manufacturer = ?"; params.append(maker)
-        
         cond += " AND v.model_year >= ? AND v.model_year <= ?"; params.extend([sy, ey])
         cond += " AND strftime('%Y-%m', v.reg_date) >= ? AND strftime('%Y-%m', v.reg_date) <= ?"; params.extend([sm, em])
-        
         if models:
             cond += f" AND v.model_name IN ({','.join(['?']*len(models))})"; params.extend(models)
-            
-        # [변경 3] 세부 모델(details) 검색 조건 추가
         if details:
-            # 세부 모델이 선택되었을 때의 처리 (빈 값인 경우도 포함될 수 있음)
             cond += f" AND v.model_detail IN ({','.join(['?']*len(details))})"; params.extend(details)
-
         if engines:
             cond += f" AND v.engine_code IN ({','.join(['?']*len(engines))})"; params.extend(engines)
         if yards:
@@ -419,15 +416,12 @@ def search_data(maker, models, details, engines, sy, ey, yards, sm, em): # [변�
             df['model_year'] = pd.to_numeric(df['model_year'], errors='coerce').fillna(0)
             df['reg_date'] = pd.to_datetime(df['reg_date'], errors='coerce')
         return df, count
-    except Exception as e:
-        print(f"Search Error: {e}")
-        return pd.DataFrame(), 0
-    
+    except: return pd.DataFrame(), 0
+
 @st.cache_data(ttl=300)
 def load_metadata():
     conn = sqlite3.connect(INVENTORY_DB)
-    
-    # [핵심 수정 부분] model_detail 컬럼을 꼭 포함해야 합니다!
+    # 3-Depth 구조를 위한 model_detail 포함
     query = """
         SELECT DISTINCT manufacturer, model_name, model_detail 
         FROM vehicle_data 
@@ -435,8 +429,6 @@ def load_metadata():
         ORDER BY manufacturer, model_name, model_detail
     """
     df_m = pd.read_sql(query, conn)
-    
-    # ... (나머지 코드는 동일)
     df_e = pd.read_sql("SELECT DISTINCT engine_code FROM vehicle_data", conn)
     df_y = pd.read_sql("SELECT name FROM junkyard_info", conn)
     try: months = pd.read_sql("SELECT DISTINCT strftime('%Y-%m', reg_date) as m FROM vehicle_data WHERE reg_date IS NOT NULL ORDER BY m DESC", conn)['m'].tolist()
@@ -449,7 +441,6 @@ def load_metadata():
     if not df_init.empty:
         df_init['model_year'] = pd.to_numeric(df_init['model_year'], errors='coerce').fillna(0)
         df_init['reg_date'] = pd.to_datetime(df_init['reg_date'], errors='coerce')
-        
     return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), months, df_init, total
 
 def reset_dashboard():
@@ -480,7 +471,7 @@ def get_trends():
     except: return pd.DataFrame(), pd.DataFrame()
 
 # ---------------------------------------------------------
-# 5. 주문 처리
+# 5. 주문 처리 및 유지보수
 # ---------------------------------------------------------
 
 def place_order(buyer_id, contact, target, real_target, summary):
@@ -520,44 +511,24 @@ def load_translations():
             if lang in df.columns: trans_dict[lang] = dict(zip(df['key'], df[lang]))
     return trans_dict
 
-# [modules/db.py 맨 아래에 추가]
-
 def standardize_existing_data():
-    """
-    이미 DB에 저장된 차량 데이터의 브랜드/모델명을 표준화 규칙에 맞춰 일괄 정리
-    """
+    """기존 DB 데이터 전체에 대해 표준화 로직 재적용"""
     try:
         conn = sqlite3.connect(INVENTORY_DB)
         c = conn.cursor()
-        
-        # 1. model_detail 컬럼이 없으면 생성
-        try:
-            c.execute("ALTER TABLE vehicle_data ADD COLUMN model_detail TEXT DEFAULT ''")
-        except sqlite3.OperationalError:
-            pass 
-
-        # 2. 모든 데이터 조회
+        try: c.execute("ALTER TABLE vehicle_data ADD COLUMN model_detail TEXT DEFAULT ''")
+        except: pass 
         df = pd.read_sql("SELECT vin, manufacturer, model_name FROM vehicle_data", conn)
         updates = []
-        
         for _, row in df.iterrows():
-            vin = row['vin']
-            # 표준화 로직 적용 (기존에 정의한 normalize_row 함수 활용)
             std_mfr, std_mod, std_det = normalize_row(row)
-            updates.append((std_mfr, std_mod, std_det, vin))
-        
-        # 3. 일괄 업데이트
+            updates.append((std_mfr, std_mod, std_det, row['vin']))
         if updates:
             c.executemany("UPDATE vehicle_data SET manufacturer = ?, model_name = ?, model_detail = ? WHERE vin = ?", updates)
-            
-            # 모델 리스트 재구성
             c.execute("DELETE FROM model_list")
             c.execute("INSERT OR IGNORE INTO model_list (manufacturer, model_name) SELECT DISTINCT manufacturer, model_name FROM vehicle_data")
-            
             conn.commit()
-            
         cnt = len(updates)
         conn.close()
         return True, cnt
-    except Exception as e:
-        return False, str(e)
+    except Exception as e: return False, str(e)

@@ -352,23 +352,63 @@ def update_user_role(uid, role):
 # 4. 조회 및 검색
 # ---------------------------------------------------------
 
+# modules/db.py 내 해당 함수들을 찾아 아래 코드로 교체하세요.
+
+@st.cache_data(ttl=300)
+def load_metadata():
+    conn = sqlite3.connect(INVENTORY_DB)
+    
+    # [변경 1] 모델 리스트를 가져올 때 'model_detail' 컬럼도 함께 조회 (3-Depth 구조 지원)
+    # vehicle_data 테이블에서 직접 조회하여 실제 존재하는 조합만 가져옵니다.
+    query = """
+        SELECT DISTINCT manufacturer, model_name, model_detail 
+        FROM vehicle_data 
+        WHERE manufacturer IS NOT NULL AND manufacturer != ''
+        ORDER BY manufacturer, model_name, model_detail
+    """
+    df_m = pd.read_sql(query, conn)
+    
+    # 나머지 메타데이터 로드 (기존 유지)
+    df_e = pd.read_sql("SELECT DISTINCT engine_code FROM vehicle_data", conn)
+    df_y = pd.read_sql("SELECT name FROM junkyard_info", conn)
+    try: months = pd.read_sql("SELECT DISTINCT strftime('%Y-%m', reg_date) as m FROM vehicle_data WHERE reg_date IS NOT NULL ORDER BY m DESC", conn)['m'].tolist()
+    except: months = []
+    
+    total = conn.execute("SELECT COUNT(*) FROM vehicle_data").fetchone()[0]
+    df_init = pd.read_sql("SELECT v.*, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name ORDER BY v.reg_date DESC LIMIT 5000", conn)
+    conn.close()
+    
+    if not df_init.empty:
+        df_init['model_year'] = pd.to_numeric(df_init['model_year'], errors='coerce').fillna(0)
+        df_init['reg_date'] = pd.to_datetime(df_init['reg_date'], errors='coerce')
+        
+    return df_m, df_e['engine_code'].tolist(), df_y['name'].tolist(), months, df_init, total
+
 @st.cache_data(ttl=60)
-def search_data(maker, models, engines, sy, ey, yards, sm, em):
+def search_data(maker, models, details, engines, sy, ey, yards, sm, em): # [변경 2] details 인자 추가
     try:
         conn = sqlite3.connect(INVENTORY_DB)
         cond, params = "1=1", []
+        
         if maker and maker != "All":
             cond += " AND v.manufacturer = ?"; params.append(maker)
+        
         cond += " AND v.model_year >= ? AND v.model_year <= ?"; params.extend([sy, ey])
         cond += " AND strftime('%Y-%m', v.reg_date) >= ? AND strftime('%Y-%m', v.reg_date) <= ?"; params.extend([sm, em])
+        
         if models:
             cond += f" AND v.model_name IN ({','.join(['?']*len(models))})"; params.extend(models)
+            
+        # [변경 3] 세부 모델(details) 검색 조건 추가
+        if details:
+            # 세부 모델이 선택되었을 때의 처리 (빈 값인 경우도 포함될 수 있음)
+            cond += f" AND v.model_detail IN ({','.join(['?']*len(details))})"; params.extend(details)
+
         if engines:
             cond += f" AND v.engine_code IN ({','.join(['?']*len(engines))})"; params.extend(engines)
         if yards:
             cond += f" AND v.junkyard IN ({','.join(['?']*len(yards))})"; params.extend(yards)
         
-        # model_detail 컬럼 추가 조회
         q = f"SELECT v.vin, v.reg_date, v.car_no, v.manufacturer, v.model_name, v.model_detail, v.model_year, v.junkyard, v.engine_code, j.region, j.address FROM vehicle_data v LEFT JOIN junkyard_info j ON v.junkyard = j.name WHERE {cond} ORDER BY v.reg_date DESC LIMIT 5000"
         
         count = conn.execute(f"SELECT COUNT(*) FROM vehicle_data v WHERE {cond}", params).fetchone()[0]
@@ -379,9 +419,10 @@ def search_data(maker, models, engines, sy, ey, yards, sm, em):
             df['model_year'] = pd.to_numeric(df['model_year'], errors='coerce').fillna(0)
             df['reg_date'] = pd.to_datetime(df['reg_date'], errors='coerce')
         return df, count
-    except: return pd.DataFrame(), 0
-
-@st.cache_data(ttl=300)
+    except Exception as e:
+        print(f"Search Error: {e}")
+        return pd.DataFrame(), 0
+    
 def load_metadata():
     conn = sqlite3.connect(INVENTORY_DB)
     df_m = pd.read_sql("SELECT DISTINCT manufacturer, model_name FROM model_list", conn)

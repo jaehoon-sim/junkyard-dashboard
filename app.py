@@ -116,11 +116,41 @@ with st.sidebar:
     st.subheader(f"🔍 {t('search_filter')}")
     tab_v, tab_e, tab_y = st.tabs([t('tab_vehicle'), t('tab_engine'), t('tab_yard')])
     
+# app.py 내 with tab_v: 부분 교체
+
     with tab_v:
-        makers = sorted(st.session_state['models_df']['manufacturer'].unique().tolist())
+        # 1. Manufacturer (제조사) 선택
+        # models_df에는 이제 [manufacturer, model_name, model_detail] 3개 컬럼이 있습니다.
+        df_meta = st.session_state['models_df']
+        
+        makers = sorted(df_meta['manufacturer'].unique().tolist())
         makers.insert(0, "All")
         s_maker = st.selectbox(t('manufacturer'), makers)
         
+        # 2. Model (대표 모델) 선택 - 제조사 선택에 종속
+        if s_maker != "All":
+            # 선택된 제조사의 모델명만 필터링
+            f_models = sorted(df_meta[df_meta['manufacturer'] == s_maker]['model_name'].unique())
+        else:
+            f_models = []
+            
+        s_models = st.multiselect(t('model'), f_models)
+        
+        # 3. Detail (세부 모델) 선택 - 모델 선택에 종속 [신규 기능]
+        f_details = []
+        if s_models:
+            # 선택된 제조사 및 모델에 해당하는 세부 모델만 필터링
+            # (예: Benz -> E-Class 선택 시 -> E220, E300 등 표시)
+            filtered_rows = df_meta[
+                (df_meta['manufacturer'] == s_maker) & 
+                (df_meta['model_name'].isin(s_models))
+            ]
+            # None이나 빈 문자열도 필터에 표시하여 선택할 수 있게 함 (상세 모델 없는 차량 검색용)
+            f_details = sorted([d for d in filtered_rows['model_detail'].unique() if d is not None])
+        
+        s_details = st.multiselect("Detailed Model", f_details)
+
+        # 연식 및 기간 필터
         c1, c2 = st.columns(2)
         sy = c1.number_input(t('from_year'), 2000, 2030, 2000)
         ey = c2.number_input(t('to_year'), 2000, 2030, 2025)
@@ -133,12 +163,11 @@ with st.sidebar:
         sm = c3.selectbox(t('start_month'), sorted(months) if months else [d_s], index=0)
         em = c4.selectbox(t('end_month'), sorted(months, reverse=True) if months else [d_e], index=0)
 
-        f_models = sorted(st.session_state['models_df'][st.session_state['models_df']['manufacturer']==s_maker]['model_name'].unique()) if s_maker != "All" else []
-        s_models = st.multiselect(t('model'), f_models)
-        
+        # 검색 버튼
         if st.button(t('search_btn_veh')):
             db.log_search(s_models, 'model')
-            res, tot = db.search_data(s_maker, s_models, [], sy, ey, [], sm, em)
+            # [수정] search_data 호출 시 s_details 인자 추가
+            res, tot = db.search_data(s_maker, s_models, s_details, [], sy, ey, [], sm, em)
             st.session_state.update({'view_data': res, 'total_count': tot, 'is_filtered': True, 'mode_demand': False})
             st.rerun()
 

@@ -219,7 +219,6 @@ else:
                 st.divider()
                 st.write("### ✏️ Edit Vehicle Info")
                 
-                # Partner Search Logic
                 search_query = st.text_input("🔍 Find Vehicle (VIN or Car No)", placeholder="Enter VIN or Car Number...")
                 
                 my_cars['label'] = "[" + my_cars['car_no'] + "] " + my_cars['model_name'] + " " + my_cars['model_detail'] + " (" + my_cars['vin'] + ")"
@@ -254,6 +253,8 @@ else:
                             
                             if st.form_submit_button("💾 Save Changes"):
                                 if db.update_vehicle_sales_info(target_vin, p_price, p_mile, p_files):
+                                    # [핵심 수정] 저장 후 즉시 검색 캐시 비우기
+                                    db.search_data.clear()
                                     st.success("Updated Successfully!")
                                     time.sleep(1)
                                     st.rerun()
@@ -363,24 +364,20 @@ else:
                 if st.session_state.user_role == 'buyer':
                     display_df['junkyard'] = "🔒 Partner Seller"
                 
-                # [Columns]
                 cols = ['vin', 'manufacturer', 'model_name', 'model_detail', 'model_year', 'price', 'mileage', 'junkyard', 'photos']
                 st.dataframe(display_df[cols], use_container_width=True)
                 
                 # ---------------------------------------------
-                # [NEW] 상세 정보 및 사진 확인 (바이어용) - 검색 기능 추가됨
+                # [NEW] 상세 정보 및 사진 확인 (바이어용)
                 # ---------------------------------------------
                 if st.session_state.user_role == 'buyer':
                     with st.expander("📸 View Vehicle Details & Photos (Click to Open)"):
                         st.info("Select a VIN from the list below to view photos and details.")
                         
-                        # [검색창 추가]
                         buyer_search = st.text_input("🔍 Find Vehicle (VIN or Car No)", key="buyer_vin_search", placeholder="Enter VIN or Car No...")
                         
-                        # 라벨 생성
                         display_df['select_label'] = display_df['vin'] + " - " + display_df['model_name'] + " (" + display_df['model_detail'] + ")"
                         
-                        # 필터링 로직
                         if buyer_search:
                             buyer_search = buyer_search.lower().strip()
                             filtered_buyer_list = display_df[
@@ -390,7 +387,6 @@ else:
                         else:
                             filtered_buyer_list = display_df
 
-                        # 선택 박스 표시
                         if not filtered_buyer_list.empty:
                             selected_vin_label = st.selectbox("Select Vehicle", filtered_buyer_list['select_label'])
                             
@@ -418,7 +414,8 @@ else:
                                             except:
                                                 img_cols[i % 3].error("Image load failed")
                                         else:
-                                            img_cols[i % 3].warning("Image file missing")
+                                            # 디버깅을 위해 경로는 보여주되 이미지는 없다고 표시
+                                            img_cols[i % 3].warning(f"File not found: {os.path.basename(p_path)}")
                                 else:
                                     st.warning("No photos available for this vehicle.")
                         else:

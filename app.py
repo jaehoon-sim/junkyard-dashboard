@@ -18,7 +18,7 @@ if 'user_id' not in st.session_state:
         'lang': 'English'
     })
 
-# 다국어 지원 (간단 버전)
+# 다국어 지원 (기본 English/Korean 제공, 나머지는 fallback)
 TRANS = {
     'English': {
         'title': "K-Used Car/Engine Inventory",
@@ -53,9 +53,11 @@ TRANS = {
 }
 
 def t(key):
-    return TRANS.get(st.session_state.lang, TRANS['English']).get(key, key)
+    # 선택된 언어에 키가 없으면 영어로, 영어도 없으면 키 자체를 반환
+    lang_dict = TRANS.get(st.session_state.lang, TRANS['English'])
+    return lang_dict.get(key, TRANS['English'].get(key, key))
 
-# DB 초기화
+# DB 초기화 및 메타데이터 로드
 db.init_dbs()
 if st.session_state.get('models_df') is None or st.session_state.get('models_df').empty:
     db.reset_dashboard()
@@ -66,8 +68,8 @@ if st.session_state.get('models_df') is None or st.session_state.get('models_df'
 with st.sidebar:
     st.title("🚛 K-Auto Hub")
     
-    # Language Switcher
-    lang_opt = st.radio("", ["English", "Korean"], horizontal=True)
+    # [언어 선택 메뉴] Russia, Arabic 포함
+    lang_opt = st.radio("", ["English", "Korean", "Russian", "Arabic"], horizontal=True)
     if lang_opt != st.session_state.lang:
         st.session_state.lang = lang_opt
         st.rerun()
@@ -81,12 +83,8 @@ with st.sidebar:
             upw = st.text_input("Password", type="password")
             if st.form_submit_button(t('login')):
                 users = db.fetch_users_for_auth()['usernames']
-                # 단순 비밀번호 매칭 (해시 검증은 db.py 내부 로직 참조, 여기선 간소화)
-                # 실제 운영 시 stauth.Authenticate 사용 권장
+                # 실제 운영 시 stauth.Authenticate 사용 권장 (여기선 약식 구현)
                 if uid in users:
-                    # 간단한 비밀번호 확인 (실제로는 해시 비교 필요)
-                    # 여기서는 db.py의 fetch_users_for_auth가 반환하는 구조를 믿고 진행
-                    # 실제 stauth 사용시에는 cookie controller 사용
                     user_info = users[uid]
                     st.session_state.logged_in = True
                     st.session_state.user_id = uid
@@ -104,7 +102,7 @@ with st.sidebar:
             
         st.divider()
 
-        # Admin Tools
+        # Admin Tools (관리자 전용)
         if st.session_state.user_role == 'admin':
             with st.expander(f"📂 {t('admin_tools')}"):
                 # 1. 차량 데이터 업로드
@@ -114,7 +112,7 @@ with st.sidebar:
                     if st.form_submit_button(t('save_data')):
                         cnt = sum([db.save_vehicle_file(f) for f in vf]) if vf else 0
                         st.success(t('records_saved').format(cnt))
-                        db.load_metadata.clear()
+                        db.load_metadata.clear() # 캐시 초기화
                 
                 # 2. 주소 데이터 업로드
                 with st.form("up_addr"):
@@ -126,7 +124,7 @@ with st.sidebar:
 
                 st.divider()
 
-                # 3. DB 데이터 표준화 버튼 (기존 데이터 정리)
+                # 3. DB 데이터 표준화 (기존 데이터 정리)
                 st.write("🔧 **Data Maintenance**")
                 if st.button("Normalize & Clean DB (기존 데이터 정리)"):
                     with st.spinner("Standardizing database..."):
@@ -145,13 +143,17 @@ with st.sidebar:
 st.title(t('title'))
 
 if not st.session_state.logged_in:
+    # 비로그인 상태: 검색 트렌드 표시
     st.info("Please login to access the inventory system.")
-    # Show Trend (Public View)
     st.subheader("🔥 Search Trends")
     e_df, m_df = db.get_trends()
     c1, c2 = st.columns(2)
-    with c1: st.dataframe(m_df, use_container_width=True)
-    with c2: st.dataframe(e_df, use_container_width=True)
+    with c1: 
+        st.write("**Top Searched Models**")
+        st.dataframe(m_df, use_container_width=True)
+    with c2: 
+        st.write("**Top Searched Engines**")
+        st.dataframe(e_df, use_container_width=True)
 
 else:
     # -----------------------------------------------------------
@@ -176,7 +178,7 @@ else:
                 st.divider()
                 st.write("### ✏️ Edit Vehicle Info")
                 
-                # 수정할 차량 선택 (라벨: VIN - 모델명)
+                # 수정할 차량 선택 (라벨: VIN - 모델명 상세)
                 my_cars['label'] = my_cars['vin'] + " - " + my_cars['model_name'] + " " + my_cars['model_detail']
                 sel_veh = st.selectbox("Select Vehicle", my_cars['label'])
                 
@@ -226,11 +228,11 @@ else:
             else:
                 st.info("No orders yet.")
         
-        # Tab 3: 전체 시장 뷰 (Market View) - 뷰어 기능 재활용을 위해 아래 변수 설정
+        # Tab 3: 전체 시장 뷰 (Market View) - 아래의 공통 뷰어 로직을 사용하기 위한 플래그
         is_partner_viewing_market = True
 
     # -----------------------------------------------------------
-    # [Admin / Buyer Mode] 일반 뷰어 화면
+    # [Admin / Buyer Mode] 일반 뷰어 화면 (파트너의 Market View 포함)
     # -----------------------------------------------------------
     else:
         is_partner_viewing_market = False
@@ -238,16 +240,17 @@ else:
     # (Partner가 Market View 탭을 눌렀거나, Admin/Buyer인 경우 실행)
     if st.session_state.user_role != 'partner' or (st.session_state.user_role == 'partner' and is_partner_viewing_market):
         
-        # 탭 위치 조정 (Partner일 땐 탭 안에서 그려야 함)
+        # 탭 위치 및 구성 결정
         if st.session_state.user_role == 'partner':
-             target_container = tabs[2]
+             target_container = tabs[2] # 파트너는 이미 만들어진 3번째 탭 사용
         else:
+             # Admin/Buyer는 메인 탭 생성
              main_tabs = st.tabs([f"🚗 {t('vehicle_inv')}", f"⚙️ {t('engine_inv')}", 
                                   "👤 Users" if st.session_state.user_role == 'admin' else f"📦 {t('my_orders')}"])
              target_container = main_tabs[0]
 
         # ---------------------
-        # 1. Vehicle Inventory
+        # 1. Vehicle Inventory (공통)
         # ---------------------
         with target_container:
             # 필터 섹션
@@ -300,7 +303,7 @@ else:
 
                 if st.button(t('search_btn_veh'), type="primary"):
                     db.log_search(s_models, 'model')
-                    # details 인자 전달
+                    # details 인자까지 전달하여 검색
                     res, tot = db.search_data(s_maker, s_models, s_details, [], sy, ey, s_yards, sm, em)
                     st.session_state.update({'view_data': res, 'total_count': tot, 'is_filtered': True})
                     st.rerun()
@@ -315,7 +318,7 @@ else:
             
             df_view = st.session_state.view_data
             if not df_view.empty:
-                # 표시할 컬럼 정리
+                # 표시할 컬럼 정리 (가격, 주행거리 포함)
                 cols = ['vin', 'manufacturer', 'model_name', 'model_detail', 'model_year', 'engine_code', 'junkyard', 'reg_date', 'price', 'mileage']
                 st.dataframe(df_view[cols], use_container_width=True)
                 
@@ -346,7 +349,6 @@ else:
         if st.session_state.user_role != 'partner':
             with main_tabs[1]:
                 st.subheader("Engine Search")
-                # 엔진 검색은 단순화 (엔진코드 멀티셀렉트)
                 eng_list = st.session_state.get('engines_list', [])
                 s_engs = st.multiselect("Engine Code", eng_list)
                 

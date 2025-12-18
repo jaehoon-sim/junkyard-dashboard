@@ -18,7 +18,9 @@ if 'user_id' not in st.session_state:
         'lang': 'English'
     })
 
-# 다국어 지원 (기본 English/Korean 제공, 나머지는 fallback)
+# ---------------------------------------------------------
+# [수정됨] 다국어 번역 데이터 (러시아어, 아랍어 추가 완료)
+# ---------------------------------------------------------
 TRANS = {
     'English': {
         'title': "K-Used Car/Engine Inventory",
@@ -49,11 +51,40 @@ TRANS = {
         'save_data': "차량 데이터 저장", 'save_addr': "주소 데이터 저장",
         'records_saved': "{}건 저장 완료.",
         'addr_updated': "{}건 주소 업데이트 완료."
+    },
+    'Russian': {
+        'title': "Склад б/у автомобилей и двигателей",
+        'login': "Вход", 'logout': "Выход",
+        'vehicle_inv': "Поиск автомобилей", 'engine_inv': "Поиск двигателей",
+        'my_orders': "Мои заказы", 'admin_tools': "Инструменты админа",
+        'search_btn_veh': "Найти автомобиль", 'search_btn_eng': "Найти двигатель",
+        'manufacturer': "Производитель", 'model': "Модель", 'detail': "Подробно",
+        'from_year': "Год (с)", 'to_year': "Год (по)",
+        'start_month': "Месяц (с)", 'end_month': "Месяц (по)",
+        'keyword': "Поиск по слову", 'reset': "Сброс",
+        'order_mgmt': "Управление заказами",
+        'save_data': "Сохранить авто", 'save_addr': "Сохранить адреса",
+        'records_saved': "Сохранено записей: {}.",
+        'addr_updated': "Обновлено адресов: {}."
+    },
+    'Arabic': {
+        'title': "مخزون السيارات والمحركات المستعملة",
+        'login': "تسجيل الدخول", 'logout': "تسجيل الخروج",
+        'vehicle_inv': "مخزون السيارات", 'engine_inv': "مخزون المحركات",
+        'my_orders': "طلباتي", 'admin_tools': "أدوات المسؤول",
+        'search_btn_veh': "بحث سيارة", 'search_btn_eng': "بحث محرك",
+        'manufacturer': "الشركة المصنعة", 'model': "الموديل", 'detail': "تفاصيل",
+        'from_year': "من سنة", 'to_year': "إلى سنة",
+        'start_month': "من شهر", 'end_month': "إلى شهر",
+        'keyword': "بحث بالكلمة", 'reset': "إعادة تعيين",
+        'order_mgmt': "إدارة الطلبات",
+        'save_data': "حفظ البيانات", 'save_addr': "حفظ العناوين",
+        'records_saved': "تم حفظ {} سجل بنجاح.",
+        'addr_updated': "تم تحديث {} عنوان."
     }
 }
 
 def t(key):
-    # 선택된 언어에 키가 없으면 영어로, 영어도 없으면 키 자체를 반환
     lang_dict = TRANS.get(st.session_state.lang, TRANS['English'])
     return lang_dict.get(key, TRANS['English'].get(key, key))
 
@@ -68,7 +99,7 @@ if st.session_state.get('models_df') is None or st.session_state.get('models_df'
 with st.sidebar:
     st.title("🚛 K-Auto Hub")
     
-    # [언어 선택 메뉴] Russia, Arabic 포함
+    # [언어 선택 메뉴]
     lang_opt = st.radio("", ["English", "Korean", "Russian", "Arabic"], horizontal=True)
     if lang_opt != st.session_state.lang:
         st.session_state.lang = lang_opt
@@ -83,7 +114,6 @@ with st.sidebar:
             upw = st.text_input("Password", type="password")
             if st.form_submit_button(t('login')):
                 users = db.fetch_users_for_auth()['usernames']
-                # 실제 운영 시 stauth.Authenticate 사용 권장 (여기선 약식 구현)
                 if uid in users:
                     user_info = users[uid]
                     st.session_state.logged_in = True
@@ -112,7 +142,7 @@ with st.sidebar:
                     if st.form_submit_button(t('save_data')):
                         cnt = sum([db.save_vehicle_file(f) for f in vf]) if vf else 0
                         st.success(t('records_saved').format(cnt))
-                        db.load_metadata.clear() # 캐시 초기화
+                        db.load_metadata.clear()
                 
                 # 2. 주소 데이터 업로드
                 with st.form("up_addr"):
@@ -124,7 +154,7 @@ with st.sidebar:
 
                 st.divider()
 
-                # 3. DB 데이터 표준화 (기존 데이터 정리)
+                # 3. DB 데이터 표준화
                 st.write("🔧 **Data Maintenance**")
                 if st.button("Normalize & Clean DB (기존 데이터 정리)"):
                     with st.spinner("Standardizing database..."):
@@ -143,7 +173,6 @@ with st.sidebar:
 st.title(t('title'))
 
 if not st.session_state.logged_in:
-    # 비로그인 상태: 검색 트렌드 표시
     st.info("Please login to access the inventory system.")
     st.subheader("🔥 Search Trends")
     e_df, m_df = db.get_trends()
@@ -166,19 +195,15 @@ else:
         with tabs[0]:
             st.subheader(f"Inventory Management: {st.session_state.user_id}")
             
-            # 내 차량만 검색 (yards 인자에 내 ID 주입)
             my_cars, my_cnt = db.search_data("All", [], [], [], 1990, 2030, [st.session_state.user_id], "1990-01", "2030-12")
-            
             st.info(f"Total Vehicles: {my_cnt} EA")
             
             if not my_cars.empty:
-                # 목록 표시
                 st.dataframe(my_cars[['vin', 'manufacturer', 'model_name', 'model_detail', 'model_year', 'car_no', 'price', 'mileage']], use_container_width=True)
                 
                 st.divider()
                 st.write("### ✏️ Edit Vehicle Info")
                 
-                # 수정할 차량 선택 (라벨: VIN - 모델명 상세)
                 my_cars['label'] = my_cars['vin'] + " - " + my_cars['model_name'] + " " + my_cars['model_detail']
                 sel_veh = st.selectbox("Select Vehicle", my_cars['label'])
                 
@@ -228,64 +253,52 @@ else:
             else:
                 st.info("No orders yet.")
         
-        # Tab 3: 전체 시장 뷰 (Market View) - 아래의 공통 뷰어 로직을 사용하기 위한 플래그
         is_partner_viewing_market = True
 
     # -----------------------------------------------------------
-    # [Admin / Buyer Mode] 일반 뷰어 화면 (파트너의 Market View 포함)
+    # [Admin / Buyer Mode] 일반 뷰어 화면
     # -----------------------------------------------------------
     else:
         is_partner_viewing_market = False
 
-    # (Partner가 Market View 탭을 눌렀거나, Admin/Buyer인 경우 실행)
     if st.session_state.user_role != 'partner' or (st.session_state.user_role == 'partner' and is_partner_viewing_market):
         
-        # 탭 위치 및 구성 결정
         if st.session_state.user_role == 'partner':
-             target_container = tabs[2] # 파트너는 이미 만들어진 3번째 탭 사용
+             target_container = tabs[2]
         else:
-             # Admin/Buyer는 메인 탭 생성
              main_tabs = st.tabs([f"🚗 {t('vehicle_inv')}", f"⚙️ {t('engine_inv')}", 
                                   "👤 Users" if st.session_state.user_role == 'admin' else f"📦 {t('my_orders')}"])
              target_container = main_tabs[0]
 
         # ---------------------
-        # 1. Vehicle Inventory (공통)
+        # 1. Vehicle Inventory
         # ---------------------
         with target_container:
-            # 필터 섹션
             with st.expander("🔍 Search Filters", expanded=not st.session_state.is_filtered):
                 c1, c2, c3 = st.columns(3)
                 
-                # [3-Depth Filter Logic]
                 df_meta = st.session_state['models_df']
                 
-                # 1) Manufacturer
                 makers = sorted(df_meta['manufacturer'].unique().tolist())
                 makers.insert(0, "All")
                 s_maker = c1.selectbox(t('manufacturer'), makers)
                 
-                # 2) Model (Dependent on Maker)
                 if s_maker != "All":
                     f_models = sorted(df_meta[df_meta['manufacturer'] == s_maker]['model_name'].unique())
                 else:
                     f_models = []
                 s_models = c2.multiselect(t('model'), f_models)
                 
-                # 3) Detail (Dependent on Model)
                 f_details = []
                 if s_models:
-                    # 선택된 모델들에 해당하는 세부모델만 추출
                     filtered_rows = df_meta[
                         (df_meta['manufacturer'] == s_maker) & 
                         (df_meta['model_name'].isin(s_models))
                     ]
-                    # None 값 제외하고 정렬
                     f_details = sorted([d for d in filtered_rows['model_detail'].unique() if d])
                 
                 s_details = c3.multiselect(t('detail'), f_details)
 
-                # Date & Yards Filter
                 cc1, cc2, cc3 = st.columns(3)
                 sy = cc1.number_input(t('from_year'), 1990, 2030, 2000)
                 ey = cc2.number_input(t('to_year'), 1990, 2030, 2025)
@@ -293,7 +306,6 @@ else:
                 yards_list = st.session_state.get('yards_list', [])
                 s_yards = cc3.multiselect("Junkyard", yards_list)
 
-                # Month Filter
                 months = st.session_state.get('months_list', [])
                 d_s = months[-1] if months else "2000-01"
                 d_e = months[0] if months else "2030-12"
@@ -303,7 +315,6 @@ else:
 
                 if st.button(t('search_btn_veh'), type="primary"):
                     db.log_search(s_models, 'model')
-                    # details 인자까지 전달하여 검색
                     res, tot = db.search_data(s_maker, s_models, s_details, [], sy, ey, s_yards, sm, em)
                     st.session_state.update({'view_data': res, 'total_count': tot, 'is_filtered': True})
                     st.rerun()
@@ -312,17 +323,14 @@ else:
                     db.reset_dashboard()
                     st.rerun()
 
-            # 결과 표시
             st.divider()
             st.write(f"**Total Results:** {st.session_state.total_count}")
             
             df_view = st.session_state.view_data
             if not df_view.empty:
-                # 표시할 컬럼 정리 (가격, 주행거리 포함)
                 cols = ['vin', 'manufacturer', 'model_name', 'model_detail', 'model_year', 'engine_code', 'junkyard', 'reg_date', 'price', 'mileage']
                 st.dataframe(df_view[cols], use_container_width=True)
                 
-                # 주문 기능 (Buyer Only)
                 if st.session_state.user_role == 'buyer':
                     with st.expander("⚡ Request Quote / Order"):
                         sel_indices = st.multiselect("Select VINs to Order", df_view['vin'].tolist())
@@ -335,7 +343,6 @@ else:
                                 contact = st.text_input("Your Contact Info (Phone/Email)")
                                 msg = st.text_area("Message to Sellers")
                                 if st.form_submit_button("Submit Order"):
-                                    # 파트너별로 주문 분리 생성
                                     for yard, group in subset.groupby('junkyard'):
                                         summary = ", ".join([f"{r['model_name']} ({r['vin']})" for _, r in group.iterrows()])
                                         db.place_order(st.session_state.user_id, contact, yard, yard, f"{summary} // {msg}")
@@ -344,7 +351,7 @@ else:
                 st.info("No vehicles found.")
 
         # ---------------------
-        # 2. Engine Inventory (If not partner view)
+        # 2. Engine Inventory
         # ---------------------
         if st.session_state.user_role != 'partner':
             with main_tabs[1]:
@@ -367,7 +374,6 @@ else:
                     st.dataframe(udf, use_container_width=True)
                     
                     st.divider()
-                    # 사용자 수정 기능
                     user_list = udf['user_id'].tolist()
                     target_uid = st.selectbox("Select User to Edit", user_list)
                     

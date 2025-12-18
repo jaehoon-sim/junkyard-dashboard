@@ -4,6 +4,7 @@ import pandas as pd
 import time
 import os
 from modules import db
+from PIL import Image # 이미지 처리를 위해 추가
 
 # ---------------------------------------------------------
 # 1. Page Configuration & Session Setup
@@ -109,7 +110,6 @@ with st.sidebar:
 
     # Login / Logout Logic
     if not st.session_state.logged_in:
-        # 1. 로그인 폼
         with st.form("login_form"):
             uid = st.text_input("ID")
             upw = st.text_input("Password", type="password")
@@ -126,7 +126,6 @@ with st.sidebar:
                 else:
                     st.error("Invalid ID or Password")
         
-        # 2. 회원가입 폼
         with st.expander(f"📝 {t('create_acc')}"):
             with st.form("signup_form"):
                 new_uid = st.text_input("New ID")
@@ -153,10 +152,9 @@ with st.sidebar:
             
         st.divider()
 
-        # Admin Tools (관리자 전용)
+        # Admin Tools
         if st.session_state.user_role == 'admin':
             with st.expander(f"📂 {t('admin_tools')}"):
-                # 1. 차량 데이터 업로드
                 with st.form("up_veh"):
                     st.write("Vehicle Data Upload")
                     vf = st.file_uploader("", type=['xlsx','csv','xls'], accept_multiple_files=True)
@@ -165,7 +163,6 @@ with st.sidebar:
                         st.success(t('records_saved').format(cnt))
                         db.load_metadata.clear()
                 
-                # 2. 주소 데이터 업로드
                 with st.form("up_addr"):
                     st.write("Address Data Upload")
                     af = st.file_uploader("", type=['xlsx','csv'])
@@ -174,8 +171,6 @@ with st.sidebar:
                         db.load_metadata.clear()
 
                 st.divider()
-
-                # 3. DB 데이터 표준화
                 st.write("🔧 **Data Maintenance**")
                 if st.button("Normalize & Clean DB (기존 데이터 정리)"):
                     with st.spinner("Standardizing database..."):
@@ -207,12 +202,11 @@ if not st.session_state.logged_in:
 
 else:
     # -----------------------------------------------------------
-    # [Partner Mode] 판매자(폐차장) 전용 화면
+    # [Partner Mode] 판매자(폐차장)
     # -----------------------------------------------------------
     if st.session_state.user_role == 'partner':
         tabs = st.tabs(["🏭 My Inventory", "📦 Orders", "📊 Market View"])
         
-        # Tab 1: 내 재고 관리 (My Inventory) - [수정됨: 검색 기능 추가]
         with tabs[0]:
             st.subheader(f"Inventory Management: {st.session_state.user_id}")
             
@@ -225,15 +219,10 @@ else:
                 st.divider()
                 st.write("### ✏️ Edit Vehicle Info")
                 
-                # ---------------------------------------------------
-                # [NEW] 차량 검색 기능 (차대번호 or 차량번호)
-                # ---------------------------------------------------
                 search_query = st.text_input("🔍 Find Vehicle (VIN or Car No)", placeholder="Enter VIN or Car Number...")
                 
-                # 라벨 생성 (차량번호 우선 표시로 변경)
                 my_cars['label'] = "[" + my_cars['car_no'] + "] " + my_cars['model_name'] + " " + my_cars['model_detail'] + " (" + my_cars['vin'] + ")"
                 
-                # 검색어가 있으면 필터링
                 if search_query:
                     search_query = search_query.lower().strip()
                     filtered_cars = my_cars[
@@ -243,14 +232,11 @@ else:
                 else:
                     filtered_cars = my_cars
                 
-                # 필터링된 목록으로 셀렉트박스 구성
                 if not filtered_cars.empty:
                     sel_veh_label = st.selectbox("Select Vehicle from list", filtered_cars['label'])
                     
                     if sel_veh_label:
-                        # 라벨에서 VIN 추출 (맨 뒤 괄호 안의 값)
                         target_vin = sel_veh_label.split("(")[-1].replace(")", "")
-                        # 정확한 매칭을 위해 다시 조회
                         row = my_cars[my_cars['vin'] == target_vin].iloc[0]
                         
                         st.markdown(f"**Selected:** {row['manufacturer']} {row['model_name']} ({row['car_no']})")
@@ -277,7 +263,6 @@ else:
             else:
                 st.warning("No vehicles found in your inventory.")
 
-        # Tab 2: 주문 관리 (Orders)
         with tabs[1]:
             st.subheader("Incoming Orders")
             odf = db.get_orders(st.session_state.user_id, 'partner')
@@ -322,9 +307,7 @@ else:
         with target_container:
             with st.expander("🔍 Search Filters", expanded=not st.session_state.is_filtered):
                 c1, c2, c3 = st.columns(3)
-                
                 df_meta = st.session_state['models_df']
-                
                 makers = sorted(df_meta['manufacturer'].unique().tolist())
                 makers.insert(0, "All")
                 s_maker = c1.selectbox(t('manufacturer'), makers)
@@ -342,13 +325,13 @@ else:
                         (df_meta['model_name'].isin(s_models))
                     ]
                     f_details = sorted([d for d in filtered_rows['model_detail'].unique() if d])
-                
                 s_details = c3.multiselect(t('detail'), f_details)
 
                 cc1, cc2, cc3 = st.columns(3)
                 sy = cc1.number_input(t('from_year'), 1990, 2030, 2000)
                 ey = cc2.number_input(t('to_year'), 1990, 2030, 2025)
                 
+                # Yards Filter (If admin, show all. If buyer, show all but masked later)
                 yards_list = st.session_state.get('yards_list', [])
                 s_yards = cc3.multiselect("Junkyard", yards_list)
 
@@ -373,17 +356,68 @@ else:
             st.write(f"**Total Results:** {st.session_state.total_count}")
             
             df_view = st.session_state.view_data
+            
             if not df_view.empty:
-                cols = ['vin', 'manufacturer', 'model_name', 'model_detail', 'model_year', 'engine_code', 'junkyard', 'reg_date', 'price', 'mileage']
-                st.dataframe(df_view[cols], use_container_width=True)
-                
+                # [Masking Logic] Buyer에게는 폐차장 이름을 가림
+                display_df = df_view.copy()
                 if st.session_state.user_role == 'buyer':
+                    display_df['junkyard'] = "🔒 Partner Seller" # 폐차장 이름 마스킹
+                
+                # [Columns] Price, Mileage, Photos 추가
+                cols = ['vin', 'manufacturer', 'model_name', 'model_detail', 'model_year', 'price', 'mileage', 'junkyard', 'photos']
+                st.dataframe(display_df[cols], use_container_width=True)
+                
+                # ---------------------------------------------
+                # [NEW] 상세 정보 및 사진 확인 (바이어용)
+                # ---------------------------------------------
+                if st.session_state.user_role == 'buyer':
+                    with st.expander("📸 View Vehicle Details & Photos (Click to Open)"):
+                        st.info("Select a VIN from the list below to view photos and details.")
+                        
+                        # 구매자가 선택할 수 있는 리스트 생성
+                        display_df['select_label'] = display_df['vin'] + " - " + display_df['model_name'] + " (" + display_df['model_detail'] + ")"
+                        selected_vin_label = st.selectbox("Select Vehicle", display_df['select_label'])
+                        
+                        if selected_vin_label:
+                            sel_vin = selected_vin_label.split(" - ")[0]
+                            # 원본 데이터에서 조회 (사진 경로 필요)
+                            detail_row = df_view[df_view['vin'] == sel_vin].iloc[0]
+                            
+                            d1, d2 = st.columns(2)
+                            d1.write(f"**Model:** {detail_row['manufacturer']} {detail_row['model_name']} {detail_row['model_detail']}")
+                            d1.write(f"**Year:** {detail_row['model_year']}")
+                            d1.write(f"**Price:** {int(detail_row['price'] or 0):,} KRW")
+                            d2.write(f"**Mileage:** {int(detail_row['mileage'] or 0):,} km")
+                            d2.write(f"**Engine:** {detail_row['engine_code']}")
+                            
+                            st.divider()
+                            st.write("#### 🖼️ Vehicle Photos")
+                            if detail_row['photos']:
+                                photo_paths = detail_row['photos'].split(",")
+                                # 이미지 표시 (한 줄에 3개씩)
+                                img_cols = st.columns(3)
+                                for i, p_path in enumerate(photo_paths):
+                                    if os.path.exists(p_path):
+                                        try:
+                                            image = Image.open(p_path)
+                                            img_cols[i % 3].image(image, caption=f"Photo {i+1}", use_container_width=True)
+                                        except:
+                                            img_cols[i % 3].error("Image load failed")
+                                    else:
+                                        img_cols[i % 3].warning("Image file missing")
+                            else:
+                                st.warning("No photos available for this vehicle.")
+
+                    # ---------------------------------------------
+                    # 주문 기능 (기존)
+                    # ---------------------------------------------
+                    st.divider()
                     with st.expander("⚡ Request Quote / Order"):
                         sel_indices = st.multiselect("Select VINs to Order", df_view['vin'].tolist())
                         if sel_indices:
                             st.write("Selected Items:")
                             subset = df_view[df_view['vin'].isin(sel_indices)]
-                            st.dataframe(subset[['vin','model_name','junkyard']])
+                            st.dataframe(subset[['vin','model_name']]) # 마스킹된 이름 대신 그냥 보여줌(어차피 바이어는 모름)
                             
                             with st.form("order_form"):
                                 contact = st.text_input("Your Contact Info (Phone/Email)")

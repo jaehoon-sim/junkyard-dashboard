@@ -29,6 +29,7 @@ BRAND_MAP = {
 }
 
 # 1차 매핑 (이름 기반 모델: 키워드 -> 표준 모델명)
+# 중요: 여기에 등록된 키워드는 '쪼개지지 않고' 그 자체로 모델명이 됩니다.
 MODEL_MAP = {
     # Hyundai
     '그랜저': 'Grandeur', '그랜져': 'Grandeur', '쏘나타': 'Sonata', '소나타': 'Sonata',
@@ -39,16 +40,31 @@ MODEL_MAP = {
     '카니발': 'Carnival', '스포티지': 'Sportage', '모닝': 'Morning', '레이': 'Ray', '셀토스': 'Seltos', '니로': 'Niro',
     # Genesis
     'G70': 'G70', 'G80': 'G80', 'G90': 'G90', 'GV60': 'GV60', 'GV70': 'GV70', 'GV80': 'GV80',
-    # Mercedes-Benz (한글 대응)
-    'S클래스': 'S-Class', 'E클래스': 'E-Class', 'C클래스': 'C-Class', 'A클래스': 'A-Class', 'B클래스': 'B-Class',
-    'GLE클래스': 'GLE', 'GLC클래스': 'GLC', 'GLS클래스': 'GLS', 'CLA클래스': 'CLA', 'CLS클래스': 'CLS',
-    # Volkswagen (이름 기반)
+    
+    # Mercedes-Benz (클래스 명칭 보호)
+    'S클래스': 'S-Class', 'E클래스': 'E-Class', 'C클래스': 'C-Class', 
+    'A클래스': 'A-Class', 'B클래스': 'B-Class',
+    'GLE클래스': 'GLE', 'GLC클래스': 'GLC', 'GLS클래스': 'GLS', 
+    'CLA클래스': 'CLA', 'CLS클래스': 'CLS', 'G클래스': 'G-Class',
+    
+    # BMW (시리즈 명칭 보호 - 핵심 수정 사항)
+    '1시리즈': '1 Series', '1 Series': '1 Series', '1Series': '1 Series',
+    '2시리즈': '2 Series', '2 Series': '2 Series', '2Series': '2 Series',
+    '3시리즈': '3 Series', '3 Series': '3 Series', '3Series': '3 Series',
+    '4시리즈': '4 Series', '4 Series': '4 Series', '4Series': '4 Series',
+    '5시리즈': '5 Series', '5 Series': '5 Series', '5Series': '5 Series',
+    '6시리즈': '6 Series', '6 Series': '6 Series', '6Series': '6 Series',
+    '7시리즈': '7 Series', '7 Series': '7 Series', '7Series': '7 Series',
+    '8시리즈': '8 Series', '8 Series': '8 Series', '8Series': '8 Series',
+    'X1': 'X1', 'X2': 'X2', 'X3': 'X3', 'X4': 'X4', 'X5': 'X5', 'X6': 'X6', 'X7': 'X7',
+
+    # Volkswagen
     '골프': 'Golf', '티구안': 'Tiguan', '파사트': 'Passat', '아테온': 'Arteon', '제타': 'Jetta', '투아렉': 'Touareg',
     # Porsche
     '카이엔': 'Cayenne', '파나메라': 'Panamera', '마칸': 'Macan', '타이칸': 'Taycan', '박스터': 'Boxster', '카이맨': 'Cayman', '911': '911',
     # Land Rover
     '레인지로버': 'Range Rover', '디스커버리': 'Discovery', '디펜더': 'Defender',
-    # Toyota/Honda/Lexus(Name)/Ford/Jeep
+    # Others
     '캠리': 'Camry', '라브4': 'RAV4', '프리우스': 'Prius', '시에나': 'Sienna',
     '어코드': 'Accord', '시빅': 'Civic', 'CR-V': 'CR-V', '파일럿': 'Pilot',
     '익스플로러': 'Explorer', '머스탱': 'Mustang', '랭글러': 'Wrangler', '체로키': 'Cherokee'
@@ -138,49 +154,49 @@ def detect_global_pattern(text):
     if text.startswith("GLE"): return "GLE"
     if text.startswith("GLS"): return "GLS"
     if text.startswith("G63"): return "G-Class"
-    if text.startswith("EQ"): return "EQ Series" # EQA, EQS 등
+    if text.startswith("EQ"): return "EQ Series"
 
     # 2. BMW
-    if re.match(r"^([1-8])\d{2}", text): return f"{text[0]} Series" # 320d, 520i, 740li
-    if re.match(r"^X([1-7])", text): return f"X{text[1]}" # X1 ~ X7
+    # Case 1: 숫자 + 문자 조합 (예: 520d, 740li, 118d)
+    if re.match(r"^([1-8])\d{2}[A-Z]*$", text): return f"{text[0]} Series"
+    # Case 2: 단일 숫자 (예: 3, 5, 7) - 이것을 시리즈로 매핑
+    if re.match(r"^([1-8])$", text): return f"{text[0]} Series"
+    
+    # X, Z, M Series
+    if re.match(r"^X([1-7])", text): return f"X{text[1]}"
     if re.match(r"^Z([348])", text): return f"Z{text[1]}"
     if re.match(r"^M([2-8])", text): return f"M{text[1]}"
-    if text.startswith("I"): return "i Series" # i3, i4, iX
+    if text.startswith("I"): return "i Series"
 
     # 3. Audi (A/S/RS/Q + Number)
-    if re.match(r"^(A|S|RS)([1-8])", text): # A3, A6, S8...
+    if re.match(r"^(A|S|RS)([1-8])", text):
         match = re.match(r"^(A|S|RS)([1-8])", text)
         return f"{match.group(1)}{match.group(2)}"
-    if re.match(r"^Q([2-8])", text): # Q2, Q5, Q7...
+    if re.match(r"^Q([2-8])", text):
         return f"Q{text[1]}"
     if text.startswith("TT"): return "TT"
     if text.startswith("R8"): return "R8"
     if text.startswith("E-TRON"): return "e-tron"
 
-    # 4. Lexus (Letter+Number)
-    # ES300h, LS500, NX300, RX450h...
+    # 4. Lexus / Volvo / Renault / Jaguar / Land Rover (기존 동일)
     lexus_prefix = ["CT", "IS", "ES", "GS", "LS", "UX", "NX", "RX", "GX", "LX", "LC", "RC"]
     for p in lexus_prefix:
         if text.startswith(p): return p
 
-    # 5. Volvo (XC/S/V/C + Number)
-    # XC90, XC60, S90, V60, C40...
     if re.match(r"^(XC|S|V|C)\d{2}", text):
         match = re.match(r"^(XC|S|V|C)\d{2}", text)
-        return match.group(0) # XC90 전체를 대표 모델로
+        return match.group(0)
 
-    # 6. Renault Korea (Samsung) - SM/QM/XM + Number
-    if re.match(r"^(SM|QM|XM)\d{1}", text): # SM6, QM6
+    if re.match(r"^(SM|QM|XM)\d{1}", text):
         match = re.match(r"^(SM|QM|XM)\d{1}", text)
         return match.group(0)
 
-    # 7. Jaguar (XE, XF, XJ, F-PACE)
-    if re.match(r"^X[EFJ]", text): return text[:2] # XE, XF, XJ
-    if text.startswith("F-PACE") or text.startswith("FPACE"): return "F-Pace"
-    if text.startswith("E-PACE") or text.startswith("EPACE"): return "E-Pace"
-    if text.startswith("I-PACE") or text.startswith("IPACE"): return "I-Pace"
+    if re.match(r"^X[EFJ]", text): return text[:2]
+    if "PACE" in text:
+        if text.startswith("F"): return "F-Pace"
+        if text.startswith("E"): return "E-Pace"
+        if text.startswith("I"): return "I-Pace"
 
-    # 8. Land Rover (Range Rover Variants)
     if text.startswith("RANGE") or text.startswith("레인지"): return "Range Rover"
     if text.startswith("DISCO") or text.startswith("디스"): return "Discovery"
     
@@ -193,7 +209,7 @@ def normalize_row(row):
     
     # 1. 브랜드 표준화
     std_mfr = BRAND_MAP.get(raw_mfr, raw_mfr)
-    if std_mfr == '현대': std_mfr = 'Hyundai' # Failsafe
+    if std_mfr == '현대': std_mfr = 'Hyundai' 
     
     # 2. 모델명 정리 (브랜드명 제거)
     clean_model = re.sub(BRAND_REMOVE_REGEX, "", raw_model, flags=re.IGNORECASE).strip()
@@ -203,12 +219,19 @@ def normalize_row(row):
 
     mapped = False
     
-    # [Step A] 1차 매핑 (이름 기반)
+    # [Step A] 1차 매핑 (MODEL_MAP) - 완전 일치나 시작 키워드 우선 확인
+    # 여기서 '1 Series' 같은 키워드가 걸리면 바로 채택하고 루프 종료 (쪼개짐 방지)
     for k, v in MODEL_MAP.items():
-        if clean_model.startswith(k) or clean_model.upper().startswith(k.upper()):
+        # 대소문자 무시 비교를 위해 양쪽 다 upper() 적용
+        if clean_model.upper() == k.upper() or clean_model.upper().startswith(k.upper()):
             std_model = v
-            det = re.sub(k, "", clean_model, flags=re.IGNORECASE).strip()
-            std_detail = det if det else std_detail
+            # 모델명을 뺀 나머지만 디테일로 (예: "그랜저HG" -> "HG")
+            # 단, 키워드와 원본이 완전히 같으면 디테일은 없음
+            if clean_model.upper() == k.upper():
+                std_detail = ""
+            else:
+                det = re.sub(k, "", clean_model, flags=re.IGNORECASE).strip()
+                std_detail = det if det else ""
             mapped = True
             break
             
@@ -220,7 +243,7 @@ def normalize_row(row):
             if std_detail == "": std_detail = clean_model # 전체 모델명 보존
             mapped = True
 
-    # [Step C] 기본 분리 (공백 기준)
+    # [Step C] 기본 분리 (공백 기준) - 매핑되지 않은 경우에만 수행
     if not mapped:
         parts = clean_model.split()
         if len(parts) >= 2:

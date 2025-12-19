@@ -35,7 +35,7 @@ TRANS = {
         'year_range': "Model Year", 'reg_date': "Registration Date", 'engine_code': "Engine Code",
         'junkyard': "Partner (Yard)", 'photo_only': "Photo Only 📸", 'price_only': "Price Only 💰",
         'reset': "Reset Filter", 'total': "Total", 'price': "Price", 'mileage': "Mileage",
-        'admin_dashboard': "Admin Dashboard", 'user_mgmt': "User Management", 'bulk_upload': "User Upload", 'stock_upload': "Stock Upload (Vehicle)",
+        'admin_dashboard': "Admin Dashboard", 'user_mgmt': "User Management", 'bulk_upload': "Bulk Upload (Excel)", 'stock_upload': "Stock Upload",
         'role': "Role", 'email': "Email", 'phone': "Phone", 'update': "Update Info", 'delete': "Delete User",
         'upload_guide': "Upload Excel with headers: name, email, company, country, phone",
         'filter_title': "🔍 Search Options",
@@ -54,7 +54,7 @@ TRANS = {
         'year_range': "연식 범위", 'reg_date': "등록일 범위", 'engine_code': "엔진 코드",
         'junkyard': "파트너사(폐차장)", 'photo_only': "사진 있는 매물만 📸", 'price_only': "가격 공개 매물만 💰",
         'reset': "필터 초기화", 'total': "총", 'price': "가격", 'mileage': "주행거리",
-        'admin_dashboard': "관리자 대시보드", 'user_mgmt': "회원 관리", 'bulk_upload': "회원 일괄 등록", 'stock_upload': "차량 재고 업로드",
+        'admin_dashboard': "관리자 대시보드", 'user_mgmt': "회원 관리", 'bulk_upload': "엑셀 일괄 등록", 'stock_upload': "차량 재고 업로드",
         'role': "권한", 'email': "이메일", 'phone': "연락처", 'update': "정보 수정", 'delete': "회원 삭제",
         'upload_guide': "엑셀 헤더 양식: name, email, company, country, phone",
         'filter_title': "🔍 검색 옵션 (여기를 눌러 필터를 여세요)",
@@ -113,11 +113,9 @@ def t(key):
 def render_top_detail_view(container, row, role, my_company):
     with container:
         with st.container(border=True):
-            # 내 차량인지 확인
             is_my_car = (role == 'partner' and str(row['junkyard']) == str(my_company))
             
             if is_my_car:
-                # [내 차량] 수정 모드
                 st.subheader(f"{t('edit_view')} : {row['model_name']} ({row['vin']})")
                 with st.form(key=f"edit_form_{row['vin']}"):
                     c1, c2 = st.columns([1, 1.5])
@@ -143,7 +141,6 @@ def render_top_detail_view(container, row, role, my_company):
                             st.rerun()
                         else: st.error("Failed to update.")
             else:
-                # [타인 차량] 조회 모드
                 st.subheader(f"{t('detail_view')} : {row['model_name']} ({row['vin']})")
                 col1, col2 = st.columns([1, 1.5])
                 with col1:
@@ -178,9 +175,7 @@ def render_top_detail_view(container, row, role, my_company):
                     st.markdown(f"**Location (Yard):** {row['junkyard']}")
                     st.markdown(f"**Reg Date:** {str(row['reg_date'])[:10]}")
                     
-                    # ✅ [NEW] 문의하기 버튼 클릭 시 실제 DB 저장
                     if st.button("📩 Send Inquiry", type="primary", use_container_width=True):
-                        # 바이어 ID, 타겟 파트너(폐차장명), VIN, 모델명
                         if db.place_order(st.session_state.user_id, row['junkyard'], row['vin'], row['model_name']):
                             st.success(f"Inquiry sent to {row['junkyard']}!")
                         else:
@@ -263,7 +258,7 @@ def main():
 
 def admin_dashboard():
     st.title(t('admin_dashboard'))
-    # ✅ [NEW] 탭 3개로 확장 (회원관리 / 회원일괄등록 / 재고업로드)
+    # [수정] 탭 3개로 확장: 회원관리 / 회원일괄등록 / 재고업로드
     tab1, tab2, tab3 = st.tabs([t('user_mgmt'), t('bulk_upload'), t('stock_upload')])
     
     with tab1:
@@ -313,7 +308,7 @@ def admin_dashboard():
             except Exception as e:
                 st.error(f"Error reading file: {e}")
 
-    # ✅ [NEW] 재고 업로드 탭 복구
+    # [NEW] 재고 업로드 탭 복구
     with tab3:
         st.subheader(t('stock_upload'))
         st.info("Upload Vehicle Inventory Excel File")
@@ -428,11 +423,36 @@ def buyer_partner_dashboard():
     with tab_eng:
         st.info("Engine inventory module is under maintenance.")
 
+    # ✅ [NEW] 주문 관리 UI 개선 (파트너는 상태변경 및 답장 가능)
     with tab_order:
         st.subheader(t('my_orders'))
         orders = db.get_orders(st.session_state.user_id, st.session_state.user_role)
+        
         if not orders.empty:
-            st.dataframe(orders, use_container_width=True)
+            if st.session_state.user_role == 'partner':
+                # 파트너(셀러)용: 카드 형태로 보여주고 상태 변경/답장 기능 제공
+                for index, row in orders.iterrows():
+                    with st.expander(f"{row['created_at'][:16]} - {row['items_summary']} ({row['status']})"):
+                        st.write(f"**Buyer:** {row['buyer_id']}")
+                        st.write(f"**Details:** {row['items_summary']}")
+                        st.write(f"**Current Status:** {row['status']}")
+                        
+                        # 상태 변경 UI
+                        new_status = st.selectbox("Change Status", ["PENDING", "CONFIRMED", "SHIPPED", "CANCELLED"], key=f"st_{row['id']}", index=["PENDING", "CONFIRMED", "SHIPPED", "CANCELLED"].index(row['status']) if row['status'] in ["PENDING", "CONFIRMED", "SHIPPED", "CANCELLED"] else 0)
+                        
+                        # 답장 UI
+                        reply_txt = st.text_area("Reply Message", value=row['reply_text'] if row['reply_text'] else "", key=f"rp_{row['id']}")
+                        
+                        if st.button("Update Order", key=f"btn_upd_{row['id']}"):
+                            if db.update_order(row['id'], new_status, reply_txt):
+                                st.success("Order Updated!")
+                                time.sleep(0.5)
+                                st.rerun()
+                            else:
+                                st.error("Update failed")
+            else:
+                # 바이어용: 단순 목록 조회 (테이블)
+                st.dataframe(orders, use_container_width=True)
         else:
             st.info("No order history.")
 

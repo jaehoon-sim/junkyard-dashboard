@@ -252,7 +252,7 @@ def save_vehicle_file(uploaded_file):
     except Exception as e: return 0
 
 # ---------------------------------------------------------
-# 사용자 관리 (Company 포함)
+# 사용자 관리
 # ---------------------------------------------------------
 def fetch_users_for_auth():
     try: admin_pw = stauth.Hasher(['1234']).generate()[0]
@@ -336,7 +336,7 @@ def fetch_all_users():
     return df
 
 # ---------------------------------------------------------
-# 데이터 검색
+# 데이터 검색 및 주문 관리
 # ---------------------------------------------------------
 @st.cache_data(ttl=60)
 def search_data(maker, models, details, engines, sy, ey, yards, sm, em, only_photo=False, only_price=False):
@@ -421,20 +421,10 @@ def reset_dashboard():
         'is_filtered': False, 'selected_vin': None
     })
 
-# ---------------------------------------------------------
-# ✅ [NEW] 주문 관련 함수 (누락 복구)
-# ---------------------------------------------------------
 def place_order(buyer_id, target_partner, vin, model_info):
-    """
-    buyer_id: 주문자 ID
-    target_partner: 판매자(폐차장) 이름 -> real_junkyard_name 컬럼에 매칭되어야 함
-    vin: 차량 번호
-    model_info: 차량 모델 정보
-    """
     try:
         conn = sqlite3.connect(SYSTEM_DB)
         summary = f"Inquiry for {model_info} (VIN: {vin})"
-        # real_junkyard_name 컬럼에 파트너 ID(회사명)를 넣어야 셀러가 볼 수 있음
         conn.execute('''INSERT INTO orders 
                         (buyer_id, target_partner_alias, real_junkyard_name, items_summary, status) 
                         VALUES (?, ?, ?, ?, ?)''', 
@@ -446,16 +436,30 @@ def place_order(buyer_id, target_partner, vin, model_info):
         print(f"Order Error: {e}")
         return False
 
+# ✅ [복구된 기능] 주문 상태 업데이트 함수
+def update_order(order_id, status=None, reply=None):
+    conn = sqlite3.connect(SYSTEM_DB)
+    try:
+        if status:
+            conn.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
+        if reply:
+            conn.execute("UPDATE orders SET reply_text = ? WHERE id = ?", (reply, order_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(e)
+        return False
+    finally:
+        conn.close()
+
 def get_orders(user_id, role):
     conn = sqlite3.connect(SYSTEM_DB)
     try:
         if role == 'admin': 
             q = "SELECT * FROM orders ORDER BY created_at DESC"
         elif role == 'partner': 
-            # 셀러는 real_junkyard_name이 자기 ID인 것만 조회
             q = f"SELECT * FROM orders WHERE real_junkyard_name = '{user_id}' ORDER BY created_at DESC"
         else: 
-            # 바이어는 자기가 쓴 글만 조회
             q = f"SELECT * FROM orders WHERE buyer_id = '{user_id}' ORDER BY created_at DESC"
         df = pd.read_sql(q, conn)
     except: df = pd.DataFrame()

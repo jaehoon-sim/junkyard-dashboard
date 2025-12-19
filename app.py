@@ -197,16 +197,15 @@ def main():
         st.session_state.logged_in = True
         st.session_state.user_id = username
         
-        # 사용자 상세 정보 로드 (Role, Company)
+        # ✅ [핵심] 회사 정보 세션 저장
         user_info = credentials['usernames'][username]
         st.session_state.user_role = user_info.get('role', 'buyer')
-        # ✅ 회사 정보 로드 (없으면 username을 사용)
         st.session_state.user_company = user_info.get('company') or username
         
         with st.sidebar:
             st.info(f"Welcome, **{name}**\n({st.session_state.user_role})")
             if st.session_state.user_role == 'partner':
-                st.caption(f"Company: {st.session_state.user_company}")
+                st.caption(f"Yard: {st.session_state.user_company}")
             authenticator.logout(button_name=t('logout'), location='sidebar')
         
         if st.session_state.user_role == 'admin':
@@ -280,7 +279,7 @@ def admin_dashboard():
 def buyer_partner_dashboard():
     st.title(t('title'))
     
-    # [1] 상세 정보 영역
+    # [1] 상세 정보 영역 (상단)
     detail_placeholder = st.container()
 
     # [2] 검색 필터
@@ -312,10 +311,10 @@ def buyer_partner_dashboard():
         with c5:
             sel_engines = st.multiselect(t('engine_code'), st.session_state.engines_list)
         with c6:
-            # ✅ [수정됨] 파트너 권한 시 본인 회사로 고정
+            # ✅ [핵심] 파트너 권한 시 본인 회사만 선택 가능 (강제)
             if st.session_state.user_role == 'partner':
                 my_yard = st.session_state.user_company
-                # options에도 my_yard가 포함되어야 에러가 안 남
+                # 기본값 고정 + 변경 불가
                 sel_yards = st.multiselect(t('junkyard'), [my_yard], default=[my_yard], disabled=True)
             else:
                 sel_yards = st.multiselect(t('junkyard'), st.session_state.yards_list)
@@ -357,6 +356,7 @@ def buyer_partner_dashboard():
             cols_to_show = ['manufacturer', 'model_name', 'model_detail', 'model_year', 
                             'engine_code', 'mileage', 'price_fmt', 'junkyard', 'reg_date', 'vin']
             
+            # [테이블 뷰 + 선택]
             event = st.dataframe(
                 display_df[cols_to_show], 
                 use_container_width=True,
@@ -375,6 +375,7 @@ def buyer_partner_dashboard():
                 selection_mode="single-row"
             )
             
+            # [선택 시 상단 렌더링]
             if len(event.selection.rows) > 0:
                 selected_index = event.selection.rows[0]
                 selected_row = df.iloc[selected_index]

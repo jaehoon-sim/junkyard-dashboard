@@ -9,7 +9,7 @@ from modules import db
 # ---------------------------------------------------------
 # 1. Page Configuration & Session Setup
 # ---------------------------------------------------------
-st.set_page_config(page_title="K-Used Car Hub", layout="wide")
+st.set_page_config(page_title="K-Used Car Hub", page_icon="🚗", layout="wide")
 
 if 'user_id' not in st.session_state:
     st.session_state.update({
@@ -22,11 +22,60 @@ if 'user_id' not in st.session_state:
     })
 
 # ---------------------------------------------------------
+# [UI] 커스텀 CSS (로그인 화면 꾸미기)
+# ---------------------------------------------------------
+def apply_custom_styles():
+    st.markdown("""
+        <style>
+        /* 1. 전체 배경 그라데이션 */
+        .stApp {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        }
+        
+        /* 2. 로그인 폼 컨테이너 스타일 (카드 효과) */
+        div[data-testid="stForm"] {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border: 1px solid #e0e0e0;
+        }
+
+        /* 3. 로그인 버튼 스타일 */
+        div[data-testid="stForm"] button {
+            background-color: #4CAF50;
+            color: white;
+            border-radius: 8px;
+            border: none;
+            padding: 0.5rem 1rem;
+            font-weight: bold;
+            width: 100%;
+        }
+        div[data-testid="stForm"] button:hover {
+            background-color: #45a049;
+            border-color: #45a049;
+        }
+
+        /* 4. 헤더/푸터 숨기기 (깔끔하게) */
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+        
+        /* 5. 메인 타이틀 폰트 */
+        h1 {
+            font-family: 'Helvetica Neue', sans-serif;
+            color: #2c3e50;
+            font-weight: 700;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+# ---------------------------------------------------------
 # 다국어 번역 데이터
 # ---------------------------------------------------------
 TRANS = {
     'English': {
-        'title': "K-Used Car/Engine Inventory",
+        'title': "K-Used Car Global Hub",
+        'subtitle': "Premium Korean Used Cars & Parts Inventory",
         'login': "Login", 'logout': "Logout", 'signup': "Sign Up", 'create_acc': "Create Account",
         'vehicle_inv': "Vehicle Inventory", 'engine_inv': "Engine Inventory",
         'my_orders': "My Orders", 'admin_tools': "Admin Tools",
@@ -46,7 +95,8 @@ TRANS = {
         'upload_photo': "Upload New Photos"
     },
     'Korean': {
-        'title': "K-중고차/부품 통합 재고",
+        'title': "K-중고차 글로벌 허브",
+        'subtitle': "대한민국 No.1 중고차 및 부품 통합 관리 시스템",
         'login': "로그인", 'logout': "로그아웃", 'signup': "회원가입", 'create_acc': "계정 생성",
         'vehicle_inv': "차량 재고", 'engine_inv': "엔진/부품 재고",
         'my_orders': "나의 주문내역", 'admin_tools': "관리자 도구",
@@ -66,7 +116,8 @@ TRANS = {
         'upload_photo': "새로운 사진 업로드"
     },
     'Russian': {
-        'title': "Склад б/у автомобилей и запчастей",
+        'title': "Глобальный центр корейских авто",
+        'subtitle': "Инвентарь подержанных автомобилей и запчастей",
         'login': "Войти", 'logout': "Выйти", 'signup': "Регистрация", 'create_acc': "Создать аккаунт",
         'vehicle_inv': "Автомобили", 'engine_inv': "Двигатели/Запчасти",
         'my_orders': "Мои заказы", 'admin_tools': "Админ",
@@ -86,7 +137,8 @@ TRANS = {
         'upload_photo': "Загрузить фото"
     },
     'Arabic': {
-        'title': "مركز السيارات المستعملة وقطع الغيار",
+        'title': "المركز العالمي للسيارات الكورية",
+        'subtitle': "مخزون السيارات المستعملة وقطع الغيار",
         'login': "تسجيل الدخول", 'logout': "تسجيل الخروج", 'signup': "اشتراك", 'create_acc': "إنشاء حساب",
         'vehicle_inv': "مخزون السيارات", 'engine_inv': "مخزون المحركات",
         'my_orders': "طلباتي", 'admin_tools': "أدوات المسؤول",
@@ -112,7 +164,7 @@ def t(key):
     return TRANS.get(lang, TRANS['English']).get(key, TRANS['English'].get(key, key))
 
 # ---------------------------------------------------------
-# [기능] 상단 상세 뷰 (마스킹 적용)
+# [기능] 상단 상세 뷰
 # ---------------------------------------------------------
 def render_top_detail_view(container, row, role, my_company):
     with container:
@@ -193,24 +245,27 @@ def render_top_detail_view(container, row, role, my_company):
 # 회원가입 폼
 # ---------------------------------------------------------
 def show_signup_expander():
-    with st.expander(t('create_acc') + " (New User?)"):
-        with st.form("signup_form"):
-            new_uid = st.text_input("ID (Email)")
-            new_pw = st.text_input("Password", type="password")
-            new_name = st.text_input("Name")
-            c1, c2 = st.columns(2)
-            new_comp = c1.text_input("Company")
-            new_country = c2.text_input("Country")
-            new_phone = st.text_input("Phone")
-            
-            if st.form_submit_button(t('signup')):
-                if new_uid and new_pw:
-                    if db.create_user(new_uid, new_pw, new_name, new_comp, new_country, new_uid, new_phone):
-                        st.success("Account Created! Please Login above.")
+    # 로그인 화면 중앙에 배치하기 위해 Columns 사용
+    _, c_center, _ = st.columns([1, 2, 1])
+    with c_center:
+        with st.expander(t('create_acc') + " (New User?)"):
+            with st.form("signup_form"):
+                new_uid = st.text_input("ID (Email)")
+                new_pw = st.text_input("Password", type="password")
+                new_name = st.text_input("Name")
+                c1, c2 = st.columns(2)
+                new_comp = c1.text_input("Company")
+                new_country = c2.text_input("Country")
+                new_phone = st.text_input("Phone")
+                
+                if st.form_submit_button(t('signup')):
+                    if new_uid and new_pw:
+                        if db.create_user(new_uid, new_pw, new_name, new_comp, new_country, new_uid, new_phone):
+                            st.success("Account Created! Please Login above.")
+                        else:
+                            st.error("ID already exists.")
                     else:
-                        st.error("ID already exists.")
-                else:
-                    st.warning("Please fill in ID and Password.")
+                        st.warning("Please fill in ID and Password.")
 
 # ---------------------------------------------------------
 # [공통] 마켓플레이스 UI
@@ -392,7 +447,6 @@ def admin_dashboard():
                 s, f = db.create_user_bulk(df.to_dict('records'))
                 st.success(f"Result: Success {s}, Fail {f}")
 
-        # ✅ [다중 파일] 차량 재고 업로드
         with st.expander("2. Vehicle Stock Upload"):
             v_files = st.file_uploader("Stock Excel", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
             if v_files:
@@ -402,7 +456,6 @@ def admin_dashboard():
                         total_cnt += db.save_vehicle_file(f)
                     st.success(f"Total {total_cnt} vehicles uploaded from {len(v_files)} files.")
 
-        # ✅ [버튼 복구] 기존 데이터 재표준화
         if st.button("🔄 Standardize All Existing Data"):
             cnt = db.standardize_existing_data()
             st.success(f"Standardized {cnt} vehicles in DB.")
@@ -423,40 +476,73 @@ def buyer_partner_dashboard():
 # 메인 함수
 # ---------------------------------------------------------
 def main():
+    # CSS 적용 (로그인 디자인)
+    apply_custom_styles()
+
+    # --- [사이드바] 언어 설정 및 메뉴 ---
     with st.sidebar:
         st.selectbox("Language / 언어 / Язык / اللغة", ["English", "Korean", "Russian", "Arabic"], key='lang')
         st.divider()
 
+    # --- [1단계] 인증 객체 생성 ---
     credentials = db.fetch_users_for_auth()
-    authenticator = stauth.Authenticate(credentials, 'k_hub', 'key', cookie_expiry_days=30)
-    authenticator.login(location='main')
+    authenticator = stauth.Authenticate(
+        credentials,
+        'k_used_car_hub',
+        'auth_key_signature',
+        cookie_expiry_days=30
+    )
 
-    if st.session_state["authentication_status"]:
-        username = st.session_state["username"]
-        name = st.session_state["name"]
-        
-        st.session_state.logged_in = True
-        st.session_state.user_id = username
-        
-        user_info = credentials['usernames'][username]
-        st.session_state.user_role = user_info.get('role', 'buyer')
-        st.session_state.user_company = user_info.get('company') or username
-        
+    # --- [2단계] 로그인 상태 확인 ---
+    if not st.session_state.get('logged_in', False):
+        # 중앙 배치용 컬럼 생성 (로그인 폼을 가운데로)
+        col1, col2, col3 = st.columns([1, 1.5, 1])
+        with col2:
+            st.title("🚗 " + t('title'))
+            st.markdown(f"**{t('subtitle')}**")
+            st.divider()
+            
+            # 로그인 위젯 렌더링
+            authenticator.login(location='main')
+            
+            # 상태값 체크
+            if st.session_state.get("authentication_status"):
+                username = st.session_state["username"]
+                name = st.session_state["name"]
+                
+                st.session_state.logged_in = True
+                st.session_state.user_id = username
+                
+                user_info = credentials['usernames'][username]
+                st.session_state.user_role = user_info.get('role', 'buyer')
+                st.session_state.user_company = user_info.get('company') or username
+                st.rerun()
+                
+            elif st.session_state.get("authentication_status") is False:
+                st.error('Username/password is incorrect')
+                show_signup_expander() # 회원가입 폼 표시
+            elif st.session_state.get("authentication_status") is None:
+                st.warning('Please enter your username and password')
+                show_signup_expander() # 회원가입 폼 표시
+
+    else:
+        # --- [3단계] 로그인 성공 후 화면 ---
         with st.sidebar:
-            st.info(f"User: {name}\nRole: {st.session_state.user_role}")
+            st.info(f"User: {st.session_state.user_id}\nRole: {st.session_state.user_role}")
+            if st.session_state.user_role == 'partner':
+                st.caption(f"Yard: {st.session_state.user_company}")
+            
+            # 로그아웃 버튼 (콜백으로 상태 초기화)
             authenticator.logout(button_name=t('logout'), location='sidebar')
+            if not st.session_state.get('authentication_status'):
+                st.session_state.logged_in = False
+                st.rerun()
 
+        # 권한별 대시보드
         if st.session_state.user_role == 'admin':
             admin_dashboard()
         else:
             buyer_partner_dashboard()
-
-    elif st.session_state["authentication_status"] is False:
-        st.error('Incorrect password')
-        show_signup_expander()
-    elif st.session_state["authentication_status"] is None:
-        st.warning('Please login')
-        show_signup_expander()
 
 if __name__ == "__main__":
     main()

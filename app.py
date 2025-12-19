@@ -18,8 +18,8 @@ if 'user_id' not in st.session_state:
         'view_data': pd.DataFrame(), 'total_count': 0, 'is_filtered': False,
         'models_df': pd.DataFrame(), 'engines_list': [], 'yards_list': [], 'months_list': [],
         'lang': 'English',
-        # authenticator 초기 상태값 (필요 시)
-        'authentication_status': None, 'username': None, 'name': None
+        'authentication_status': None, 'username': None, 'name': None,
+        'selected_vin': None # [NEW] 현재 선택된 차량 VIN 저장
     })
 
 # ---------------------------------------------------------
@@ -39,7 +39,8 @@ TRANS = {
         'admin_dashboard': "Admin Dashboard", 'user_mgmt': "User Management", 'bulk_upload': "Bulk Upload (Excel)",
         'role': "Role", 'email': "Email", 'phone': "Phone", 'update': "Update Info", 'delete': "Delete User",
         'upload_guide': "Upload Excel with headers: name, email, company, country, phone",
-        'filter_title': "🔍 Search Options"
+        'filter_title': "🔍 Search Options",
+        'detail_view': "🚗 Selected Vehicle Detail"
     },
     'Korean': {
         'title': "K-중고차/부품 통합 재고",
@@ -54,7 +55,8 @@ TRANS = {
         'admin_dashboard': "관리자 대시보드", 'user_mgmt': "회원 관리", 'bulk_upload': "엑셀 일괄 등록",
         'role': "권한", 'email': "이메일", 'phone': "연락처", 'update': "정보 수정", 'delete': "회원 삭제",
         'upload_guide': "엑셀 헤더 양식: name, email, company, country, phone",
-        'filter_title': "🔍 검색 옵션 (여기를 눌러 필터를 여세요)"
+        'filter_title': "🔍 검색 옵션 (여기를 눌러 필터를 여세요)",
+        'detail_view': "🚗 선택된 차량 상세 정보"
     },
     'Russian': {
         'title': "Склад б/у автомобилей и запчастей",
@@ -69,7 +71,8 @@ TRANS = {
         'admin_dashboard': "Панель администратора", 'user_mgmt': "Управление пользователями", 'bulk_upload': "Массовая загрузка (Excel)",
         'role': "Роль", 'email': "Email", 'phone': "Телефон", 'update': "Обновить", 'delete': "Удалить",
         'upload_guide': "Заголовки Excel: name, email, company, country, phone",
-        'filter_title': "🔍 Параметры поиска"
+        'filter_title': "🔍 Параметры поиска",
+        'detail_view': "🚗 Детали выбранного автомобиля"
     },
     'Arabic': {
         'title': "مركز السيارات المستعملة وقطع الغيار",
@@ -84,7 +87,8 @@ TRANS = {
         'admin_dashboard': "لوحة التحكم", 'user_mgmt': "إدارة المستخدمين", 'bulk_upload': "تحميل جماعي (Excel)",
         'role': "الدور", 'email': "البريد الإلكتروني", 'phone': "الهاتف", 'update': "تحديث", 'delete': "حذف",
         'upload_guide': "رؤوس ملف Excel: name, email, company, country, phone",
-        'filter_title': "🔍 خيارات البحث"
+        'filter_title': "🔍 خيارات البحث",
+        'detail_view': "🚗 تفاصيل السيارة المختارة"
     }
 }
 
@@ -93,60 +97,69 @@ def t(key):
     return TRANS.get(lang, TRANS['English']).get(key, TRANS['English'].get(key, key))
 
 # ---------------------------------------------------------
-# [팝업] 차량 상세 정보 다이얼로그
+# [기능] 상단에 상세 정보를 그려주는 함수 (팝업 아님)
 # ---------------------------------------------------------
-@st.dialog("🚗 Vehicle Details")
-def show_vehicle_detail(row):
-    # 1. 이미지 처리
-    img_str = str(row.get('photos', ''))
-    images = [img.strip() for img in img_str.split(',') if img.strip()]
-    
-    if images:
-        first_img = images[0]
-        if os.path.exists(first_img):
-            st.image(first_img, use_container_width=True)
-        else:
-            st.warning("Image file not found on server.")
+def render_top_detail_view(container, row):
+    """
+    container: st.container() 객체 (화면 상단 영역)
+    row: 선택된 차량 데이터 (Series)
+    """
+    with container:
+        with st.container(border=True): # 테두리 추가로 구분감
+            st.subheader(f"{t('detail_view')} : {row['model_name']} ({row['vin']})")
             
-        if len(images) > 1:
-            with st.expander(f"View {len(images)-1} more photos"):
-                cols = st.columns(3)
-                for i, img in enumerate(images[1:]):
-                    if os.path.exists(img):
-                        cols[i % 3].image(img, use_container_width=True)
-    else:
-        st.info("No images available.")
+            # 레이아웃: 왼쪽(이미지) / 오른쪽(정보)
+            col1, col2 = st.columns([1, 1.5])
+            
+            with col1:
+                # 1. 이미지 처리
+                img_str = str(row.get('photos', ''))
+                images = [img.strip() for img in img_str.split(',') if img.strip()]
+                
+                if images:
+                    first_img = images[0]
+                    if os.path.exists(first_img):
+                        st.image(first_img, use_container_width=True)
+                    else:
+                        st.warning("Image file missing")
+                    
+                    # 추가 이미지가 있다면 Expander로 표시
+                    if len(images) > 1:
+                        with st.expander(f"📸 More Photos ({len(images)-1})"):
+                            sub_cols = st.columns(3)
+                            for i, img in enumerate(images[1:]):
+                                if os.path.exists(img):
+                                    sub_cols[i % 3].image(img, use_container_width=True)
+                else:
+                    st.info("🖼️ No Images Available")
 
-    st.divider()
-
-    # 2. 핵심 정보
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(f"**Manufacturer:** {row['manufacturer']}")
-        st.markdown(f"**Model:** {row['model_name']}")
-        st.markdown(f"**Detail:** {row['model_detail']}")
-        st.markdown(f"**Year:** {row['model_year']}")
-    with c2:
-        price = row.get('price', 0)
-        price_txt = f"${price:,.0f}" if price > 0 else "Contact Us"
-        st.markdown(f"**Price:** :green[{price_txt}]")
-        
-        mileage = row.get('mileage', 0)
-        st.markdown(f"**Mileage:** {mileage:,.0f} km")
-        st.markdown(f"**Engine:** {row['engine_code']}")
-
-    st.divider()
-    st.markdown(f"**VIN:** `{row['vin']}`")
-    st.markdown(f"**Location:** {row['junkyard']}")
-    st.caption(f"Registered Date: {str(row['reg_date'])[:10]}")
-    
-    if st.button("📩 Send Inquiry", type="primary", use_container_width=True):
-        st.success(f"Inquiry sent for VIN: {row['vin']}")
-        time.sleep(1.5)
-        st.rerun()
+            with col2:
+                # 2. 상세 텍스트 정보
+                c_a, c_b = st.columns(2)
+                with c_a:
+                    st.markdown(f"**Manufacturer:** {row['manufacturer']}")
+                    st.markdown(f"**Model:** {row['model_name']}")
+                    st.markdown(f"**Detail:** {row['model_detail']}")
+                    st.markdown(f"**Year:** {row['model_year']}")
+                with c_b:
+                    price = row.get('price', 0)
+                    price_txt = f"${price:,.0f}" if price > 0 else "Contact Us"
+                    st.markdown(f"### {t('price')}: :green[{price_txt}]")
+                    
+                    mileage = row.get('mileage', 0)
+                    st.markdown(f"**{t('mileage')}:** {mileage:,.0f} km")
+                    st.markdown(f"**Engine:** {row['engine_code']}")
+                
+                st.divider()
+                st.markdown(f"**Location (Yard):** {row['junkyard']}")
+                st.markdown(f"**Reg Date:** {str(row['reg_date'])[:10]}")
+                
+                # 주문/문의 버튼
+                if st.button("📩 Send Inquiry (문의하기)", type="primary", use_container_width=True):
+                    st.success(f"Inquiry sent for VIN: {row['vin']}")
 
 # ---------------------------------------------------------
-# 회원가입 폼 (로그인 실패/미로그인 시 표시)
+# 회원가입 폼
 # ---------------------------------------------------------
 def show_signup_expander():
     with st.expander(t('create_acc') + " (New User?)"):
@@ -169,17 +182,15 @@ def show_signup_expander():
                     st.warning("Please fill in ID and Password.")
 
 # ---------------------------------------------------------
-# 2. 메인 애플리케이션 (인증 로직 수정됨)
+# 2. 메인 애플리케이션
 # ---------------------------------------------------------
 def main():
-    # --- [사이드바] 언어 설정 ---
     with st.sidebar:
         st.selectbox("Language / 언어 / Язык / اللغة", ["English", "Korean", "Russian", "Arabic"], key='lang')
         st.divider()
 
-    # --- [1단계] 인증 (로그인/쿠키 체크) ---
+    # --- 인증 로직 ---
     credentials = db.fetch_users_for_auth()
-    
     authenticator = stauth.Authenticate(
         credentials,
         'k_used_car_hub',
@@ -187,30 +198,23 @@ def main():
         cookie_expiry_days=30
     )
 
-    # ✅ [수정됨] 로그인 위젯 렌더링 (리턴값 없이 실행)
     authenticator.login(location='main')
 
-    # ✅ [수정됨] 세션 상태로 로그인 여부 확인
     if st.session_state["authentication_status"]:
-        # 로그인 성공
         username = st.session_state["username"]
         name = st.session_state["name"]
         
-        # 앱 세션 동기화
         st.session_state.logged_in = True
         st.session_state.user_id = username
         try:
             st.session_state.user_role = credentials['usernames'][username]['role']
         except:
-            st.session_state.user_role = 'buyer' # 기본값
+            st.session_state.user_role = 'buyer'
         
-        # 사이드바: 로그아웃 버튼
         with st.sidebar:
             st.info(f"Welcome, **{name}** ({st.session_state.user_role})")
-            # 로그아웃 버튼
             authenticator.logout(button_name=t('logout'), location='sidebar')
         
-        # 권한별 대시보드 표시
         if st.session_state.user_role == 'admin':
             admin_dashboard()
         else:
@@ -282,14 +286,17 @@ def admin_dashboard():
 def buyer_partner_dashboard():
     st.title(t('title'))
     
-    # [필터] 상단 Expander (차량 검색 옵션)
-    with st.expander(t('filter_title'), expanded=True):
+    # ✅ [1] 상세 정보가 표시될 최상단 영역 (Placeholder)
+    # 이 공간은 항상 존재하며, 사용자가 아래에서 선택했을 때만 채워집니다.
+    detail_placeholder = st.container()
+
+    # ✅ [2] 검색 필터 (Expander)
+    with st.expander(t('filter_title'), expanded=False): # 기본적으로 닫아두어 상단 공간 확보
         if st.session_state.models_df.empty:
             db.reset_dashboard()
             
         m_df = st.session_state.models_df
         
-        # 필터 행 1
         c1, c2, c3 = st.columns(3)
         with c1:
             mfr_list = ["All"] + sorted(m_df['manufacturer'].unique().tolist())
@@ -302,7 +309,6 @@ def buyer_partner_dashboard():
         with c3:
             sy, ey = st.slider(t('year_range'), 1990, 2025, (2000, 2025))
 
-        # 필터 행 2
         c4, c5, c6 = st.columns(3)
         with c4:
             months = st.session_state.months_list
@@ -315,7 +321,6 @@ def buyer_partner_dashboard():
         with c6:
             sel_yards = st.multiselect(t('junkyard'), st.session_state.yards_list)
 
-        # 필터 행 3 (체크박스 및 버튼)
         st.divider()
         cb1, cb2, cb3, cb4 = st.columns([1, 1, 1, 1])
         with cb1:
@@ -332,9 +337,12 @@ def buyer_partner_dashboard():
                 st.session_state.view_data = df
                 st.session_state.total_count = count
                 st.session_state.is_filtered = True
+                # 검색 새로 하면 선택 정보 초기화
+                st.session_state.selected_vin = None 
         with cb4:
             if st.button(t('reset'), use_container_width=True):
                 db.reset_dashboard()
+                st.session_state.selected_vin = None
                 st.rerun()
 
     # --- 메인 탭 화면 ---
@@ -345,14 +353,13 @@ def buyer_partner_dashboard():
         
         df = st.session_state.view_data
         if not df.empty:
-            # 표시용 데이터
             display_df = df.copy()
             display_df['price_fmt'] = display_df['price'].apply(lambda x: f"${x:,.0f}" if x > 0 else "Contact")
             
             cols_to_show = ['manufacturer', 'model_name', 'model_detail', 'model_year', 
                             'engine_code', 'mileage', 'price_fmt', 'junkyard', 'reg_date', 'vin']
             
-            # [테이블 뷰 + 선택 기능]
+            # ✅ [3] 테이블 출력 (선택 기능)
             event = st.dataframe(
                 display_df[cols_to_show], 
                 use_container_width=True,
@@ -371,11 +378,14 @@ def buyer_partner_dashboard():
                 selection_mode="single-row"
             )
             
-            # 선택된 행이 있으면 상세 팝업 호출
+            # ✅ [4] 선택 이벤트 처리 -> 상단 detail_placeholder에 렌더링
             if len(event.selection.rows) > 0:
                 selected_index = event.selection.rows[0]
                 selected_row = df.iloc[selected_index]
-                show_vehicle_detail(selected_row)
+                
+                # 상단 컨테이너에 정보 그리기
+                render_top_detail_view(detail_placeholder, selected_row)
+            
         else:
             st.info("No vehicles found matching filters.")
 

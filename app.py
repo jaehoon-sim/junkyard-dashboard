@@ -108,14 +108,20 @@ def t(key):
     return TRANS.get(lang, TRANS['English']).get(key, TRANS['English'].get(key, key))
 
 # ---------------------------------------------------------
-# [기능] 상단 상세 뷰 (수정 모드 vs 조회 모드 분기)
+# [기능] 상단 상세 뷰 (마스킹 적용됨)
 # ---------------------------------------------------------
 def render_top_detail_view(container, row, role, my_company):
     with container:
         with st.container(border=True):
             is_my_car = (role == 'partner' and str(row['junkyard']) == str(my_company))
             
+            # ✅ [Masking] 바이어에게 보여줄 업체명 처리
+            display_yard = row['junkyard']
+            if role == 'buyer':
+                display_yard = "Verified Partner"
+
             if is_my_car:
+                # [내 차량] 수정 모드
                 st.subheader(f"{t('edit_view')} : {row['model_name']} ({row['vin']})")
                 with st.form(key=f"edit_form_{row['vin']}"):
                     c1, c2 = st.columns([1, 1.5])
@@ -141,6 +147,7 @@ def render_top_detail_view(container, row, role, my_company):
                             st.rerun()
                         else: st.error("Failed to update.")
             else:
+                # [타인 차량] 조회 모드
                 st.subheader(f"{t('detail_view')} : {row['model_name']} ({row['vin']})")
                 col1, col2 = st.columns([1, 1.5])
                 with col1:
@@ -172,12 +179,14 @@ def render_top_detail_view(container, row, role, my_company):
                         st.markdown(f"**Engine:** {row['engine_code']}")
                     
                     st.divider()
-                    st.markdown(f"**Location (Yard):** {row['junkyard']}")
+                    # ✅ 여기서 마스킹된 이름을 보여줍니다.
+                    st.markdown(f"**Location (Yard):** {display_yard}")
                     st.markdown(f"**Reg Date:** {str(row['reg_date'])[:10]}")
                     
                     if st.button("📩 Send Inquiry", type="primary", use_container_width=True):
+                        # 실제 DB에는 원래 폐차장 이름(row['junkyard'])으로 주문을 넣어야 함
                         if db.place_order(st.session_state.user_id, row['junkyard'], row['vin'], row['model_name']):
-                            st.success(f"Inquiry sent to {row['junkyard']}!")
+                            st.success(f"Inquiry sent to Partner!")
                         else:
                             st.error("Failed to send inquiry.")
 
@@ -258,7 +267,6 @@ def main():
 
 def admin_dashboard():
     st.title(t('admin_dashboard'))
-    # [수정] 탭 3개로 확장: 회원관리 / 회원일괄등록 / 재고업로드
     tab1, tab2, tab3 = st.tabs([t('user_mgmt'), t('bulk_upload'), t('stock_upload')])
     
     with tab1:
@@ -308,7 +316,6 @@ def admin_dashboard():
             except Exception as e:
                 st.error(f"Error reading file: {e}")
 
-    # [NEW] 재고 업로드 탭 복구
     with tab3:
         st.subheader(t('stock_upload'))
         st.info("Upload Vehicle Inventory Excel File")
@@ -352,10 +359,17 @@ def buyer_partner_dashboard():
         with c5:
             sel_engines = st.multiselect(t('engine_code'), st.session_state.engines_list)
         with c6:
-            if st.session_state.user_role == 'partner':
+            # ✅ [Masking] 바이어에게는 필터 목록을 숨기거나 빈 목록으로 처리
+            if st.session_state.user_role == 'buyer':
+                # 바이어는 폐차장 선택 불가 (전체 검색)
+                sel_yards = [] 
+                st.selectbox(t('junkyard'), ["All Partners"], disabled=True)
+            elif st.session_state.user_role == 'partner':
+                # 파트너는 자기 회사 고정
                 my_yard = st.session_state.user_company
                 sel_yards = st.multiselect(t('junkyard'), [my_yard], default=[my_yard], disabled=True)
             else:
+                # 관리자는 전체 선택 가능
                 sel_yards = st.multiselect(t('junkyard'), st.session_state.yards_list)
 
         st.divider()
@@ -389,6 +403,11 @@ def buyer_partner_dashboard():
         df = st.session_state.view_data
         if not df.empty:
             display_df = df.copy()
+            
+            # ✅ [Masking] 테이블에서도 업체명 숨기기
+            if st.session_state.user_role == 'buyer':
+                display_df['junkyard'] = "Verified Partner"
+                
             display_df['price_fmt'] = display_df['price'].apply(lambda x: f"${x:,.0f}" if x > 0 else "Contact")
             
             cols_to_show = ['manufacturer', 'model_name', 'model_detail', 'model_year', 
@@ -414,6 +433,8 @@ def buyer_partner_dashboard():
             
             if len(event.selection.rows) > 0:
                 selected_index = event.selection.rows[0]
+                # display_df가 아닌 원본 데이터에서 정보를 가져와야 함 (수정 기능 등을 위해)
+                # 단, 원본을 넘기되 함수 내부에서 role을 체크하여 마스킹함
                 selected_row = df.iloc[selected_index]
                 render_top_detail_view(detail_placeholder, selected_row, st.session_state.user_role, st.session_state.user_company)
             
@@ -423,24 +444,19 @@ def buyer_partner_dashboard():
     with tab_eng:
         st.info("Engine inventory module is under maintenance.")
 
-    # ✅ [NEW] 주문 관리 UI 개선 (파트너는 상태변경 및 답장 가능)
     with tab_order:
         st.subheader(t('my_orders'))
         orders = db.get_orders(st.session_state.user_id, st.session_state.user_role)
         
         if not orders.empty:
             if st.session_state.user_role == 'partner':
-                # 파트너(셀러)용: 카드 형태로 보여주고 상태 변경/답장 기능 제공
                 for index, row in orders.iterrows():
                     with st.expander(f"{row['created_at'][:16]} - {row['items_summary']} ({row['status']})"):
                         st.write(f"**Buyer:** {row['buyer_id']}")
                         st.write(f"**Details:** {row['items_summary']}")
                         st.write(f"**Current Status:** {row['status']}")
                         
-                        # 상태 변경 UI
                         new_status = st.selectbox("Change Status", ["PENDING", "CONFIRMED", "SHIPPED", "CANCELLED"], key=f"st_{row['id']}", index=["PENDING", "CONFIRMED", "SHIPPED", "CANCELLED"].index(row['status']) if row['status'] in ["PENDING", "CONFIRMED", "SHIPPED", "CANCELLED"] else 0)
-                        
-                        # 답장 UI
                         reply_txt = st.text_area("Reply Message", value=row['reply_text'] if row['reply_text'] else "", key=f"rp_{row['id']}")
                         
                         if st.button("Update Order", key=f"btn_upd_{row['id']}"):
@@ -451,7 +467,6 @@ def buyer_partner_dashboard():
                             else:
                                 st.error("Update failed")
             else:
-                # 바이어용: 단순 목록 조회 (테이블)
                 st.dataframe(orders, use_container_width=True)
         else:
             st.info("No order history.")

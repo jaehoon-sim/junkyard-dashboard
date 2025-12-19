@@ -14,7 +14,7 @@ SYSTEM_DB = 'data/system.db'
 IMAGE_DIR = 'data/vehicle_images'
 
 # ---------------------------------------------------------
-# 0. 데이터 표준화 규칙 (기존 유지)
+# 0. 데이터 표준화 규칙
 # ---------------------------------------------------------
 GARBAGE_TERMS = [
     'MERCEDES-BENZ', 'MERCEDES-AMG', 'MERCEDES-MAYBACH', 'BENZ', 
@@ -77,7 +77,6 @@ def init_dbs():
         price REAL DEFAULT 0, mileage REAL DEFAULT 0, photos TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
-    # 마이그레이션
     try: c.execute("ALTER TABLE vehicle_data ADD COLUMN model_detail TEXT DEFAULT ''")
     except: pass
     try: c.execute("ALTER TABLE vehicle_data ADD COLUMN price REAL DEFAULT 0")
@@ -97,7 +96,6 @@ def init_dbs():
 
     conn = sqlite3.connect(SYSTEM_DB)
     c = conn.cursor()
-    # Users 테이블 (Company 컬럼 필수)
     c.execute('''CREATE TABLE IF NOT EXISTS users (
         user_id TEXT PRIMARY KEY, password TEXT, name TEXT, company TEXT, 
         country TEXT, email TEXT, phone TEXT, role TEXT DEFAULT 'buyer', 
@@ -111,7 +109,6 @@ def init_dbs():
         id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT, search_type TEXT, 
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
-    # 번역 테이블
     c.execute("DROP TABLE IF EXISTS translations")
     c.execute('''CREATE TABLE translations (
         key TEXT PRIMARY KEY, English TEXT, Korean TEXT, Russian TEXT, Arabic TEXT)''')
@@ -255,7 +252,7 @@ def save_vehicle_file(uploaded_file):
     except Exception as e: return 0
 
 # ---------------------------------------------------------
-# [중요] 사용자 관리 (Company 컬럼 포함 조회)
+# 사용자 관리 (Company 포함)
 # ---------------------------------------------------------
 def fetch_users_for_auth():
     try: admin_pw = stauth.Hasher(['1234']).generate()[0]
@@ -265,7 +262,6 @@ def fetch_users_for_auth():
     
     try:
         conn = sqlite3.connect(SYSTEM_DB)
-        # company 컬럼 조회 필수
         for r in conn.execute("SELECT user_id, password, name, role, email, phone, company FROM users").fetchall():
             creds['usernames'][r[0]] = {
                 'name': r[2], 
@@ -273,7 +269,7 @@ def fetch_users_for_auth():
                 'role': r[3], 
                 'email': r[4] or '', 
                 'phone': r[5] or '',
-                'company': r[6] or '' # 회사 정보
+                'company': r[6] or ''
             }
         conn.close()
     except: pass
@@ -340,7 +336,7 @@ def fetch_all_users():
     return df
 
 # ---------------------------------------------------------
-# 데이터 검색 (필터 적용)
+# 데이터 검색
 # ---------------------------------------------------------
 @st.cache_data(ttl=60)
 def search_data(maker, models, details, engines, sy, ey, yards, sm, em, only_photo=False, only_price=False):
@@ -376,7 +372,6 @@ def search_data(maker, models, details, engines, sy, ey, yards, sm, em, only_pho
         return df, count
     except: return pd.DataFrame(), 0
 
-# [NEW] 매물 정보 업데이트 (가격, 주행거리, 사진)
 def update_vehicle_sales_info(vin, price, mileage, photo_files):
     try:
         conn = sqlite3.connect(INVENTORY_DB)
@@ -391,7 +386,6 @@ def update_vehicle_sales_info(vin, price, mileage, photo_files):
                 saved_paths.append(fpath)
         
         if saved_paths:
-            # 기존 사진에 추가하거나 덮어쓰기 (여기선 덮어쓰기로 구현)
             photo_str = ",".join(saved_paths)
             sql = "UPDATE vehicle_data SET price = ?, mileage = ?, photos = ? WHERE vin = ?"
             params = (price, mileage, photo_str, vin)
@@ -427,12 +421,42 @@ def reset_dashboard():
         'is_filtered': False, 'selected_vin': None
     })
 
+# ---------------------------------------------------------
+# ✅ [NEW] 주문 관련 함수 (누락 복구)
+# ---------------------------------------------------------
+def place_order(buyer_id, target_partner, vin, model_info):
+    """
+    buyer_id: 주문자 ID
+    target_partner: 판매자(폐차장) 이름 -> real_junkyard_name 컬럼에 매칭되어야 함
+    vin: 차량 번호
+    model_info: 차량 모델 정보
+    """
+    try:
+        conn = sqlite3.connect(SYSTEM_DB)
+        summary = f"Inquiry for {model_info} (VIN: {vin})"
+        # real_junkyard_name 컬럼에 파트너 ID(회사명)를 넣어야 셀러가 볼 수 있음
+        conn.execute('''INSERT INTO orders 
+                        (buyer_id, target_partner_alias, real_junkyard_name, items_summary, status) 
+                        VALUES (?, ?, ?, ?, ?)''', 
+                     (buyer_id, target_partner, target_partner, summary, 'PENDING'))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Order Error: {e}")
+        return False
+
 def get_orders(user_id, role):
     conn = sqlite3.connect(SYSTEM_DB)
     try:
-        if role == 'admin': q = "SELECT * FROM orders ORDER BY created_at DESC"
-        elif role == 'partner': q = f"SELECT * FROM orders WHERE real_junkyard_name = '{user_id}' ORDER BY created_at DESC"
-        else: q = f"SELECT * FROM orders WHERE buyer_id = '{user_id}' ORDER BY created_at DESC"
+        if role == 'admin': 
+            q = "SELECT * FROM orders ORDER BY created_at DESC"
+        elif role == 'partner': 
+            # 셀러는 real_junkyard_name이 자기 ID인 것만 조회
+            q = f"SELECT * FROM orders WHERE real_junkyard_name = '{user_id}' ORDER BY created_at DESC"
+        else: 
+            # 바이어는 자기가 쓴 글만 조회
+            q = f"SELECT * FROM orders WHERE buyer_id = '{user_id}' ORDER BY created_at DESC"
         df = pd.read_sql(q, conn)
     except: df = pd.DataFrame()
     conn.close()

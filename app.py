@@ -35,7 +35,7 @@ TRANS = {
         'year_range': "Model Year", 'reg_date': "Registration Date", 'engine_code': "Engine Code",
         'junkyard': "Partner (Yard)", 'photo_only': "Photo Only 📸", 'price_only': "Price Only 💰",
         'reset': "Reset Filter", 'total': "Total", 'price': "Price", 'mileage': "Mileage",
-        'admin_dashboard': "Admin Dashboard", 'user_mgmt': "User Management", 'bulk_upload': "Bulk Upload (Excel)",
+        'admin_dashboard': "Admin Dashboard", 'user_mgmt': "User Management", 'bulk_upload': "User Upload", 'stock_upload': "Stock Upload (Vehicle)",
         'role': "Role", 'email': "Email", 'phone': "Phone", 'update': "Update Info", 'delete': "Delete User",
         'upload_guide': "Upload Excel with headers: name, email, company, country, phone",
         'filter_title': "🔍 Search Options",
@@ -54,7 +54,7 @@ TRANS = {
         'year_range': "연식 범위", 'reg_date': "등록일 범위", 'engine_code': "엔진 코드",
         'junkyard': "파트너사(폐차장)", 'photo_only': "사진 있는 매물만 📸", 'price_only': "가격 공개 매물만 💰",
         'reset': "필터 초기화", 'total': "총", 'price': "가격", 'mileage': "주행거리",
-        'admin_dashboard': "관리자 대시보드", 'user_mgmt': "회원 관리", 'bulk_upload': "엑셀 일괄 등록",
+        'admin_dashboard': "관리자 대시보드", 'user_mgmt': "회원 관리", 'bulk_upload': "회원 일괄 등록", 'stock_upload': "차량 재고 업로드",
         'role': "권한", 'email': "이메일", 'phone': "연락처", 'update': "정보 수정", 'delete': "회원 삭제",
         'upload_guide': "엑셀 헤더 양식: name, email, company, country, phone",
         'filter_title': "🔍 검색 옵션 (여기를 눌러 필터를 여세요)",
@@ -73,7 +73,7 @@ TRANS = {
         'year_range': "Год выпуска", 'reg_date': "Дата регистрации", 'engine_code': "Код двигателя",
         'junkyard': "Партнер (Склад)", 'photo_only': "С фото 📸", 'price_only': "С ценой 💰",
         'reset': "Сброс", 'total': "Всего", 'price': "Цена", 'mileage': "Пробег",
-        'admin_dashboard': "Панель администратора", 'user_mgmt': "Управление пользователями", 'bulk_upload': "Массовая загрузка (Excel)",
+        'admin_dashboard': "Панель администратора", 'user_mgmt': "Управление пользователями", 'bulk_upload': "Массовая загрузка (Excel)", 'stock_upload': "Загрузка склада",
         'role': "Роль", 'email': "Email", 'phone': "Телефон", 'update': "Обновить", 'delete': "Удалить",
         'upload_guide': "Заголовки Excel: name, email, company, country, phone",
         'filter_title': "🔍 Параметры поиска",
@@ -92,7 +92,7 @@ TRANS = {
         'year_range': "سنة الصنع", 'reg_date': "تاريخ التسجيل", 'engine_code': "رمز المحرك",
         'junkyard': "الشريك (المستودع)", 'photo_only': "مع صور فقط 📸", 'price_only': "مع السعر فقط 💰",
         'reset': "إعادة تعيين", 'total': "المجموع", 'price': "السعر", 'mileage': "العداد",
-        'admin_dashboard': "لوحة التحكم", 'user_mgmt': "إدارة المستخدمين", 'bulk_upload': "تحميل جماعي (Excel)",
+        'admin_dashboard': "لوحة التحكم", 'user_mgmt': "إدارة المستخدمين", 'bulk_upload': "تحميل جماعي (Excel)", 'stock_upload': "تحميل المخزون",
         'role': "الدور", 'email': "البريد الإلكتروني", 'phone': "الهاتف", 'update': "تحديث", 'delete': "حذف",
         'upload_guide': "رؤوس ملف Excel: name, email, company, country, phone",
         'filter_title': "🔍 خيارات البحث",
@@ -113,7 +113,7 @@ def t(key):
 def render_top_detail_view(container, row, role, my_company):
     with container:
         with st.container(border=True):
-            # 내 차량인지 확인 (파트너 권한 AND 폐차장 이름 일치)
+            # 내 차량인지 확인
             is_my_car = (role == 'partner' and str(row['junkyard']) == str(my_company))
             
             if is_my_car:
@@ -178,8 +178,13 @@ def render_top_detail_view(container, row, role, my_company):
                     st.markdown(f"**Location (Yard):** {row['junkyard']}")
                     st.markdown(f"**Reg Date:** {str(row['reg_date'])[:10]}")
                     
+                    # ✅ [NEW] 문의하기 버튼 클릭 시 실제 DB 저장
                     if st.button("📩 Send Inquiry", type="primary", use_container_width=True):
-                        st.success(f"Inquiry sent for VIN: {row['vin']}")
+                        # 바이어 ID, 타겟 파트너(폐차장명), VIN, 모델명
+                        if db.place_order(st.session_state.user_id, row['junkyard'], row['vin'], row['model_name']):
+                            st.success(f"Inquiry sent to {row['junkyard']}!")
+                        else:
+                            st.error("Failed to send inquiry.")
 
 # ---------------------------------------------------------
 # 회원가입 폼
@@ -258,7 +263,8 @@ def main():
 
 def admin_dashboard():
     st.title(t('admin_dashboard'))
-    tab1, tab2 = st.tabs([t('user_mgmt'), t('bulk_upload')])
+    # ✅ [NEW] 탭 3개로 확장 (회원관리 / 회원일괄등록 / 재고업로드)
+    tab1, tab2, tab3 = st.tabs([t('user_mgmt'), t('bulk_upload'), t('stock_upload')])
     
     with tab1:
         users_df = db.fetch_all_users()
@@ -294,26 +300,35 @@ def admin_dashboard():
     with tab2:
         st.subheader(t('bulk_upload'))
         st.info(t('upload_guide'))
-        uploaded_file = st.file_uploader("Upload Excel (.xlsx, .xls)", type=['xlsx', 'xls'])
+        uploaded_file = st.file_uploader("Upload Excel (User Data)", type=['xlsx', 'xls'])
         
         if uploaded_file:
             try:
                 df = pd.read_excel(uploaded_file)
                 st.write("Preview:", df.head())
-                if st.button("Register Users to DB"):
+                if st.button("Register Users"):
                     user_list = df.to_dict('records')
                     suc, fail = db.create_user_bulk(user_list)
-                    st.success(f"Upload Complete! Success: {suc}, Failed(Duplicate): {fail}")
+                    st.success(f"Upload Complete! Success: {suc}, Failed: {fail}")
             except Exception as e:
                 st.error(f"Error reading file: {e}")
+
+    # ✅ [NEW] 재고 업로드 탭 복구
+    with tab3:
+        st.subheader(t('stock_upload'))
+        st.info("Upload Vehicle Inventory Excel File")
+        v_file = st.file_uploader("Excel (Vehicle Data)", type=['xlsx', 'xls', 'csv'])
+        if v_file:
+            if st.button("Upload Stock to DB"):
+                count = db.save_vehicle_file(v_file)
+                if count > 0: st.success(f"{count} vehicles uploaded successfully!")
+                else: st.error("Failed to upload. Check file format.")
 
 def buyer_partner_dashboard():
     st.title(t('title'))
     
-    # [1] 상세 정보 영역 (상단)
     detail_placeholder = st.container()
 
-    # [2] 검색 필터
     with st.expander(t('filter_title'), expanded=False):
         if st.session_state.models_df.empty:
             db.reset_dashboard()
@@ -342,7 +357,6 @@ def buyer_partner_dashboard():
         with c5:
             sel_engines = st.multiselect(t('engine_code'), st.session_state.engines_list)
         with c6:
-            # 파트너는 자기 회사만 선택 가능
             if st.session_state.user_role == 'partner':
                 my_yard = st.session_state.user_company
                 sel_yards = st.multiselect(t('junkyard'), [my_yard], default=[my_yard], disabled=True)
@@ -372,7 +386,6 @@ def buyer_partner_dashboard():
                 st.session_state.selected_vin = None
                 st.rerun()
 
-    # --- 메인 탭 화면 ---
     tab_veh, tab_eng, tab_order = st.tabs([t('vehicle_inv'), t('engine_inv'), t('my_orders')])
     
     with tab_veh:
@@ -407,7 +420,6 @@ def buyer_partner_dashboard():
             if len(event.selection.rows) > 0:
                 selected_index = event.selection.rows[0]
                 selected_row = df.iloc[selected_index]
-                # 상단 상세 뷰에 권한/회사정보 전달
                 render_top_detail_view(detail_placeholder, selected_row, st.session_state.user_role, st.session_state.user_company)
             
         else:

@@ -78,7 +78,6 @@ def init_dbs():
         price REAL DEFAULT 0, mileage REAL DEFAULT 0, photos TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     
-    # 마이그레이션
     for col in ['model_detail', 'price', 'mileage', 'photos']:
         try: c.execute(f"ALTER TABLE vehicle_data ADD COLUMN {col} TEXT DEFAULT ''" if col == 'photos' or col == 'model_detail' else f"ALTER TABLE vehicle_data ADD COLUMN {col} REAL DEFAULT 0")
         except: pass
@@ -129,7 +128,7 @@ def init_dbs():
     conn.close()
 
 # ---------------------------------------------------------
-# 파일 처리 및 표준화 (헤더 감지 강화)
+# 파일 처리 및 표준화
 # ---------------------------------------------------------
 def normalize_row(row):
     raw_mfr = str(row.get('manufacturer', '')).strip()
@@ -155,75 +154,47 @@ def normalize_row(row):
     return std_mfr, std_model, std_detail
 
 def read_file_smart(uploaded_file, header=None):
-    """
-    다양한 포맷과 인코딩, 헤더 위치를 고려하여 DataFrame을 반환합니다.
-    header=None으로 읽어 전체 데이터를 가져옵니다.
-    """
     file_ext = uploaded_file.name.split('.')[-1].lower()
-    
-    # 파일을 바이트로 읽기 (재사용을 위해)
     uploaded_file.seek(0)
     file_bytes = uploaded_file.read()
     
-    # 1. CSV 시도
     if file_ext == 'csv' or 'csv' in uploaded_file.type:
         try:
             return pd.read_csv(io.BytesIO(file_bytes), header=header, dtype=str)
         except:
             try:
                 return pd.read_csv(io.BytesIO(file_bytes), header=header, encoding='cp949', dtype=str)
-            except:
-                pass
-    
-    # 2. Excel 시도 (xls, xlsx) - openpyxl 또는 xlrd
+            except: pass
     try:
         return pd.read_excel(io.BytesIO(file_bytes), header=header, dtype=str)
     except:
         try:
-            # xls지만 실제론 csv인 경우 등 대비
             return pd.read_csv(io.BytesIO(file_bytes), header=header, dtype=str)
-        except:
-            return None
+        except: return None
 
 def save_vehicle_file(uploaded_file):
     try:
-        # 1. 헤더 없이 전체 데이터 읽기 (상단 경고문구 무시용)
         df = read_file_smart(uploaded_file, header=None)
         if df is None: return 0
         
-        # 2. 실제 헤더 행 찾기 (키워드 기반 탐색)
-        # 키워드: 차대번호, VIN, 차대 번호 등
         header_idx = -1
         target_keywords = ['차대번호', 'vin', '차량번호', 'car_no', '등록일자']
-        
-        # 상위 20줄만 검사
         for i, row in df.head(20).iterrows():
-            # 행 전체를 하나의 문자열로 합쳐서 검색
             row_str = " ".join([str(x).lower() for x in row.values])
             if any(k in row_str for k in target_keywords):
                 header_idx = i
                 break
         
-        if header_idx == -1:
-            # 못 찾았으면 첫 줄을 헤더로 가정
-            header_idx = 0
-        
-        # 3. 데이터프레임 재구성 (헤더 적용)
-        # 찾은 행을 컬럼명으로 설정
+        if header_idx == -1: header_idx = 0
         df.columns = df.iloc[header_idx]
-        df = df.iloc[header_idx+1:] # 헤더 다음 행부터 데이터
-        
-        # 4. 컬럼명 정리 (공백 제거)
+        df = df.iloc[header_idx+1:]
         df.columns = [str(c).strip() for c in df.columns]
         
-        # 5. 필수 컬럼 확인 및 매핑
-        # (VIN이나 차대번호 컬럼이 없으면 저장 불가)
         vin_col = next((c for c in df.columns if '차대번호' in c or 'VIN' in c or 'vin' in c), None)
         if not vin_col: return 0
         
         db_rows = []
         for _, row in df.iterrows():
-            # 각 컬럼 매핑
             mfr = str(row.get('제조사', row.get('Manufacturer', ''))).strip()
             mod = str(row.get('차량명', row.get('Model', ''))).strip()
             std_mfr, std_mod, std_det = normalize_row({'manufacturer': mfr, 'model_name': mod})
@@ -234,43 +205,32 @@ def save_vehicle_file(uploaded_file):
             yard = str(row.get('회원사', row.get('Junkyard', row.get('Company', '')))).strip()
             eng = str(row.get('원동기형식', row.get('Engine', ''))).strip()
             
-            # 연식 처리
             year_val = row.get('연식', row.get('Year', 0))
             try: year = float(re.findall(r"[\d\.]+", str(year_val))[0])
             except: year = 0.0
             
-            # 빈 행 무시
             if len(vin) < 5: continue
-            
             db_rows.append((vin, reg, no, std_mfr, std_mod, std_det, year, yard, eng))
             
-        # 6. DB 저장
         conn = sqlite3.connect(INVENTORY_DB)
         c = conn.cursor()
         c.executemany('''INSERT OR REPLACE INTO vehicle_data 
                          (vin, reg_date, car_no, manufacturer, model_name, model_detail, model_year, junkyard, engine_code) 
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', db_rows)
-        
-        # 모델 목록 업데이트
         c.execute("INSERT OR IGNORE INTO model_list (manufacturer, model_name) SELECT DISTINCT manufacturer, model_name FROM vehicle_data")
         
-        # 7. 폐차장 정보(파트너) 자동 생성 (회원가입 안 된 경우 대비)
         yards = set([r[7] for r in db_rows if r[7] and len(r[7]) > 1])
         for y in yards:
             c.execute("INSERT OR IGNORE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (y, '주소 미등록', '기타'))
         conn.commit()
         conn.close()
         
-        # 시스템 DB에 파트너 계정 자동 생성 (비번 1234)
         conn_sys = sqlite3.connect(SYSTEM_DB)
         try: pw = stauth.Hasher(['1234']).generate()[0]
         except: pw = stauth.Hasher().hash('1234')
         for y in yards:
-            # 이미 있으면 패스
             if not conn_sys.execute("SELECT * FROM users WHERE user_id = ?", (y,)).fetchone():
-                # ID=회사명, 비번=1234, Role=partner, Company=회사명
-                conn_sys.execute("INSERT INTO users (user_id, password, name, company, role) VALUES (?, ?, ?, ?, ?)", 
-                                 (y, pw, y, y, 'partner'))
+                conn_sys.execute("INSERT INTO users (user_id, password, name, company, role) VALUES (?, ?, ?, ?, ?)", (y, pw, y, y, 'partner'))
         conn_sys.commit()
         conn_sys.close()
         
@@ -279,13 +239,11 @@ def save_vehicle_file(uploaded_file):
         print(f"File Save Error: {e}")
         return 0
 
-# [NEW] 폐차장 주소록 업로드
 def save_address_file(uploaded_file):
     try:
         df = read_file_smart(uploaded_file, header=None)
         if df is None: return 0
         
-        # 헤더 찾기 (업체명, 주소)
         header_idx = 0
         for i, row in df.head(10).iterrows():
             row_str = " ".join([str(x) for x in row.values])
@@ -296,7 +254,6 @@ def save_address_file(uploaded_file):
         df.columns = df.iloc[header_idx]
         df = df.iloc[header_idx+1:]
         
-        # 컬럼 매칭
         name_col = next((c for c in df.columns if '업체' in str(c) or '상호' in str(c) or 'Name' in str(c)), None)
         addr_col = next((c for c in df.columns if '주소' in str(c) or 'Address' in str(c)), None)
         
@@ -535,3 +492,27 @@ def get_orders(user_id, role):
     except: df = pd.DataFrame()
     conn.close()
     return df
+
+# ✅ [복구된 기능] 기존 데이터 재표준화 (수동 버튼용)
+def standardize_existing_data():
+    conn = sqlite3.connect(INVENTORY_DB)
+    c = conn.cursor()
+    # 모든 차량 데이터 조회
+    df = pd.read_sql("SELECT vin, manufacturer, model_name FROM vehicle_data", conn)
+    count = 0
+    for _, row in df.iterrows():
+        std_mfr, std_mod, std_det = normalize_row(row)
+        # 변경사항이 있으면 업데이트
+        if std_mfr != row['manufacturer'] or std_mod != row['model_name']:
+            c.execute("UPDATE vehicle_data SET manufacturer = ?, model_name = ?, model_detail = ? WHERE vin = ?", 
+                      (std_mfr, std_mod, std_det, row['vin']))
+            count += 1
+    conn.commit()
+    conn.close()
+    # 모델 리스트 갱신
+    conn = sqlite3.connect(INVENTORY_DB)
+    conn.execute("DELETE FROM model_list")
+    conn.execute("INSERT OR IGNORE INTO model_list (manufacturer, model_name) SELECT DISTINCT manufacturer, model_name FROM vehicle_data")
+    conn.commit()
+    conn.close()
+    return count

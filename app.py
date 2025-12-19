@@ -22,7 +22,7 @@ if 'user_id' not in st.session_state:
     })
 
 # ---------------------------------------------------------
-# 다국어 번역 데이터 (4개 국어)
+# 다국어 번역 데이터
 # ---------------------------------------------------------
 TRANS = {
     'English': {
@@ -112,21 +112,18 @@ def t(key):
     return TRANS.get(lang, TRANS['English']).get(key, TRANS['English'].get(key, key))
 
 # ---------------------------------------------------------
-# [기능] 상단 상세 뷰 (마스킹 및 수정 기능)
+# [기능] 상단 상세 뷰 (마스킹 적용)
 # ---------------------------------------------------------
 def render_top_detail_view(container, row, role, my_company):
     with container:
         with st.container(border=True):
-            # 내 차인지 확인
             is_my_car = (role == 'partner' and str(row['junkyard']) == str(my_company))
             
-            # 마스킹 처리
             display_yard = row['junkyard']
             if role == 'buyer':
                 display_yard = "Verified Partner (인증 파트너)"
 
             if is_my_car:
-                # [내 차량] 수정 모드
                 st.subheader(f"{t('edit_view')} : {row['model_name']} ({row['vin']})")
                 with st.form(key=f"edit_form_{row['vin']}"):
                     c1, c2 = st.columns([1, 1.5])
@@ -152,7 +149,6 @@ def render_top_detail_view(container, row, role, my_company):
                             st.rerun()
                         else: st.error("Failed to update.")
             else:
-                # [타인 차량] 조회 모드
                 st.subheader(f"{t('detail_view')} : {row['model_name']} ({row['vin']})")
                 col1, col2 = st.columns([1, 1.5])
                 with col1:
@@ -354,7 +350,7 @@ def render_marketplace_ui(role):
             st.info("Partner list is available for Admins only.")
 
 # ---------------------------------------------------------
-# 관리자 대시보드
+# 관리자 대시보드 (통합)
 # ---------------------------------------------------------
 def admin_dashboard():
     main_tab1, main_tab2, main_tab3 = st.tabs(["🔍 Marketplace", "👥 User Management", "📂 Data Upload"])
@@ -396,7 +392,7 @@ def admin_dashboard():
                 s, f = db.create_user_bulk(df.to_dict('records'))
                 st.success(f"Result: Success {s}, Fail {f}")
 
-        # ✅ [수정] 다중 파일 업로드 지원
+        # ✅ [다중 파일] 차량 재고 업로드
         with st.expander("2. Vehicle Stock Upload"):
             v_files = st.file_uploader("Stock Excel", type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
             if v_files:
@@ -406,6 +402,11 @@ def admin_dashboard():
                         total_cnt += db.save_vehicle_file(f)
                     st.success(f"Total {total_cnt} vehicles uploaded from {len(v_files)} files.")
 
+        # ✅ [버튼 복구] 기존 데이터 재표준화
+        if st.button("🔄 Standardize All Existing Data"):
+            cnt = db.standardize_existing_data()
+            st.success(f"Standardized {cnt} vehicles in DB.")
+
         with st.expander("3. Partner Info Upload (Junkyard Address)"):
             p_file = st.file_uploader("Partner Excel (Name, Address)", type=['xlsx', 'xls'])
             if p_file and st.button("Upload Partners"):
@@ -413,7 +414,7 @@ def admin_dashboard():
                 st.success(f"{cnt} partners updated.")
 
 # ---------------------------------------------------------
-# 일반 사용자 대시보드
+# 일반 사용자 (바이어/파트너) 대시보드
 # ---------------------------------------------------------
 def buyer_partner_dashboard():
     render_marketplace_ui(st.session_state.user_role)

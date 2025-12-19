@@ -39,7 +39,10 @@ TRANS = {
         'role': "Role", 'email': "Email", 'phone': "Phone", 'update': "Update Info", 'delete': "Delete User",
         'upload_guide': "Upload Excel with headers: name, email, company, country, phone",
         'filter_title': "🔍 Search Options",
-        'detail_view': "🚗 Selected Vehicle Detail"
+        'detail_view': "🚗 Vehicle Detail",
+        'edit_view': "✏️ Edit Vehicle Info (My Stock)",
+        'update_btn': "Update Vehicle",
+        'upload_photo': "Upload New Photos"
     },
     'Korean': {
         'title': "K-중고차/부품 통합 재고",
@@ -55,7 +58,10 @@ TRANS = {
         'role': "권한", 'email': "이메일", 'phone': "연락처", 'update': "정보 수정", 'delete': "회원 삭제",
         'upload_guide': "엑셀 헤더 양식: name, email, company, country, phone",
         'filter_title': "🔍 검색 옵션 (여기를 눌러 필터를 여세요)",
-        'detail_view': "🚗 선택된 차량 상세 정보"
+        'detail_view': "🚗 차량 상세 정보",
+        'edit_view': "✏️ 매물 정보 수정 (내 차량)",
+        'update_btn': "정보 업데이트 저장",
+        'upload_photo': "새로운 사진 업로드"
     },
     'Russian': {
         'title': "Склад б/у автомобилей и запчастей",
@@ -71,7 +77,10 @@ TRANS = {
         'role': "Роль", 'email': "Email", 'phone': "Телефон", 'update': "Обновить", 'delete': "Удалить",
         'upload_guide': "Заголовки Excel: name, email, company, country, phone",
         'filter_title': "🔍 Параметры поиска",
-        'detail_view': "🚗 Детали выбранного автомобиля"
+        'detail_view': "🚗 Детали выбранного автомобиля",
+        'edit_view': "✏️ Редактировать (Мой склад)",
+        'update_btn': "Обновить",
+        'upload_photo': "Загрузить фото"
     },
     'Arabic': {
         'title': "مركز السيارات المستعملة وقطع الغيار",
@@ -87,7 +96,10 @@ TRANS = {
         'role': "الدور", 'email': "البريد الإلكتروني", 'phone': "الهاتف", 'update': "تحديث", 'delete': "حذف",
         'upload_guide': "رؤوس ملف Excel: name, email, company, country, phone",
         'filter_title': "🔍 خيارات البحث",
-        'detail_view': "🚗 تفاصيل السيارة المختارة"
+        'detail_view': "🚗 تفاصيل السيارة المختارة",
+        'edit_view': "✏️ تعديل المعلومات (مخزوني)",
+        'update_btn': "تحديث",
+        'upload_photo': "تحميل صور جديدة"
     }
 }
 
@@ -96,57 +108,78 @@ def t(key):
     return TRANS.get(lang, TRANS['English']).get(key, TRANS['English'].get(key, key))
 
 # ---------------------------------------------------------
-# [기능] 상단 상세 정보 렌더링
+# [기능] 상단 상세 뷰 (수정 모드 vs 조회 모드 분기)
 # ---------------------------------------------------------
-def render_top_detail_view(container, row):
+def render_top_detail_view(container, row, role, my_company):
     with container:
         with st.container(border=True):
-            st.subheader(f"{t('detail_view')} : {row['model_name']} ({row['vin']})")
+            # 내 차량인지 확인 (파트너 권한 AND 폐차장 이름 일치)
+            is_my_car = (role == 'partner' and str(row['junkyard']) == str(my_company))
             
-            col1, col2 = st.columns([1, 1.5])
-            
-            with col1:
-                img_str = str(row.get('photos', ''))
-                images = [img.strip() for img in img_str.split(',') if img.strip()]
-                
-                if images:
-                    first_img = images[0]
-                    if os.path.exists(first_img):
-                        st.image(first_img, use_container_width=True)
-                    else:
-                        st.warning("Image missing")
+            if is_my_car:
+                # [내 차량] 수정 모드
+                st.subheader(f"{t('edit_view')} : {row['model_name']} ({row['vin']})")
+                with st.form(key=f"edit_form_{row['vin']}"):
+                    c1, c2 = st.columns([1, 1.5])
+                    with c1:
+                        img_str = str(row.get('photos', ''))
+                        images = [img.strip() for img in img_str.split(',') if img.strip()]
+                        if images and os.path.exists(images[0]):
+                            st.image(images[0], width=300)
+                            st.caption(f"Photos: {len(images)}")
+                        else: st.info("No Image")
+                        new_files = st.file_uploader(t('upload_photo'), accept_multiple_files=True, type=['png','jpg','jpeg'])
+                    with c2:
+                        st.info(f"Model: {row['manufacturer']} {row['model_name']} ({row['model_year']})")
+                        new_price = st.number_input(t('price') + " ($)", value=float(row['price']), step=100.0)
+                        new_mileage = st.number_input(t('mileage') + " (km)", value=float(row['mileage']), step=1000.0)
+                        st.write(f"**VIN:** {row['vin']}")
+                        st.write(f"**Engine:** {row['engine_code']}")
                     
-                    if len(images) > 1:
-                        with st.expander(f"📸 More Photos ({len(images)-1})"):
-                            sub_cols = st.columns(3)
-                            for i, img in enumerate(images[1:]):
-                                if os.path.exists(img):
-                                    sub_cols[i % 3].image(img, use_container_width=True)
-                else:
-                    st.info("🖼️ No Images Available")
+                    if st.form_submit_button(t('update_btn'), type="primary"):
+                        if db.update_vehicle_sales_info(row['vin'], new_price, new_mileage, new_files):
+                            st.success("Updated Successfully!")
+                            time.sleep(1)
+                            st.rerun()
+                        else: st.error("Failed to update.")
+            else:
+                # [타인 차량] 조회 모드
+                st.subheader(f"{t('detail_view')} : {row['model_name']} ({row['vin']})")
+                col1, col2 = st.columns([1, 1.5])
+                with col1:
+                    img_str = str(row.get('photos', ''))
+                    images = [img.strip() for img in img_str.split(',') if img.strip()]
+                    if images:
+                        if os.path.exists(images[0]): st.image(images[0], use_container_width=True)
+                        else: st.warning("Image missing")
+                        if len(images) > 1:
+                            with st.expander(f"📸 More Photos ({len(images)-1})"):
+                                sub_cols = st.columns(3)
+                                for i, img in enumerate(images[1:]):
+                                    if os.path.exists(img): sub_cols[i % 3].image(img, use_container_width=True)
+                    else: st.info("🖼️ No Images Available")
 
-            with col2:
-                c_a, c_b = st.columns(2)
-                with c_a:
-                    st.markdown(f"**Manufacturer:** {row['manufacturer']}")
-                    st.markdown(f"**Model:** {row['model_name']}")
-                    st.markdown(f"**Detail:** {row['model_detail']}")
-                    st.markdown(f"**Year:** {row['model_year']}")
-                with c_b:
-                    price = row.get('price', 0)
-                    price_txt = f"${price:,.0f}" if price > 0 else "Contact Us"
-                    st.markdown(f"### {t('price')}: :green[{price_txt}]")
+                with col2:
+                    c_a, c_b = st.columns(2)
+                    with c_a:
+                        st.markdown(f"**Manufacturer:** {row['manufacturer']}")
+                        st.markdown(f"**Model:** {row['model_name']}")
+                        st.markdown(f"**Detail:** {row['model_detail']}")
+                        st.markdown(f"**Year:** {row['model_year']}")
+                    with c_b:
+                        price = row.get('price', 0)
+                        price_txt = f"${price:,.0f}" if price > 0 else "Contact Us"
+                        st.markdown(f"### {t('price')}: :green[{price_txt}]")
+                        mileage = row.get('mileage', 0)
+                        st.markdown(f"**{t('mileage')}:** {mileage:,.0f} km")
+                        st.markdown(f"**Engine:** {row['engine_code']}")
                     
-                    mileage = row.get('mileage', 0)
-                    st.markdown(f"**{t('mileage')}:** {mileage:,.0f} km")
-                    st.markdown(f"**Engine:** {row['engine_code']}")
-                
-                st.divider()
-                st.markdown(f"**Location (Yard):** {row['junkyard']}")
-                st.markdown(f"**Reg Date:** {str(row['reg_date'])[:10]}")
-                
-                if st.button("📩 Send Inquiry", type="primary", use_container_width=True):
-                    st.success(f"Inquiry sent for VIN: {row['vin']}")
+                    st.divider()
+                    st.markdown(f"**Location (Yard):** {row['junkyard']}")
+                    st.markdown(f"**Reg Date:** {str(row['reg_date'])[:10]}")
+                    
+                    if st.button("📩 Send Inquiry", type="primary", use_container_width=True):
+                        st.success(f"Inquiry sent for VIN: {row['vin']}")
 
 # ---------------------------------------------------------
 # 회원가입 폼
@@ -180,7 +213,6 @@ def main():
         st.divider()
 
     credentials = db.fetch_users_for_auth()
-    
     authenticator = stauth.Authenticate(
         credentials,
         'k_used_car_hub',
@@ -197,7 +229,6 @@ def main():
         st.session_state.logged_in = True
         st.session_state.user_id = username
         
-        # ✅ [핵심] 회사 정보 세션 저장
         user_info = credentials['usernames'][username]
         st.session_state.user_role = user_info.get('role', 'buyer')
         st.session_state.user_company = user_info.get('company') or username
@@ -311,10 +342,9 @@ def buyer_partner_dashboard():
         with c5:
             sel_engines = st.multiselect(t('engine_code'), st.session_state.engines_list)
         with c6:
-            # ✅ [핵심] 파트너 권한 시 본인 회사만 선택 가능 (강제)
+            # 파트너는 자기 회사만 선택 가능
             if st.session_state.user_role == 'partner':
                 my_yard = st.session_state.user_company
-                # 기본값 고정 + 변경 불가
                 sel_yards = st.multiselect(t('junkyard'), [my_yard], default=[my_yard], disabled=True)
             else:
                 sel_yards = st.multiselect(t('junkyard'), st.session_state.yards_list)
@@ -356,7 +386,6 @@ def buyer_partner_dashboard():
             cols_to_show = ['manufacturer', 'model_name', 'model_detail', 'model_year', 
                             'engine_code', 'mileage', 'price_fmt', 'junkyard', 'reg_date', 'vin']
             
-            # [테이블 뷰 + 선택]
             event = st.dataframe(
                 display_df[cols_to_show], 
                 use_container_width=True,
@@ -375,11 +404,11 @@ def buyer_partner_dashboard():
                 selection_mode="single-row"
             )
             
-            # [선택 시 상단 렌더링]
             if len(event.selection.rows) > 0:
                 selected_index = event.selection.rows[0]
                 selected_row = df.iloc[selected_index]
-                render_top_detail_view(detail_placeholder, selected_row)
+                # 상단 상세 뷰에 권한/회사정보 전달
+                render_top_detail_view(detail_placeholder, selected_row, st.session_state.user_role, st.session_state.user_company)
             
         else:
             st.info("No vehicles found matching filters.")

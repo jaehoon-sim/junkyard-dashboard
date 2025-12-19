@@ -135,7 +135,7 @@ def init_dbs():
     conn.close()
 
 # ---------------------------------------------------------
-# 파일 처리 및 표준화 (기존 로직 유지)
+# 파일 처리 및 표준화
 # ---------------------------------------------------------
 def detect_global_pattern(text):
     text = text.upper().replace(" ", "")
@@ -376,7 +376,37 @@ def search_data(maker, models, details, engines, sy, ey, yards, sm, em, only_pho
         return df, count
     except: return pd.DataFrame(), 0
 
-# ... (기타 함수들 load_metadata, get_orders, update_vehicle_sales_info 등 유지) ...
+# [NEW] 매물 정보 업데이트 (가격, 주행거리, 사진)
+def update_vehicle_sales_info(vin, price, mileage, photo_files):
+    try:
+        conn = sqlite3.connect(INVENTORY_DB)
+        saved_paths = []
+        if photo_files:
+            if not os.path.exists(IMAGE_DIR): os.makedirs(IMAGE_DIR)
+            for f in photo_files:
+                fname = f"{vin}_{datetime.datetime.now().strftime('%H%M%S')}_{f.name}"
+                fpath = os.path.join(IMAGE_DIR, fname)
+                with open(fpath, "wb") as buffer:
+                    shutil.copyfileobj(f, buffer)
+                saved_paths.append(fpath)
+        
+        if saved_paths:
+            # 기존 사진에 추가하거나 덮어쓰기 (여기선 덮어쓰기로 구현)
+            photo_str = ",".join(saved_paths)
+            sql = "UPDATE vehicle_data SET price = ?, mileage = ?, photos = ? WHERE vin = ?"
+            params = (price, mileage, photo_str, vin)
+        else:
+            sql = "UPDATE vehicle_data SET price = ?, mileage = ? WHERE vin = ?"
+            params = (price, mileage, vin)
+            
+        conn.execute(sql, params)
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Update Error: {e}")
+        return False
+
 @st.cache_data(ttl=300)
 def load_metadata():
     conn = sqlite3.connect(INVENTORY_DB)

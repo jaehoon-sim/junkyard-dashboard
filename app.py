@@ -22,7 +22,7 @@ if 'user_id' not in st.session_state:
     })
 
 # ---------------------------------------------------------
-# 다국어 번역 데이터 (4개 국어 전체 포함)
+# 다국어 번역 데이터 (4개 국어)
 # ---------------------------------------------------------
 TRANS = {
     'English': {
@@ -117,16 +117,13 @@ def t(key):
 def render_top_detail_view(container, row, role, my_company):
     with container:
         with st.container(border=True):
-            # 내 차인지 확인 (파트너 권한 + 회사명 일치)
             is_my_car = (role == 'partner' and str(row['junkyard']) == str(my_company))
             
-            # 마스킹 처리: 바이어는 업체명 숨김, 관리자/본인은 표시
             display_yard = row['junkyard']
             if role == 'buyer':
                 display_yard = "Verified Partner (인증 파트너)"
 
             if is_my_car:
-                # [내 차량] 수정 모드
                 st.subheader(f"{t('edit_view')} : {row['model_name']} ({row['vin']})")
                 with st.form(key=f"edit_form_{row['vin']}"):
                     c1, c2 = st.columns([1, 1.5])
@@ -152,7 +149,6 @@ def render_top_detail_view(container, row, role, my_company):
                             st.rerun()
                         else: st.error("Failed to update.")
             else:
-                # [타인 차량] 조회 모드
                 st.subheader(f"{t('detail_view')} : {row['model_name']} ({row['vin']})")
                 col1, col2 = st.columns([1, 1.5])
                 with col1:
@@ -188,20 +184,41 @@ def render_top_detail_view(container, row, role, my_company):
                     st.markdown(f"**Reg Date:** {str(row['reg_date'])[:10]}")
                     
                     if st.button("📩 Send Inquiry", type="primary", use_container_width=True):
-                        # 문의 보내기 (실제 폐차장 이름 사용)
                         if db.place_order(st.session_state.user_id, row['junkyard'], row['vin'], row['model_name']):
                             st.success(f"Inquiry sent!")
                         else:
                             st.error("Failed to send inquiry.")
 
 # ---------------------------------------------------------
-# [공통] 마켓플레이스 UI (관리자/파트너/바이어 통합)
+# ✅ [복구된 함수] 회원가입 폼
+# ---------------------------------------------------------
+def show_signup_expander():
+    with st.expander(t('create_acc') + " (New User?)"):
+        with st.form("signup_form"):
+            new_uid = st.text_input("ID (Email)")
+            new_pw = st.text_input("Password", type="password")
+            new_name = st.text_input("Name")
+            c1, c2 = st.columns(2)
+            new_comp = c1.text_input("Company")
+            new_country = c2.text_input("Country")
+            new_phone = st.text_input("Phone")
+            
+            if st.form_submit_button(t('signup')):
+                if new_uid and new_pw:
+                    if db.create_user(new_uid, new_pw, new_name, new_comp, new_country, new_uid, new_phone):
+                        st.success("Account Created! Please Login above.")
+                    else:
+                        st.error("ID already exists.")
+                else:
+                    st.warning("Please fill in ID and Password.")
+
+# ---------------------------------------------------------
+# [공통] 마켓플레이스 UI
 # ---------------------------------------------------------
 def render_marketplace_ui(role):
     st.title(t('title'))
     detail_placeholder = st.container()
 
-    # --- 1. 검색 필터 ---
     with st.expander(t('filter_title'), expanded=True):
         if st.session_state.models_df.empty:
             db.reset_dashboard()
@@ -229,17 +246,13 @@ def render_marketplace_ui(role):
         with c5:
             sel_engines = st.multiselect(t('engine_code'), st.session_state.engines_list)
         with c6:
-            # [필터 권한 처리]
             if role == 'buyer':
-                # 바이어는 폐차장 필터 사용 불가
                 st.selectbox(t('junkyard'), ["All Partners (Hidden)"], disabled=True)
                 sel_yards = []
             elif role == 'partner':
-                # 파트너는 자기 회사 고정
                 my_yard = st.session_state.user_company
                 sel_yards = st.multiselect(t('junkyard'), [my_yard], default=[my_yard], disabled=True)
             else:
-                # 관리자('admin')는 전체 선택 가능
                 sel_yards = st.multiselect(t('junkyard'), st.session_state.yards_list)
 
         st.divider()
@@ -265,21 +278,17 @@ def render_marketplace_ui(role):
                 st.session_state.selected_vin = None
                 st.rerun()
 
-    # --- 2. 결과 탭 ---
     tab_veh, tab_eng, tab_order, tab_yard = st.tabs([t('vehicle_inv'), t('engine_inv'), t('my_orders'), "Partners (Junkyards)"])
     
-    # [탭 1] 차량 재고
     with tab_veh:
         st.write(f"{t('total')}: {st.session_state.total_count}")
         df = st.session_state.view_data
         if not df.empty:
             display_df = df.copy()
-            # [마스킹 적용]
             if role == 'buyer':
                 display_df['junkyard'] = "Verified Partner"
             
             display_df['price_fmt'] = display_df['price'].apply(lambda x: f"${x:,.0f}" if x > 0 else "Contact")
-            
             cols = ['manufacturer', 'model_name', 'model_detail', 'model_year', 
                     'engine_code', 'mileage', 'price_fmt', 'junkyard', 'reg_date', 'vin']
             
@@ -287,12 +296,10 @@ def render_marketplace_ui(role):
             
             if len(event.selection.rows) > 0:
                 selected_row = df.iloc[event.selection.rows[0]]
-                # 상세 뷰에 권한 정보 전달
                 render_top_detail_view(detail_placeholder, selected_row, role, st.session_state.user_company)
         else:
             st.info("No vehicles found.")
 
-    # [탭 2] 엔진 재고
     with tab_eng:
         df = st.session_state.view_data
         if not df.empty:
@@ -308,55 +315,47 @@ def render_marketplace_ui(role):
                 if len(event.selection.rows) > 0:
                     selected_row = df_eng.iloc[event.selection.rows[0]]
                     render_top_detail_view(detail_placeholder, selected_row, role, st.session_state.user_company)
-            else: st.info("No engine information.")
+            else: st.info("No engine data.")
         else: st.info("No data.")
 
-    # [탭 3] 주문 내역
     with tab_order:
         st.subheader(t('my_orders'))
         orders = db.get_orders(st.session_state.user_id, role)
         if not orders.empty:
             if role == 'partner' or role == 'admin':
-                # 셀러/관리자는 처리 가능
                 for index, row in orders.iterrows():
                     with st.expander(f"{row['created_at'][:16]} - {row['items_summary']} ({row['status']})"):
                         st.write(f"**Buyer:** {row['buyer_id']}")
                         st.write(f"**Target:** {row['real_junkyard_name']}")
                         st.write(f"**Details:** {row['items_summary']}")
-                        
                         new_status = st.selectbox("Status", ["PENDING", "CONFIRMED", "SHIPPED", "CANCELLED"], key=f"st_{row['id']}", index=["PENDING", "CONFIRMED", "SHIPPED", "CANCELLED"].index(row['status']) if row['status'] in ["PENDING", "CONFIRMED", "SHIPPED", "CANCELLED"] else 0)
                         reply_txt = st.text_area("Reply", value=row['reply_text'] if row['reply_text'] else "", key=f"rp_{row['id']}")
-                        
                         if st.button("Update", key=f"upd_{row['id']}"):
                             db.update_order(row['id'], new_status, reply_txt)
                             st.success("Updated")
                             st.rerun()
             else:
-                # 바이어는 조회만
                 st.dataframe(orders, use_container_width=True)
         else:
             st.info("No orders.")
 
-    # [탭 4] 폐차장 정보 (관리자만)
     with tab_yard:
         if role == 'admin':
             yards = db.get_all_junkyards()
             if not yards.empty:
                 st.dataframe(yards, use_container_width=True)
             else:
-                st.info("No partner info available.")
+                st.info("No partner info uploaded.")
         else:
-            st.info("Verified Partners list is restricted.")
+            st.info("Partner list is available for Admins only.")
 
 # ---------------------------------------------------------
 # 관리자 대시보드 (통합)
 # ---------------------------------------------------------
 def admin_dashboard():
-    # 3개 탭: 통합 검색 / 회원 관리 / 데이터 업로드
     main_tab1, main_tab2, main_tab3 = st.tabs(["🔍 Marketplace", "👥 User Management", "📂 Data Upload"])
     
     with main_tab1:
-        # 관리자 권한으로 마켓플레이스 렌더링 (모든 필터, 마스킹 해제)
         render_marketplace_ui('admin')
 
     with main_tab2:
@@ -386,7 +385,6 @@ def admin_dashboard():
     with main_tab3:
         st.subheader("Data Upload Center")
         
-        # 1. 회원 일괄 등록
         with st.expander("1. Bulk User Upload"):
             u_file = st.file_uploader("User Excel", type=['xlsx', 'xls'])
             if u_file and st.button("Upload Users"):
@@ -394,14 +392,12 @@ def admin_dashboard():
                 s, f = db.create_user_bulk(df.to_dict('records'))
                 st.success(f"Result: Success {s}, Fail {f}")
 
-        # 2. 차량 재고 업로드
         with st.expander("2. Vehicle Stock Upload"):
             v_file = st.file_uploader("Stock Excel", type=['xlsx', 'xls', 'csv'])
             if v_file and st.button("Upload Stock"):
                 cnt = db.save_vehicle_file(v_file)
                 st.success(f"{cnt} vehicles uploaded.")
 
-        # 3. 폐차장 정보 업로드
         with st.expander("3. Partner Info Upload (Junkyard Address)"):
             p_file = st.file_uploader("Partner Excel (Name, Address)", type=['xlsx', 'xls'])
             if p_file and st.button("Upload Partners"):
@@ -412,7 +408,6 @@ def admin_dashboard():
 # 일반 사용자 (바이어/파트너) 대시보드
 # ---------------------------------------------------------
 def buyer_partner_dashboard():
-    # 본인 권한에 맞게 렌더링
     render_marketplace_ui(st.session_state.user_role)
 
 # ---------------------------------------------------------

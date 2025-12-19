@@ -251,6 +251,38 @@ def save_vehicle_file(uploaded_file):
         return len(db_rows)
     except Exception as e: return 0
 
+# [NEW] 폐차장 정보(회원사 정보) 업로드 기능 복구
+def save_address_file(uploaded_file):
+    try:
+        df = read_file_smart(uploaded_file)
+        if df is None: return 0
+        
+        # 컬럼 찾기 (업체명, 주소)
+        name_col = next((c for c in df.columns if '업체' in str(c) or '상호' in str(c) or 'Name' in str(c)), None)
+        addr_col = next((c for c in df.columns if '주소' in str(c) or 'Address' in str(c)), None)
+        
+        if not name_col: return 0
+        
+        conn = sqlite3.connect(INVENTORY_DB)
+        cnt = 0
+        for _, r in df.iterrows():
+            nm = str(r[name_col]).strip()
+            ad = str(r[addr_col]).strip() if addr_col else ''
+            reg = ad[:2] if len(ad) >= 2 else '기타'
+            
+            conn.execute("INSERT OR REPLACE INTO junkyard_info (name, address, region) VALUES (?, ?, ?)", (nm, ad, reg))
+            cnt += 1
+        conn.commit()
+        conn.close()
+        return cnt
+    except: return 0
+
+def get_all_junkyards():
+    conn = sqlite3.connect(INVENTORY_DB)
+    df = pd.read_sql("SELECT * FROM junkyard_info", conn)
+    conn.close()
+    return df
+
 # ---------------------------------------------------------
 # 사용자 관리
 # ---------------------------------------------------------
@@ -436,7 +468,6 @@ def place_order(buyer_id, target_partner, vin, model_info):
         print(f"Order Error: {e}")
         return False
 
-# ✅ [복구된 기능] 주문 상태 업데이트 함수
 def update_order(order_id, status=None, reply=None):
     conn = sqlite3.connect(SYSTEM_DB)
     try:

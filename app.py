@@ -116,7 +116,69 @@ def main():
             admin_dashboard()
         else:
             buyer_partner_dashboard()
+# app.py 상단 함수 정의 부분에 추가 (main 함수 밖)
 
+@st.dialog("🚗 Vehicle Details / 차량 상세 정보")
+def show_vehicle_detail(row):
+    # 1. 이미지 처리
+    img_str = str(row.get('photos', ''))
+    images = [img.strip() for img in img_str.split(',') if img.strip()]
+    
+    if images:
+        # 첫 번째 이미지는 크게, 나머지는 작게 보여주거나 탭으로 구성
+        # 여기서는 첫 번째 이미지 강조
+        first_img = images[0]
+        if os.path.exists(first_img):
+            st.image(first_img, use_container_width=True)
+        else:
+            st.warning("Image file not found on server.")
+            
+        # 추가 이미지가 있다면 갤러리처럼 (Expander)
+        if len(images) > 1:
+            with st.expander(f"View {len(images)-1} more photos"):
+                cols = st.columns(3)
+                for i, img in enumerate(images[1:]):
+                    if os.path.exists(img):
+                        cols[i % 3].image(img, use_container_width=True)
+    else:
+        st.info("No images available.")
+
+    st.divider()
+
+    # 2. 핵심 정보 표시 (2열 레이아웃)
+    c1, c2 = st.columns(2)
+    
+    with c1:
+        st.markdown(f"**Manufacturer:** {row['manufacturer']}")
+        st.markdown(f"**Model:** {row['model_name']}")
+        st.markdown(f"**Detail:** {row['model_detail']}")
+        st.markdown(f"**Year:** {row['model_year']}")
+        
+    with c2:
+        # 가격 포맷팅
+        price = row.get('price', 0)
+        price_txt = f"${price:,.0f}" if price > 0 else "Contact Us"
+        st.markdown(f"**Price:** :green[{price_txt}]")
+        
+        # 주행거리
+        mileage = row.get('mileage', 0)
+        st.markdown(f"**Mileage:** {mileage:,.0f} km")
+        
+        st.markdown(f"**Engine:** {row['engine_code']}")
+
+    st.divider()
+    
+    # 3. 추가 정보 및 액션
+    st.markdown(f"**VIN (차대번호):** `{row['vin']}`")
+    st.markdown(f"**Stock Location:** {row['junkyard']}")
+    st.caption(f"Registered Date: {str(row['reg_date'])[:10]}")
+    
+    # 주문/문의 버튼
+    if st.button("📩 Send Inquiry (문의하기)", type="primary", use_container_width=True):
+        # 여기에 실제 DB 주문 로직 연결 가능
+        st.success(f"Inquiry sent for VIN: {row['vin']}")
+        time.sleep(1.5)
+        st.rerun()
 # ---------------------------------------------------------
 # 3. 상세 화면 함수들
 # ---------------------------------------------------------
@@ -269,20 +331,23 @@ def buyer_partner_dashboard():
     tab_veh, tab_eng, tab_order = st.tabs([t('vehicle_inv'), t('engine_inv'), t('my_orders')])
     
     # [수정] 차량 목록을 테이블 형태로 표시 (빠른 속도)
+# app.py 의 buyer_partner_dashboard 함수 내부 -> tab_veh 부분 수정
+
     with tab_veh:
         st.write(f"{t('total')}: {st.session_state.total_count}")
         
         df = st.session_state.view_data
         if not df.empty:
-            # 표시용 데이터 준비
+            # 1. 표시용 데이터 준비
             display_df = df.copy()
             display_df['price_fmt'] = display_df['price'].apply(lambda x: f"${x:,.0f}" if x > 0 else "Contact")
             
-            # 테이블 컬럼 설정
+            # 2. 테이블에 표시할 컬럼 정의
             cols_to_show = ['manufacturer', 'model_name', 'model_detail', 'model_year', 
                             'engine_code', 'mileage', 'price_fmt', 'junkyard', 'reg_date', 'vin']
             
-            st.dataframe(
+            # 3. 데이터프레임 표시 (선택 기능 활성화!)
+            event = st.dataframe(
                 display_df[cols_to_show], 
                 use_container_width=True,
                 column_config={
@@ -295,11 +360,24 @@ def buyer_partner_dashboard():
                     "reg_date": st.column_config.DateColumn(t('reg_date')),
                     "junkyard": t('junkyard'),
                 },
-                hide_index=True
+                hide_index=True,
+                on_select="rerun",          # ✅ 선택 시 앱 재실행(감지)
+                selection_mode="single-row" # ✅ 한 번에 한 줄만 선택
             )
+            
+            # 4. 선택 이벤트 처리
+            if len(event.selection.rows) > 0:
+                selected_index = event.selection.rows[0]
+                # 원본 데이터(df)에서 선택된 행의 정보를 가져옴
+                # (주의: display_df는 포맷팅된 문자열이므로, 상세 정보는 원본 df에서 가져오는 게 좋음)
+                # 다만 여기선 인덱스가 일치하므로 df.iloc 사용
+                selected_row = df.iloc[selected_index]
+                
+                # 상세 팝업 호출
+                show_vehicle_detail(selected_row)
+                
         else:
             st.info("No vehicles found matching filters.")
-
     with tab_eng:
         st.info("Engine inventory module is under maintenance.")
 

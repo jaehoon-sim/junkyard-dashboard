@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import time
 import os
-import streamlit_authenticator as stauth  # [추가] 인증 라이브러리
+import streamlit_authenticator as stauth
 from modules import db
 
 # ---------------------------------------------------------
@@ -11,17 +11,19 @@ from modules import db
 # ---------------------------------------------------------
 st.set_page_config(page_title="K-Used Car Hub", layout="wide")
 
-# 세션 초기화 (기본값 설정)
+# 세션 상태 초기화
 if 'user_id' not in st.session_state:
     st.session_state.update({
         'logged_in': False, 'user_id': None, 'user_role': None,
         'view_data': pd.DataFrame(), 'total_count': 0, 'is_filtered': False,
         'models_df': pd.DataFrame(), 'engines_list': [], 'yards_list': [], 'months_list': [],
-        'lang': 'English'
+        'lang': 'English',
+        # authenticator 초기 상태값 (필요 시)
+        'authentication_status': None, 'username': None, 'name': None
     })
 
 # ---------------------------------------------------------
-# 다국어 번역 데이터
+# 다국어 번역 데이터 (4개 국어)
 # ---------------------------------------------------------
 TRANS = {
     'English': {
@@ -136,6 +138,7 @@ def show_vehicle_detail(row):
     st.divider()
     st.markdown(f"**VIN:** `{row['vin']}`")
     st.markdown(f"**Location:** {row['junkyard']}")
+    st.caption(f"Registered Date: {str(row['reg_date'])[:10]}")
     
     if st.button("📩 Send Inquiry", type="primary", use_container_width=True):
         st.success(f"Inquiry sent for VIN: {row['vin']}")
@@ -143,65 +146,9 @@ def show_vehicle_detail(row):
         st.rerun()
 
 # ---------------------------------------------------------
-# 2. 메인 애플리케이션
+# 회원가입 폼 (로그인 실패/미로그인 시 표시)
 # ---------------------------------------------------------
-def main():
-    # --- [사이드바] 언어 설정 ---
-    with st.sidebar:
-        st.selectbox("Language / 언어 / Язык / اللغة", ["English", "Korean", "Russian", "Arabic"], key='lang')
-        st.divider()
-
-    # --- [1단계] 인증 (로그인/쿠키 체크) ---
-    # DB에서 사용자 정보 가져오기 (stauth 형식)
-    credentials = db.fetch_users_for_auth()
-    
-    # 인증 객체 생성 (쿠키 이름: k_used_car_hub, 수명: 30일)
-    authenticator = stauth.Authenticate(
-        credentials,
-        'k_used_car_hub',
-        'auth_key_signature',
-        cookie_expiry_days=30
-    )
-
-    # 로그인 위젯 렌더링 (사이드바가 아닌 메인 화면에 표시)
-    # 버전 호환성을 위해 리턴값 처리 (name, status, username)
-# 'Login' 글자를 지우고, location을 명시적으로 지정
-    name, authentication_status, username = authenticator.login(location='main')
-
-    # --- [2단계] 로그인 상태에 따른 화면 분기 ---
-    if authentication_status:
-        # 로그인 성공 시
-        st.session_state.logged_in = True
-        st.session_state.user_id = username
-        st.session_state.user_role = credentials['usernames'][username]['role']
-        
-        # 사이드바에 로그아웃 버튼 표시
-        with st.sidebar:
-            st.info(f"Welcome, **{name}** ({st.session_state.user_role})")
-            authenticator.logout(t('logout'), 'sidebar')
-        
-        # 권한별 대시보드 표시
-        if st.session_state.user_role == 'admin':
-            admin_dashboard()
-        else:
-            buyer_partner_dashboard()
-
-    elif authentication_status == False:
-        st.error('Username/password is incorrect')
-        # 로그인 실패 시에도 회원가입 옵션 표시
-        show_signup_expander()
-        
-    elif authentication_status == None:
-        st.warning('Please enter your username and password')
-        # 아직 로그인 안 했을 때 회원가입 옵션 표시
-        show_signup_expander()
-
-# ---------------------------------------------------------
-# 3. 상세 화면 함수들
-# ---------------------------------------------------------
-
 def show_signup_expander():
-    """로그인 화면 아래에 회원가입 폼을 보여줍니다."""
     with st.expander(t('create_acc') + " (New User?)"):
         with st.form("signup_form"):
             new_uid = st.text_input("ID (Email)")
@@ -220,6 +167,66 @@ def show_signup_expander():
                         st.error("ID already exists.")
                 else:
                     st.warning("Please fill in ID and Password.")
+
+# ---------------------------------------------------------
+# 2. 메인 애플리케이션 (인증 로직 수정됨)
+# ---------------------------------------------------------
+def main():
+    # --- [사이드바] 언어 설정 ---
+    with st.sidebar:
+        st.selectbox("Language / 언어 / Язык / اللغة", ["English", "Korean", "Russian", "Arabic"], key='lang')
+        st.divider()
+
+    # --- [1단계] 인증 (로그인/쿠키 체크) ---
+    credentials = db.fetch_users_for_auth()
+    
+    authenticator = stauth.Authenticate(
+        credentials,
+        'k_used_car_hub',
+        'auth_key_signature',
+        cookie_expiry_days=30
+    )
+
+    # ✅ [수정됨] 로그인 위젯 렌더링 (리턴값 없이 실행)
+    authenticator.login(location='main')
+
+    # ✅ [수정됨] 세션 상태로 로그인 여부 확인
+    if st.session_state["authentication_status"]:
+        # 로그인 성공
+        username = st.session_state["username"]
+        name = st.session_state["name"]
+        
+        # 앱 세션 동기화
+        st.session_state.logged_in = True
+        st.session_state.user_id = username
+        try:
+            st.session_state.user_role = credentials['usernames'][username]['role']
+        except:
+            st.session_state.user_role = 'buyer' # 기본값
+        
+        # 사이드바: 로그아웃 버튼
+        with st.sidebar:
+            st.info(f"Welcome, **{name}** ({st.session_state.user_role})")
+            # 로그아웃 버튼
+            authenticator.logout(button_name=t('logout'), location='sidebar')
+        
+        # 권한별 대시보드 표시
+        if st.session_state.user_role == 'admin':
+            admin_dashboard()
+        else:
+            buyer_partner_dashboard()
+
+    elif st.session_state["authentication_status"] is False:
+        st.error('Username/password is incorrect')
+        show_signup_expander()
+        
+    elif st.session_state["authentication_status"] is None:
+        st.warning('Please enter your username and password')
+        show_signup_expander()
+
+# ---------------------------------------------------------
+# 3. 상세 화면 함수들
+# ---------------------------------------------------------
 
 def admin_dashboard():
     st.title(t('admin_dashboard'))
@@ -275,7 +282,7 @@ def admin_dashboard():
 def buyer_partner_dashboard():
     st.title(t('title'))
     
-    # [필터] 상단 Expander
+    # [필터] 상단 Expander (차량 검색 옵션)
     with st.expander(t('filter_title'), expanded=True):
         if st.session_state.models_df.empty:
             db.reset_dashboard()
@@ -338,13 +345,14 @@ def buyer_partner_dashboard():
         
         df = st.session_state.view_data
         if not df.empty:
+            # 표시용 데이터
             display_df = df.copy()
             display_df['price_fmt'] = display_df['price'].apply(lambda x: f"${x:,.0f}" if x > 0 else "Contact")
             
             cols_to_show = ['manufacturer', 'model_name', 'model_detail', 'model_year', 
                             'engine_code', 'mileage', 'price_fmt', 'junkyard', 'reg_date', 'vin']
             
-            # [클릭 이벤트] on_select 사용하여 상세 팝업 호출
+            # [테이블 뷰 + 선택 기능]
             event = st.dataframe(
                 display_df[cols_to_show], 
                 use_container_width=True,
@@ -363,9 +371,9 @@ def buyer_partner_dashboard():
                 selection_mode="single-row"
             )
             
+            # 선택된 행이 있으면 상세 팝업 호출
             if len(event.selection.rows) > 0:
                 selected_index = event.selection.rows[0]
-                # 원본 데이터에서 정보를 가져옴
                 selected_row = df.iloc[selected_index]
                 show_vehicle_detail(selected_row)
         else:

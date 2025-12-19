@@ -165,7 +165,8 @@ def main():
 
     # 로그인 위젯 렌더링 (사이드바가 아닌 메인 화면에 표시)
     # 버전 호환성을 위해 리턴값 처리 (name, status, username)
-    name, authentication_status, username = authenticator.login('Login', 'main')
+# 'Login' 글자를 지우고, location을 명시적으로 지정
+    name, authentication_status, username = authenticator.login(location='main')
 
     # --- [2단계] 로그인 상태에 따른 화면 분기 ---
     if authentication_status:

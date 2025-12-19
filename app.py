@@ -22,54 +22,6 @@ if 'user_id' not in st.session_state:
     })
 
 # ---------------------------------------------------------
-# [UI] 커스텀 CSS (로그인 화면 꾸미기)
-# ---------------------------------------------------------
-def apply_custom_styles():
-    st.markdown("""
-        <style>
-        /* 1. 전체 배경 그라데이션 */
-        .stApp {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-        }
-        
-        /* 2. 로그인 폼 컨테이너 스타일 (카드 효과) */
-        div[data-testid="stForm"] {
-            background-color: white;
-            padding: 2rem;
-            border-radius: 15px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            border: 1px solid #e0e0e0;
-        }
-
-        /* 3. 로그인 버튼 스타일 */
-        div[data-testid="stForm"] button {
-            background-color: #4CAF50;
-            color: white;
-            border-radius: 8px;
-            border: none;
-            padding: 0.5rem 1rem;
-            font-weight: bold;
-            width: 100%;
-        }
-        div[data-testid="stForm"] button:hover {
-            background-color: #45a049;
-            border-color: #45a049;
-        }
-
-        /* 4. 헤더/푸터 숨기기 (깔끔하게) */
-        header {visibility: hidden;}
-        footer {visibility: hidden;}
-        
-        /* 5. 메인 타이틀 폰트 */
-        h1 {
-            font-family: 'Helvetica Neue', sans-serif;
-            color: #2c3e50;
-            font-weight: 700;
-        }
-        </style>
-    """, unsafe_allow_html=True)
-
-# ---------------------------------------------------------
 # 다국어 번역 데이터
 # ---------------------------------------------------------
 TRANS = {
@@ -242,12 +194,12 @@ def render_top_detail_view(container, row, role, my_company):
                             st.error("Failed to send inquiry.")
 
 # ---------------------------------------------------------
-# 회원가입 폼
+# 회원가입 폼 (레이아웃 개선)
 # ---------------------------------------------------------
 def show_signup_expander():
-    # 로그인 화면 중앙에 배치하기 위해 Columns 사용
-    _, c_center, _ = st.columns([1, 2, 1])
-    with c_center:
+    # 로그인 화면 중앙에 정렬되도록 컬럼 사용
+    _, col_main, _ = st.columns([1, 2, 1])
+    with col_main:
         with st.expander(t('create_acc') + " (New User?)"):
             with st.form("signup_form"):
                 new_uid = st.text_input("ID (Email)")
@@ -405,7 +357,7 @@ def render_marketplace_ui(role):
             st.info("Partner list is available for Admins only.")
 
 # ---------------------------------------------------------
-# 관리자 대시보드 (통합)
+# 관리자 대시보드
 # ---------------------------------------------------------
 def admin_dashboard():
     main_tab1, main_tab2, main_tab3 = st.tabs(["🔍 Marketplace", "👥 User Management", "📂 Data Upload"])
@@ -476,15 +428,10 @@ def buyer_partner_dashboard():
 # 메인 함수
 # ---------------------------------------------------------
 def main():
-    # CSS 적용 (로그인 디자인)
-    apply_custom_styles()
-
-    # --- [사이드바] 언어 설정 및 메뉴 ---
     with st.sidebar:
         st.selectbox("Language / 언어 / Язык / اللغة", ["English", "Korean", "Russian", "Arabic"], key='lang')
         st.divider()
 
-    # --- [1단계] 인증 객체 생성 ---
     credentials = db.fetch_users_for_auth()
     authenticator = stauth.Authenticate(
         credentials,
@@ -493,19 +440,18 @@ def main():
         cookie_expiry_days=30
     )
 
-    # --- [2단계] 로그인 상태 확인 ---
+    # 로그인 전 화면 구성
     if not st.session_state.get('logged_in', False):
-        # 중앙 배치용 컬럼 생성 (로그인 폼을 가운데로)
         col1, col2, col3 = st.columns([1, 1.5, 1])
         with col2:
             st.title("🚗 " + t('title'))
             st.markdown(f"**{t('subtitle')}**")
-            st.divider()
             
-            # 로그인 위젯 렌더링
-            authenticator.login(location='main')
+            # 테두리 있는 깔끔한 로그인 박스 (Safe Design)
+            with st.container(border=True):
+                authenticator.login(location='main')
             
-            # 상태값 체크
+            # 로그인 성공 여부 체크
             if st.session_state.get("authentication_status"):
                 username = st.session_state["username"]
                 name = st.session_state["name"]
@@ -520,25 +466,23 @@ def main():
                 
             elif st.session_state.get("authentication_status") is False:
                 st.error('Username/password is incorrect')
-                show_signup_expander() # 회원가입 폼 표시
+                show_signup_expander() # 이제 함수가 존재함
             elif st.session_state.get("authentication_status") is None:
                 st.warning('Please enter your username and password')
-                show_signup_expander() # 회원가입 폼 표시
+                show_signup_expander() # 이제 함수가 존재함
 
     else:
-        # --- [3단계] 로그인 성공 후 화면 ---
+        # 로그인 성공 후 화면
         with st.sidebar:
             st.info(f"User: {st.session_state.user_id}\nRole: {st.session_state.user_role}")
             if st.session_state.user_role == 'partner':
                 st.caption(f"Yard: {st.session_state.user_company}")
             
-            # 로그아웃 버튼 (콜백으로 상태 초기화)
             authenticator.logout(button_name=t('logout'), location='sidebar')
             if not st.session_state.get('authentication_status'):
                 st.session_state.logged_in = False
                 st.rerun()
 
-        # 권한별 대시보드
         if st.session_state.user_role == 'admin':
             admin_dashboard()
         else:

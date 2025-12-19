@@ -11,19 +11,18 @@ from modules import db
 # ---------------------------------------------------------
 st.set_page_config(page_title="K-Used Car Hub", layout="wide")
 
-# 세션 상태 초기화
 if 'user_id' not in st.session_state:
     st.session_state.update({
-        'logged_in': False, 'user_id': None, 'user_role': None,
+        'logged_in': False, 'user_id': None, 'user_role': None, 'user_company': None,
         'view_data': pd.DataFrame(), 'total_count': 0, 'is_filtered': False,
         'models_df': pd.DataFrame(), 'engines_list': [], 'yards_list': [], 'months_list': [],
         'lang': 'English',
         'authentication_status': None, 'username': None, 'name': None,
-        'selected_vin': None # [NEW] 현재 선택된 차량 VIN 저장
+        'selected_vin': None
     })
 
 # ---------------------------------------------------------
-# 다국어 번역 데이터 (4개 국어)
+# 다국어 번역 데이터
 # ---------------------------------------------------------
 TRANS = {
     'English': {
@@ -97,22 +96,16 @@ def t(key):
     return TRANS.get(lang, TRANS['English']).get(key, TRANS['English'].get(key, key))
 
 # ---------------------------------------------------------
-# [기능] 상단에 상세 정보를 그려주는 함수 (팝업 아님)
+# [기능] 상단 상세 정보 렌더링
 # ---------------------------------------------------------
 def render_top_detail_view(container, row):
-    """
-    container: st.container() 객체 (화면 상단 영역)
-    row: 선택된 차량 데이터 (Series)
-    """
     with container:
-        with st.container(border=True): # 테두리 추가로 구분감
+        with st.container(border=True):
             st.subheader(f"{t('detail_view')} : {row['model_name']} ({row['vin']})")
             
-            # 레이아웃: 왼쪽(이미지) / 오른쪽(정보)
             col1, col2 = st.columns([1, 1.5])
             
             with col1:
-                # 1. 이미지 처리
                 img_str = str(row.get('photos', ''))
                 images = [img.strip() for img in img_str.split(',') if img.strip()]
                 
@@ -121,9 +114,8 @@ def render_top_detail_view(container, row):
                     if os.path.exists(first_img):
                         st.image(first_img, use_container_width=True)
                     else:
-                        st.warning("Image file missing")
+                        st.warning("Image missing")
                     
-                    # 추가 이미지가 있다면 Expander로 표시
                     if len(images) > 1:
                         with st.expander(f"📸 More Photos ({len(images)-1})"):
                             sub_cols = st.columns(3)
@@ -134,7 +126,6 @@ def render_top_detail_view(container, row):
                     st.info("🖼️ No Images Available")
 
             with col2:
-                # 2. 상세 텍스트 정보
                 c_a, c_b = st.columns(2)
                 with c_a:
                     st.markdown(f"**Manufacturer:** {row['manufacturer']}")
@@ -154,8 +145,7 @@ def render_top_detail_view(container, row):
                 st.markdown(f"**Location (Yard):** {row['junkyard']}")
                 st.markdown(f"**Reg Date:** {str(row['reg_date'])[:10]}")
                 
-                # 주문/문의 버튼
-                if st.button("📩 Send Inquiry (문의하기)", type="primary", use_container_width=True):
+                if st.button("📩 Send Inquiry", type="primary", use_container_width=True):
                     st.success(f"Inquiry sent for VIN: {row['vin']}")
 
 # ---------------------------------------------------------
@@ -189,8 +179,8 @@ def main():
         st.selectbox("Language / 언어 / Язык / اللغة", ["English", "Korean", "Russian", "Arabic"], key='lang')
         st.divider()
 
-    # --- 인증 로직 ---
     credentials = db.fetch_users_for_auth()
+    
     authenticator = stauth.Authenticate(
         credentials,
         'k_used_car_hub',
@@ -206,13 +196,17 @@ def main():
         
         st.session_state.logged_in = True
         st.session_state.user_id = username
-        try:
-            st.session_state.user_role = credentials['usernames'][username]['role']
-        except:
-            st.session_state.user_role = 'buyer'
+        
+        # 사용자 상세 정보 로드 (Role, Company)
+        user_info = credentials['usernames'][username]
+        st.session_state.user_role = user_info.get('role', 'buyer')
+        # ✅ 회사 정보 로드 (없으면 username을 사용)
+        st.session_state.user_company = user_info.get('company') or username
         
         with st.sidebar:
-            st.info(f"Welcome, **{name}** ({st.session_state.user_role})")
+            st.info(f"Welcome, **{name}**\n({st.session_state.user_role})")
+            if st.session_state.user_role == 'partner':
+                st.caption(f"Company: {st.session_state.user_company}")
             authenticator.logout(button_name=t('logout'), location='sidebar')
         
         if st.session_state.user_role == 'admin':
@@ -286,12 +280,11 @@ def admin_dashboard():
 def buyer_partner_dashboard():
     st.title(t('title'))
     
-    # ✅ [1] 상세 정보가 표시될 최상단 영역 (Placeholder)
-    # 이 공간은 항상 존재하며, 사용자가 아래에서 선택했을 때만 채워집니다.
+    # [1] 상세 정보 영역
     detail_placeholder = st.container()
 
-    # ✅ [2] 검색 필터 (Expander)
-    with st.expander(t('filter_title'), expanded=False): # 기본적으로 닫아두어 상단 공간 확보
+    # [2] 검색 필터
+    with st.expander(t('filter_title'), expanded=False):
         if st.session_state.models_df.empty:
             db.reset_dashboard()
             
@@ -319,7 +312,13 @@ def buyer_partner_dashboard():
         with c5:
             sel_engines = st.multiselect(t('engine_code'), st.session_state.engines_list)
         with c6:
-            sel_yards = st.multiselect(t('junkyard'), st.session_state.yards_list)
+            # ✅ [수정됨] 파트너 권한 시 본인 회사로 고정
+            if st.session_state.user_role == 'partner':
+                my_yard = st.session_state.user_company
+                # options에도 my_yard가 포함되어야 에러가 안 남
+                sel_yards = st.multiselect(t('junkyard'), [my_yard], default=[my_yard], disabled=True)
+            else:
+                sel_yards = st.multiselect(t('junkyard'), st.session_state.yards_list)
 
         st.divider()
         cb1, cb2, cb3, cb4 = st.columns([1, 1, 1, 1])
@@ -337,7 +336,6 @@ def buyer_partner_dashboard():
                 st.session_state.view_data = df
                 st.session_state.total_count = count
                 st.session_state.is_filtered = True
-                # 검색 새로 하면 선택 정보 초기화
                 st.session_state.selected_vin = None 
         with cb4:
             if st.button(t('reset'), use_container_width=True):
@@ -359,7 +357,6 @@ def buyer_partner_dashboard():
             cols_to_show = ['manufacturer', 'model_name', 'model_detail', 'model_year', 
                             'engine_code', 'mileage', 'price_fmt', 'junkyard', 'reg_date', 'vin']
             
-            # ✅ [3] 테이블 출력 (선택 기능)
             event = st.dataframe(
                 display_df[cols_to_show], 
                 use_container_width=True,
@@ -378,12 +375,9 @@ def buyer_partner_dashboard():
                 selection_mode="single-row"
             )
             
-            # ✅ [4] 선택 이벤트 처리 -> 상단 detail_placeholder에 렌더링
             if len(event.selection.rows) > 0:
                 selected_index = event.selection.rows[0]
                 selected_row = df.iloc[selected_index]
-                
-                # 상단 컨테이너에 정보 그리기
                 render_top_detail_view(detail_placeholder, selected_row)
             
         else:
